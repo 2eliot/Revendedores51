@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Panel de Administrador</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Mensajes flash -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-messages-main">
+        {% for category, message in messages %}
+          <div class="flash-message-main flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <!-- Header de administrador -->
+  <header class="admin-header">
+    <div class="admin-title">
+      <h1>🛠️ Panel de Administrador</h1>
+    </div>
+    <div class="admin-info">
+      <span>{{ session.get('nombre', 'Admin') }} {{ session.get('apellido', '') }}</span>
+      <a href="/" class="btn" style="background: #007bff; color: white; padding: 8px 16px; text-decoration: none; border-radius: 4px; margin-right: 10px;">🏠 Volver al Inicio</a>
+      <a href="/logout" class="logout-btn">Cerrar Sesión</a>
+    </div>
+  </header>
+
+  <!-- Panel principal -->
+  <main class="admin-main">
+    <!-- Estadísticas generales -->
+    <div class="stats-section">
+      <div class="stat-card">
+        <h3>Total de Usuarios</h3>
+        <div class="stat-number">{{ users|length }}</div>
+      </div>
+      <div class="stat-card">
+        <h3>Saldo Total del Sistema</h3>
+        <div class="stat-number">${{ "%.2f"|format(users|sum(attribute='saldo')) }}</div>
+      </div>
+    </div>
+
+    <!-- Sistema de pestañas -->
+    <div class="tabs-container">
+      <div class="tabs-header">
+        <button class="tab-button active" onclick="showTab('usuarios')">👥 Usuarios</button>
+        <button class="tab-button" onclick="showTab('pines')">📌 Gestor de Pines</button>
+        <button class="tab-button" onclick="showTab('precios')">💰 Precios</button>
+        <button class="tab-button" onclick="showTab('noticias')">📰 Noticias</button>
+      </div>
+
+      <!-- Pestaña de Usuarios -->
+      <div id="tab-usuarios" class="tab-content active">
+        <section class="users-section">
+      <h2>Gestión de Usuarios</h2>
+      
+      {% if users %}
+        <div class="users-table-container">
+          <table class="users-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Nombre</th>
+                <th>Apellido</th>
+                <th>Correo</th>
+                <th>Teléfono</th>
+                <th>Saldo</th>
+                <th>Fecha Registro</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for user in users %}
+              <tr>
+                <td>{{ user.id }}</td>
+                <td>{{ user.nombre }}</td>
+                <td>{{ user.apellido }}</td>
+                <td>{{ user.correo }}</td>
+                <td>{{ user.telefono }}</td>
+                <td class="balance">${{ "%.2f"|format(user.saldo) }}</td>
+                <td>{{ user.fecha_registro[:10] }}</td>
+                <td class="actions">
+                  <!-- Agregar crédito -->
+                  <form method="POST" action="/admin/add_credit" class="inline-form">
+                    <input type="hidden" name="user_id" value="{{ user.id }}">
+                    <input type="number" name="amount" placeholder="Monto" step="0.01" min="0.01" required class="small-input">
+                    <button type="submit" class="btn btn-success">+ Crédito</button>
+                  </form>
+                  
+                  <!-- Modificar saldo -->
+                  <form method="POST" action="/admin/update_balance" class="inline-form">
+                    <input type="hidden" name="user_id" value="{{ user.id }}">
+                    <input type="number" name="new_balance" placeholder="Nuevo saldo" step="0.01" min="0" required class="small-input">
+                    <button type="submit" class="btn btn-warning">Modificar</button>
+                  </form>
+                  
+                  <!-- Eliminar usuario -->
+                  <form method="POST" action="/admin/delete_user" class="inline-form" onsubmit="return confirm('¿Estás seguro de eliminar este usuario? Esta acción no se puede deshacer.')">
+                    <input type="hidden" name="user_id" value="{{ user.id }}">
+                    <button type="submit" class="btn btn-danger">Eliminar</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="no-users">
+          <p>No hay usuarios registrados en el sistema.</p>
+        </div>
+      {% endif %}
+        </section>
+      </div>
+
+      <!-- Pestaña de Gestor de Pines -->
+      <div id="tab-pines" class="tab-content">
+        <section class="pins-section">
+      <h2>📌 Gestión de Pines Free Fire</h2>
+      
+      <div class="pin-management">
+        <div class="pin-forms-container">
+          <!-- Agregar Pin Individual -->
+          <div class="pin-form-section">
+            <h3>Agregar Pin Individual</h3>
+            <form method="POST" action="/admin/add_pin" class="admin-form">
+              <div class="form-group">
+                <label for="game_type_single">🎮 Juego:</label>
+                <select id="game_type_single" name="game_type" onchange="updateSinglePinPackages()" required>
+                  <option value="">Seleccione juego</option>
+                  <option value="freefire_latam">Free Fire Latam</option>
+                  <option value="freefire_global">Free Fire</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="monto_id">Tipo de Paquete:</label>
+                <select id="monto_id" name="monto_id" required disabled>
+                  <option value="">Seleccione paquete</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="pin_codigo">Código del Pin:</label>
+                <input type="text" id="pin_codigo" name="pin_codigo" placeholder="Ingrese el código del pin" required>
+              </div>
+              <button type="submit" class="btn btn-primary">Agregar Pin</button>
+            </form>
+          </div>
+
+          <!-- Agregar Pines en Lote -->
+          <div class="pin-form-section">
+            <h3>📦 Agregar Pines en Lote</h3>
+            <p class="batch-info">Agregue hasta 10 pines a la vez. Separe cada pin con una línea nueva o coma.</p>
+            <form method="POST" action="/admin/add_pins_batch" class="admin-form">
+              <div class="form-group">
+                <label for="game_type_batch">🎮 Juego:</label>
+                <select id="game_type_batch" name="game_type" onchange="updateBatchPinPackages()" required>
+                  <option value="">Seleccione juego</option>
+                  <option value="freefire_latam">Free Fire Latam</option>
+                  <option value="freefire_global">Free Fire</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="batch_monto_id">Tipo de Paquete:</label>
+                <select id="batch_monto_id" name="batch_monto_id" required disabled>
+                  <option value="">Seleccione paquete</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="pins_batch">Códigos de Pines (máximo 10):</label>
+                <textarea id="pins_batch" name="pins_batch" rows="6" placeholder="Ingrese los códigos de pines, uno por línea:&#10;PIN123456&#10;PIN789012&#10;PIN345678&#10;..." required></textarea>
+                <small class="form-help">Separe cada pin con una línea nueva o coma. Máximo 10 pines por lote.</small>
+              </div>
+              <button type="submit" class="btn btn-success">📦 Agregar Lote de Pines</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+        <!-- Stock de Pines por Juego -->
+        <div class="pin-stock">
+          <h3>📦 Stock de Pines por Juego</h3>
+          
+          <!-- Free Fire LATAM -->
+          <div class="game-stock-section">
+            <h4>🔥 Free Fire LATAM</h4>
+            <div class="stock-grid">
+              {% for price in prices %}
+              <div class="stock-item">
+                <div class="stock-info">
+                  <span class="package-name">{{ price.nombre }}</span>
+                  <span class="package-price">${{ "%.2f"|format(price.precio) }}</span>
+                  <span class="stock-count">{{ pin_stock.get(price.id, 0) }} pines</span>
+                </div>
+                
+                <!-- Toggle de configuración de fuente -->
+                <div class="source-config">
+                  <label class="source-label">Fuente:</label>
+                  <div class="source-toggle-group">
+                    <form method="POST" action="/admin/toggle_pin_source" class="source-toggle-form">
+                      <input type="hidden" name="monto_id" value="{{ price.id }}">
+                      <input type="hidden" name="fuente" value="local">
+                      <button type="submit" class="btn btn-source-toggle btn-local {% if pin_sources_config.get(price.id) == 'local' %}active{% endif %}" 
+                              title="Los usuarios obtendrán pines del stock local">
+                        📦 Local {% if pin_sources_config.get(price.id) == 'local' %}✓{% endif %}
+                      </button>
+                    </form>
+                    
+                    <form method="POST" action="/admin/toggle_pin_source" class="source-toggle-form">
+                      <input type="hidden" name="monto_id" value="{{ price.id }}">
+                      <input type="hidden" name="fuente" value="api_externa">
+                      <button type="submit" class="btn btn-source-toggle btn-api {% if pin_sources_config.get(price.id) == 'api_externa' %}active{% endif %}" 
+                              title="Los usuarios obtendrán pines directamente de la API externa">
+                        🌐 API {% if pin_sources_config.get(price.id) == 'api_externa' %}✓{% endif %}
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          
+          <!-- Free Fire Global -->
+          <div class="game-stock-section">
+            <h4>🎮 Free Fire</h4>
+            <div class="stock-grid">
+              {% for price in freefire_global_prices %}
+              <div class="stock-item">
+                <div class="stock-info">
+                  <span class="package-name">{{ price.nombre }}</span>
+                  <span class="package-price">${{ "%.2f"|format(price.precio) }}</span>
+                  <span class="stock-count">{{ pin_stock_freefire_global.get(price.id, 0) }} pines</span>
+                </div>
+                
+                <div class="source-config">
+                  <label class="source-label">Fuente:</label>
+                  <div class="source-info">
+                    <span class="source-badge">📦 Solo Local</span>
+                  </div>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          
+          <!-- Estado de API Externa -->
+          <div class="api-status-section">
+            <h4>🌐 Estado de API Externa (Solo Free Fire LATAM)</h4>
+            <div class="api-status-info">
+              <p>La API externa permite obtener pines automáticamente cuando el stock local está bajo.</p>
+              <form method="POST" action="/admin/test_external_api" class="test-api-form">
+                <button type="submit" class="btn btn-test-api">🧪 Probar Conexión API</button>
+              </form>
+            </div>
+          </div>
+          
+          <!-- Herramientas de mantenimiento -->
+          <div class="pin-maintenance">
+            <h3>🔧 Herramientas de Mantenimiento</h3>
+            <div class="maintenance-actions">
+              <form method="POST" action="/admin/remove_duplicates" class="maintenance-form" onsubmit="return confirm('¿Estás seguro de eliminar todos los pines duplicados? Esta acción no se puede deshacer.')">
+                <div class="maintenance-info">
+                  <p>🗑️ <strong>Eliminar Pines Duplicados</strong></p>
+                  <small>Esta función eliminará automáticamente todos los pines duplicados de la base de datos, manteniendo solo el más reciente de cada código único por paquete.</small>
+                </div>
+                <button type="submit" class="btn btn-maintenance">🗑️ Eliminar Duplicados</button>
+              </form>
+            </div>
+          </div>
+        </div>
+        </section>
+      </div>
+
+      <!-- Pestaña de Precios -->
+      <div id="tab-precios" class="tab-content">
+        <section class="prices-section">
+          <h2>💰 Gestión de Precios</h2>
+          
+            <div class="prices-management">
+            <div class="price-selector-container">
+              <h3>Modificar Precios</h3>
+              <p class="prices-info">Seleccione el juego y paquete para modificar su precio. Los cambios se aplicarán inmediatamente.</p>
+              
+              <form method="POST" action="/admin/update_price" class="price-selector-form">
+                <div class="form-row">
+              <div class="form-group">
+                <label for="game_select">🎮 Juego:</label>
+                <select id="game_select" onchange="updatePackages()">
+                  <option value="freefire">Free Fire Latam</option>
+                  <option value="freefire_global">Free Fire</option>
+                  <option value="bloodstriker">Blood Striker</option>
+                  <option value="other_games" disabled>Otros Juegos (Próximamente)</option>
+                </select>
+              </div>
+                  
+                  <div class="form-group">
+                    <label for="package_select">📦 Paquete:</label>
+                    <select id="package_select" name="package_id" onchange="updatePriceInfo()" required>
+                      <option value="">Seleccione un paquete</option>
+                      {% for price in prices %}
+                        <option value="{{ price.id }}" 
+                                data-current-price="{{ price.precio }}" 
+                                data-name="{{ price.nombre }}" 
+                                data-description="{{ price.descripcion }}">
+                          {{ price.nombre }}
+                        </option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="new_price_input">💰 Nuevo Precio:</label>
+                    <input type="number" 
+                           id="new_price_input" 
+                           name="new_price" 
+                           step="0.01" 
+                           min="0" 
+                           placeholder="0.00" 
+                           required>
+                  </div>
+                  
+                  <div class="form-group">
+                    <button type="submit" class="btn btn-update-price">Actualizar Precio</button>
+                  </div>
+                </div>
+              </form>
+              
+              <div id="price-info" class="price-info-display" style="display: none;">
+                <div class="current-price-info">
+                  <h4 id="selected-package-name">-</h4>
+                  <p id="selected-package-description">-</p>
+                  <div class="price-comparison">
+                    <span class="current-price-label">Precio actual:</span>
+                    <span id="current-price-value" class="current-price-badge">$0.00</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Nueva sección para cambiar nombres de paquetes -->
+            <div class="name-selector-container">
+              <h3>Modificar Nombres de Paquetes</h3>
+              <p class="names-info">Seleccione el juego y paquete para modificar su nombre. Los cambios se aplicarán inmediatamente.</p>
+              
+              <form method="POST" action="/admin/update_name" class="name-selector-form">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="name_game_select">🎮 Juego:</label>
+                    <select id="name_game_select" onchange="updateNamePackages()">
+                      <option value="freefire">Free Fire Latam</option>
+                      <option value="freefire_global">Free Fire</option>
+                      <option value="bloodstriker">Blood Striker</option>
+                    </select>
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="name_package_select">📦 Paquete:</label>
+                    <select id="name_package_select" name="package_id" onchange="updateNameInfo()" required>
+                      <option value="">Seleccione un paquete</option>
+                      {% for price in prices %}
+                        <option value="{{ price.id }}" 
+                                data-current-name="{{ price.nombre }}" 
+                                data-description="{{ price.descripcion }}">
+                          {{ price.nombre }}
+                        </option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="new_name_input">📝 Nuevo Nombre:</label>
+                    <input type="text" 
+                           id="new_name_input" 
+                           name="new_name" 
+                           maxlength="50" 
+                           placeholder="Ingrese el nuevo nombre" 
+                           required>
+                    <small class="form-help">Máximo 50 caracteres</small>
+                  </div>
+                  
+                  <div class="form-group">
+                    <button type="submit" class="btn btn-update-name">Actualizar Nombre</button>
+                  </div>
+                </div>
+              </form>
+              
+              <div id="name-info" class="name-info-display" style="display: none;">
+                <div class="current-name-info">
+                  <h4>Información del Paquete</h4>
+                  <p id="selected-name-package-description">-</p>
+                  <div class="name-comparison">
+                    <span class="current-name-label">Nombre actual:</span>
+                    <span id="current-name-value" class="current-name-badge">-</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="prices-overview">
+              <h3>Vista General de Precios</h3>
+              <div class="prices-grid">
+                {% for price in prices %}
+                <div class="price-overview-card">
+                  <div class="price-overview-header">
+                    <h4>{{ price.nombre }}</h4>
+                    <span class="price-badge">${{ "%.2f"|format(price.precio) }}</span>
+                  </div>
+                  <p class="price-overview-description">{{ price.descripcion }}</p>
+                  <div class="price-overview-meta">
+                    <small>Actualizado: {{ price.fecha_actualizacion[:16] if price.fecha_actualizacion else 'N/A' }}</small>
+                  </div>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+
+
+      <!-- Pestaña de Noticias -->
+      <div id="tab-noticias" class="tab-content">
+        <section class="news-section">
+          <h2>📰 Gestión de Noticias</h2>
+          
+          <div class="news-management">
+            <!-- Crear nueva noticia -->
+            <div class="create-news-container">
+              <h3>✍️ Crear Nueva Noticia</h3>
+              <form method="POST" action="/admin/create_news" class="news-form">
+                <div class="form-group">
+                  <label for="news_title">📝 Título de la Noticia:</label>
+                  <input type="text" id="news_title" name="titulo" placeholder="Ingrese el título de la noticia" required maxlength="200">
+                </div>
+                
+                <div class="form-group">
+                  <label for="news_content">📄 Contenido:</label>
+                  <textarea id="news_content" name="contenido" rows="6" placeholder="Escriba el contenido de la noticia aquí..." required maxlength="2000"></textarea>
+                  <small class="form-help">Máximo 2000 caracteres. Puede usar saltos de línea para organizar el texto.</small>
+                </div>
+                
+                <div class="form-group">
+                  <label class="checkbox-label">
+                    <input type="checkbox" name="importante" value="1">
+                    <span class="checkbox-custom"></span>
+                    📢 Marcar como noticia importante
+                  </label>
+                  <small class="form-help">Las noticias importantes aparecen con un badge especial y generan notificación.</small>
+                </div>
+                
+                <button type="submit" class="btn btn-create-news">📰 Publicar Noticia</button>
+              </form>
+            </div>
+            
+            <!-- Lista de noticias existentes -->
+            <div class="existing-news-container">
+              <h3>📋 Noticias Publicadas</h3>
+              {% if noticias %}
+                <div class="admin-news-list">
+                  {% for noticia in noticias %}
+                  <div class="admin-news-card">
+                    <div class="admin-news-header">
+                      <h4 class="admin-news-title">{{ noticia.titulo }}</h4>
+                      <div class="admin-news-meta">
+                        <span class="admin-news-date">{{ noticia.fecha.split(' ')[0] }} {{ noticia.fecha.split(' ')[1].split('.')[0] }}</span>
+                        {% if noticia.importante %}
+                        <span class="admin-news-important">📢 Importante</span>
+                        {% endif %}
+                      </div>
+                    </div>
+                    <div class="admin-news-content">
+                      <p>{{ noticia.contenido[:150] }}{% if noticia.contenido|length > 150 %}...{% endif %}</p>
+                    </div>
+                    <div class="admin-news-actions">
+                      <form method="POST" action="/admin/delete_news" class="inline-form" onsubmit="return confirm('¿Estás seguro de eliminar esta noticia?')">
+                        <input type="hidden" name="news_id" value="{{ noticia.id }}">
+                        <button type="submit" class="btn btn-delete-news">🗑️ Eliminar</button>
+                      </form>
+                    </div>
+                  </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="no-news-admin">
+                  <p>📰 No hay noticias publicadas. Crea la primera noticia usando el formulario de arriba.</p>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <!-- Datos embebidos para JavaScript -->
+  <script type="application/json" id="freefire-latam-data">
+    [
+      {% for price in prices %}
+      {
+        "id": {{ price.id }},
+        "nombre": "{{ price.nombre }}",
+        "precio": {{ price.precio }}
+      }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ]
+  </script>
+
+  <script type="application/json" id="freefire-global-data">
+    [
+      {% for price in freefire_global_prices %}
+      {
+        "id": {{ price.id }},
+        "nombre": "{{ price.nombre }}",
+        "precio": {{ price.precio }}
+      }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ]
+  </script>
+
+  <script type="application/json" id="bloodstriker-data">
+    [
+      {% for price in bloodstriker_prices %}
+      {
+        "id": {{ price.id }},
+        "nombre": "{{ price.nombre }}",
+        "precio": {{ price.precio }}
+      }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ]
+  </script>
+
+  <script>
+    // Auto-ocultar mensajes flash después de 2 segundos
+    setTimeout(function() {
+      const flashMessages = document.querySelector('.flash-messages-main');
+      if (flashMessages) {
+        flashMessages.style.opacity = '0';
+        setTimeout(() => flashMessages.remove(), 300);
+      }
+    }, 2000);
+
+    // Sistema de pestañas
+    function showTab(tabName) {
+      // Ocultar todas las pestañas
+      const tabContents = document.querySelectorAll('.tab-content');
+      tabContents.forEach(tab => {
+        tab.classList.remove('active');
+      });
+
+      // Desactivar todos los botones
+      const tabButtons = document.querySelectorAll('.tab-button');
+      tabButtons.forEach(button => {
+        button.classList.remove('active');
+      });
+
+      // Mostrar la pestaña seleccionada
+      document.getElementById('tab-' + tabName).classList.add('active');
+      
+      // Activar el botón correspondiente
+      event.target.classList.add('active');
+    }
+
+    // Actualizar información de precios
+    function updatePriceInfo() {
+      const select = document.getElementById('package_select');
+      const selectedOption = select.options[select.selectedIndex];
+      const priceInfo = document.getElementById('price-info');
+      
+      if (selectedOption.value) {
+        const currentPrice = selectedOption.getAttribute('data-current-price');
+        const name = selectedOption.getAttribute('data-name');
+        const description = selectedOption.getAttribute('data-description');
+        
+        document.getElementById('selected-package-name').textContent = name;
+        document.getElementById('selected-package-description').textContent = description;
+        document.getElementById('current-price-value').textContent = '$' + parseFloat(currentPrice).toFixed(2);
+        document.getElementById('new_price_input').value = currentPrice;
+        
+        priceInfo.style.display = 'block';
+      } else {
+        priceInfo.style.display = 'none';
+        document.getElementById('new_price_input').value = '';
+      }
+    }
+
+    // Datos de paquetes desde elementos HTML
+    const freefireLatamPackages = JSON.parse(document.getElementById('freefire-latam-data').textContent);
+    const freefireGlobalPackages = JSON.parse(document.getElementById('freefire-global-data').textContent);
+    const bloodstrikerPackages = JSON.parse(document.getElementById('bloodstriker-data').textContent);
+
+    // Funciones para actualizar paquetes con datos dinámicos
+    function updateSinglePinPackages() {
+      const gameSelect = document.getElementById('game_type_single');
+      const packageSelect = document.getElementById('monto_id');
+      
+      // Limpiar opciones
+      packageSelect.innerHTML = '<option value="">Seleccione paquete</option>';
+      
+      if (gameSelect.value === 'freefire_latam') {
+        packageSelect.disabled = false;
+        freefireLatamPackages.forEach(pkg => {
+          const option = document.createElement('option');
+          option.value = pkg.id;
+          option.textContent = pkg.nombre + ' / $' + pkg.precio.toFixed(2);
+          packageSelect.appendChild(option);
+        });
+      } else if (gameSelect.value === 'freefire_global') {
+        packageSelect.disabled = false;
+        freefireGlobalPackages.forEach(pkg => {
+          const option = document.createElement('option');
+          option.value = pkg.id;
+          option.textContent = pkg.nombre + ' / $' + pkg.precio.toFixed(2);
+          packageSelect.appendChild(option);
+        });
+      } else {
+        packageSelect.disabled = true;
+      }
+    }
+
+    function updateBatchPinPackages() {
+      const gameSelect = document.getElementById('game_type_batch');
+      const packageSelect = document.getElementById('batch_monto_id');
+      
+      // Limpiar opciones
+      packageSelect.innerHTML = '<option value="">Seleccione paquete</option>';
+      
+      if (gameSelect.value === 'freefire_latam') {
+        packageSelect.disabled = false;
+        freefireLatamPackages.forEach(pkg => {
+          const option = document.createElement('option');
+          option.value = pkg.id;
+          option.textContent = pkg.nombre + ' / $' + pkg.precio.toFixed(2);
+          packageSelect.appendChild(option);
+        });
+      } else if (gameSelect.value === 'freefire_global') {
+        packageSelect.disabled = false;
+        freefireGlobalPackages.forEach(pkg => {
+          const option = document.createElement('option');
+          option.value = pkg.id;
+          option.textContent = pkg.nombre + ' / $' + pkg.precio.toFixed(2);
+          packageSelect.appendChild(option);
+        });
+      } else {
+        packageSelect.disabled = true;
+      }
+    }
+
+    // Función para actualizar paquetes en gestión de precios
+    function updatePackages() {
+      const gameSelect = document.getElementById('game_select');
+      const packageSelect = document.getElementById('package_select');
+      const priceForm = packageSelect.closest('form');
+      
+      // Limpiar opciones
+      packageSelect.innerHTML = '<option value="">Seleccione un paquete</option>';
+      
+      if (gameSelect.value === 'freefire') {
+        priceForm.action = '/admin/update_price';
+        packageSelect.disabled = false;
+        freefireLatamPackages.forEach(pkg => {
+          const option = document.createElement('option');
+          option.value = pkg.id;
+          option.setAttribute('data-current-price', pkg.precio);
+          option.setAttribute('data-name', pkg.nombre);
+          option.setAttribute('data-description', 'Free Fire LATAM - ' + pkg.nombre);
+          option.textContent = pkg.nombre;
+          packageSelect.appendChild(option);
+        });
+      } else if (gameSelect.value === 'freefire_global') {
+        priceForm.action = '/admin/update_freefire_global_price';
+        packageSelect.disabled = false;
+        freefireGlobalPackages.forEach(pkg => {
+          const option = document.createElement('option');
+          option.value = pkg.id;
+          option.setAttribute('data-current-price', pkg.precio);
+          option.setAttribute('data-name', pkg.nombre);
+          option.setAttribute('data-description', 'Free Fire - ' + pkg.nombre);
+          option.textContent = pkg.nombre;
+          packageSelect.appendChild(option);
+        });
+      } else if (gameSelect.value === 'bloodstriker') {
+        priceForm.action = '/admin/update_bloodstriker_price';
+        packageSelect.disabled = false;
+        bloodstrikerPackages.forEach(pkg => {
+          const option = document.createElement('option');
+          option.value = pkg.id;
+          option.setAttribute('data-current-price', pkg.precio);
+          option.setAttribute('data-name', pkg.nombre);
+          option.setAttribute('data-description', 'Blood Striker - ' + pkg.nombre);
+          option.textContent = pkg.nombre;
+          packageSelect.appendChild(option);
+        });
+      } else {
+        packageSelect.disabled = true;
+        priceForm.action = '/admin/update_price';
+      }
+      
+      // Ocultar información de precio
+      document.getElementById('price-info').style.display = 'none';
+      document.getElementById('new_price_input').value = '';
+    }
+
+    // Funciones para gestión de rentabilidad
+    function updateProfitPackages() {
+      const gameSelect = document.getElementById('profit_game_select');
+      const packageSelect = document.getElementById('profit_package_select');
+      
+      // Limpiar opciones
+      packageSelect.innerHTML = '<option value="">Seleccione paquete</option>';
+      
+      if (gameSelect.value === 'freefire_latam') {
+        packageSelect.disabled = false;
+        freefireLatamPackages.forEach(pkg => {
+          const option = document.createElement('option');
+          option.value = pkg.id;
+          option.setAttribute('data-sale-price', pkg.precio);
+          option.setAttribute('data-name', pkg.nombre);
+          option.textContent = pkg.nombre + ' / $' + pkg.precio.toFixed(2);
+          packageSelect.appendChild(option);
+        });
+      } else if (gameSelect.value === 'freefire_global') {
+        packageSelect.disabled = false;
+        freefireGlobalPackages.forEach(pkg => {
+          const option = document.createElement('option');
+          option.value = pkg.id;
+          option.setAttribute('data-sale-price', pkg.precio);
+          option.setAttribute('data-name', pkg.nombre);
+          option.textContent = pkg.nombre + ' / $' + pkg.precio.toFixed(2);
+          packageSelect.appendChild(option);
+        });
+      } else if (gameSelect.value === 'bloodstriker') {
+        packageSelect.disabled = false;
+        bloodstrikerPackages.forEach(pkg => {
+          const option = document.createElement('option');
+          option.value = pkg.id;
+          option.setAttribute('data-sale-price', pkg.precio);
+          option.setAttribute('data-name', pkg.nombre);
+          option.textContent = pkg.nombre + ' / $' + pkg.precio.toFixed(2);
+          packageSelect.appendChild(option);
+        });
+      } else {
+        packageSelect.disabled = true;
+      }
+      
+      // Ocultar información de rentabilidad
+      document.getElementById('profit-info').style.display = 'none';
+      document.getElementById('purchase_price_input').value = '';
+    }
+
+    function updateProfitInfo() {
+      const select = document.getElementById('profit_package_select');
+      const selectedOption = select.options[select.selectedIndex];
+      const profitInfo = document.getElementById('profit-info');
+      const gameSelect = document.getElementById('profit_game_select');
+      
+      if (selectedOption.value && gameSelect.value) {
+        const salePrice = parseFloat(selectedOption.getAttribute('data-sale-price'));
+        const name = selectedOption.getAttribute('data-name');
+        const packageId = selectedOption.value;
+        const gameType = gameSelect.value;
+        
+        // Obtener precio de compra real desde la base de datos
+        fetch(`/admin/get_purchase_price/${gameType}/${packageId}`)
+          .then(response => response.json())
+          .then(data => {
+            if (data.error) {
+              console.error('Error al obtener precio de compra:', data.error);
+              return;
+            }
+            
+            const purchasePrice = data.precio_compra || 0;
+            
+            document.getElementById('selected-profit-package-name').textContent = name;
+            document.getElementById('sale-price-value').textContent = '$' + salePrice.toFixed(2);
+            document.getElementById('current-purchase-price-value').textContent = '$' + purchasePrice.toFixed(2);
+            
+            const profit = salePrice - purchasePrice;
+            const margin = salePrice > 0 ? (profit / salePrice * 100) : 0;
+            
+            // Actualizar colores según la rentabilidad
+            const profitElement = document.getElementById('current-profit-value');
+            const marginElement = document.getElementById('current-margin-value');
+            
+            profitElement.textContent = '$' + profit.toFixed(2);
+            marginElement.textContent = margin.toFixed(1) + '%';
+            
+            // Cambiar colores según rentabilidad
+            if (profit > 0) {
+              profitElement.style.background = 'linear-gradient(135deg, #27ae60 0%, #229954 100%)';
+              marginElement.style.background = 'linear-gradient(135deg, #f39c12 0%, #e67e22 100%)';
+            } else if (profit < 0) {
+              profitElement.style.background = 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)';
+              marginElement.style.background = 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)';
+            } else {
+              profitElement.style.background = 'linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%)';
+              marginElement.style.background = 'linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%)';
+            }
+            
+            document.getElementById('purchase_price_input').value = purchasePrice.toFixed(2);
+            
+            profitInfo.style.display = 'block';
+          })
+          .catch(error => {
+            console.error('Error al obtener precio de compra:', error);
+            // Fallback a estimación si hay error
+            const defaultPurchasePrice = salePrice * 0.85;
+            
+            document.getElementById('selected-profit-package-name').textContent = name;
+            document.getElementById('sale-price-value').textContent = '$' + salePrice.toFixed(2);
+            document.getElementById('current-purchase-price-value').textContent = '$' + defaultPurchasePrice.toFixed(2);
+            
+            const profit = salePrice - defaultPurchasePrice;
+            const margin = (profit / salePrice * 100);
+            
+            document.getElementById('current-profit-value').textContent = '$' + profit.toFixed(2);
+            document.getElementById('current-margin-value').textContent = margin.toFixed(1) + '%';
+            
+            document.getElementById('purchase_price_input').value = defaultPurchasePrice.toFixed(2);
+            
+            profitInfo.style.display = 'block';
+          });
+      } else {
+        profitInfo.style.display = 'none';
+        document.getElementById('purchase_price_input').value = '';
+      }
+    }
+
+
+    // Función para manejar el envío del formulario de rentabilidad
+    function handleProfitFormSubmit(event) {
+      const submitBtn = document.getElementById('profit-submit-btn');
+      const originalText = submitBtn.textContent;
+      
+      // Cambiar texto del botón para indicar que se está procesando
+      submitBtn.textContent = '⏳ Actualizando...';
+      submitBtn.disabled = true;
+      
+      // Permitir que el formulario se envíe normalmente
+      // Después del redirect, la página se recargará y mostrará el precio actualizado
+      
+      // Restaurar el botón después de un tiempo (en caso de error)
+      setTimeout(() => {
+        submitBtn.textContent = originalText;
+        submitBtn.disabled = false;
+      }, 5000);
+    }
+
+    // Funciones para gestión de nombres de paquetes
+    function updateNamePackages() {
+      const gameSelect = document.getElementById('name_game_select');
+      const packageSelect = document.getElementById('name_package_select');
+      const nameForm = packageSelect.closest('form');
+      
+      // Limpiar opciones
+      packageSelect.innerHTML = '<option value="">Seleccione un paquete</option>';
+      
+      if (gameSelect.value === 'freefire') {
+        nameForm.action = '/admin/update_name';
+        packageSelect.disabled = false;
+        freefireLatamPackages.forEach(pkg => {
+          const option = document.createElement('option');
+          option.value = pkg.id;
+          option.setAttribute('data-current-name', pkg.nombre);
+          option.setAttribute('data-description', 'Free Fire LATAM - ' + pkg.nombre);
+          option.textContent = pkg.nombre;
+          packageSelect.appendChild(option);
+        });
+      } else if (gameSelect.value === 'freefire_global') {
+        nameForm.action = '/admin/update_freefire_global_name';
+        packageSelect.disabled = false;
+        freefireGlobalPackages.forEach(pkg => {
+          const option = document.createElement('option');
+          option.value = pkg.id;
+          option.setAttribute('data-current-name', pkg.nombre);
+          option.setAttribute('data-description', 'Free Fire - ' + pkg.nombre);
+          option.textContent = pkg.nombre;
+          packageSelect.appendChild(option);
+        });
+      } else if (gameSelect.value === 'bloodstriker') {
+        nameForm.action = '/admin/update_bloodstriker_name';
+        packageSelect.disabled = false;
+        bloodstrikerPackages.forEach(pkg => {
+          const option = document.createElement('option');
+          option.value = pkg.id;
+          option.setAttribute('data-current-name', pkg.nombre);
+          option.setAttribute('data-description', 'Blood Striker - ' + pkg.nombre);
+          option.textContent = pkg.nombre;
+          packageSelect.appendChild(option);
+        });
+      } else {
+        packageSelect.disabled = true;
+        nameForm.action = '/admin/update_name';
+      }
+      
+      // Ocultar información de nombre
+      document.getElementById('name-info').style.display = 'none';
+      document.getElementById('new_name_input').value = '';
+    }
+
+    // Actualizar información de nombres
+    function updateNameInfo() {
+      const select = document.getElementById('name_package_select');
+      const selectedOption = select.options[select.selectedIndex];
+      const nameInfo = document.getElementById('name-info');
+      
+      if (selectedOption.value) {
+        const currentName = selectedOption.getAttribute('data-current-name');
+        const description = selectedOption.getAttribute('data-description');
+        
+        document.getElementById('selected-name-package-description').textContent = description;
+        document.getElementById('current-name-value').textContent = currentName;
+        document.getElementById('new_name_input').value = currentName;
+        
+        nameInfo.style.display = 'block';
+      } else {
+        nameInfo.style.display = 'none';
+        document.getElementById('new_name_input').value = '';
+      }
+    }
+
+    // Inicializar
+    document.addEventListener('DOMContentLoaded', function() {
+      updatePackages();
+      updateNamePackages();
+    });
+  </script>
+</body>
+</html>

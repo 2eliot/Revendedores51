@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blood Striker</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <!-- Mensajes flash -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-messages">
+        {% for category, message in messages %}
+          <div class="flash-message flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <!-- Header con navegación -->
+  <header class="header">
+    <div class="hamburger" onclick="toggleMenu()">
+      <svg class="icon" viewBox="0 0 24 24">
+        <path d="M3 6h18M3 12h18M3 18h18" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <div id="menu-juegos" class="menu-juegos">
+        <p class="menu-title">🎮 Juegos</p>
+        <ul>
+          <li><a href="/juego/freefire_latam">Free Fire Latam</a></li>
+          <li><a href="/juego/freefire">Free Fire</a></li>
+          <li><a href="/juego/bloodstriker">Blood Striker</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="icon-container">
+      <svg class="icon" onclick="window.location.href='/'" viewBox="0 0 24 24"><path d="M3 10L12 2l9 8v10a1 1 0 01-1 1h-6v-6H10v6H4a1 1 0 01-1-1V10z"/></svg>
+      <svg class="icon" onclick="window.location.href='/billetera'" viewBox="0 0 24 24"><path d="M18 4H6C4.9 4 4 4.9 4 6v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM6 6h12v2H6V6zm0 4h12v8H6v-8zm2 2h8v1H8v-1zm0 2h6v1H8v-1z"/></svg>
+
+      <div class="user-icon" onclick="toggleUserBox()">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M12 12a5 5 0 100-10 5 5 0 000 10zm0 2c-4.418 0-8 2.239-8 5v1h16v-1c0-2.761-3.582-5-8-5z"/></svg>
+        <div id="user-box" class="user-box">
+          <p><strong>Nombre:</strong> {{ session.get('nombre', '---') }}</p>
+          <p><strong>Apellido:</strong> {{ session.get('apellido', '---') }}</p>
+          <p><strong>Correo:</strong> {{ session.get('usuario', '---') }}</p>
+          <p><strong>ID:</strong> {{ user_id }}</p>
+          {% if session.get('is_admin') %}
+          <a href="/admin" class="admin-btn">Panel Admin</a>
+          {% endif %}
+          <a href="/logout" class="logout-btn">Cerrar sesión</a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Panel del usuario -->
+  <section class="user-panel">
+    <p>Mi ID <span style="color: #28a745; font-weight: 600;">{{ user_id }}</span> &nbsp; | &nbsp; Saldo <span style="color: #28a745; font-weight: 600;">${{ "%.2f"|format(balance) }}</span></p>
+  </section>
+
+  <section class="juego-container">
+    <h1 class="juego-titulo">Blood Striker</h1>
+
+    <form method="POST" action="/validar/bloodstriker" class="juego-form">
+      <label for="player_id">ID de Jugador:</label>
+      <input type="text" id="player_id" name="player_id" class="form-control" placeholder="Ingresa tu ID de jugador" required>
+
+      <label for="monto">Selecciona tu paquete:</label>
+      <select id="monto" name="monto" class="form-control" style="background-color: #AAF0F4;" required>
+        <option value="">Seleccione paquete</option>
+        {% for package_id in range(1, 11) %}
+          {% set package = prices.get(package_id, {}) %}
+          {% if package %}
+            <option id="monto_{{ package_id }}" value="{{ package_id }}">
+              {{ package.nombre }} / ${{ "%.2f"|format(package.precio) }}
+            </option>
+          {% endif %}
+        {% endfor %}
+      </select>
+
+      <button type="submit">Solicitar Recarga</button>
+    </form>
+
+    {% if compra_exitosa %}
+    <div class="compra-exitosa">
+      <h3>🎯 ¡Solicitud Enviada!</h3>
+      <div class="solicitud-container">
+        <div class="solicitud-info">
+          <p class="solicitud-label">Estado:</p>
+          <p class="solicitud-estado" id="estadoSolicitud">{{ estado.upper() }}</p>
+        </div>
+        <div class="detalles-info">
+          <p><strong>Paquete:</strong> {{ paquete_nombre }}</p>
+          <p><strong>ID de Jugador:</strong> {{ player_id }}</p>
+          <p><strong>Monto:</strong> ${{ "%.2f"|format(monto_compra) }}</p>
+          <p><strong>Número de Control:</strong> {{ numero_control }}</p>
+        </div>
+      </div>
+      <div class="entrega-info">
+        <p>⏳ Tu solicitud está pendiente de aprobación.</p>
+        <p>📧 Recibirás una notificación cuando sea procesada.</p>
+      </div>
+    </div>
+    {% else %}
+    <div class="juego-descripcion">
+      <p>🎯 <strong>¿Cómo funciona Blood Striker?</strong></p>
+      <ul style="list-style-type: square; padding-left: 1.5rem; line-height: 1.6; color: #444;">
+        <li>Ingresa tu <strong>ID de jugador</strong> de Blood Striker</li>
+        <li>Selecciona el paquete de monedas que deseas</li>
+        <li>Tu solicitud quedará <strong>pendiente de aprobación</strong></li>
+        <li>Un administrador procesará tu recarga manualmente</li>
+        <li>Las monedas se agregarán directamente a tu cuenta</li>
+        <li>Recibirás confirmación una vez completada la recarga</li>
+      </ul>
+      <div class="nota-importante">
+        <p><strong>📌 Nota:</strong> Este es un servicio de recarga manual. El tiempo de procesamiento puede variar entre 1-24 horas dependiendo de la disponibilidad del administrador.</p>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="volver-container">
+      <a href="/" class="volver-btn">← Volver al inicio</a>
+    </div>
+  </section>
+
+  <script>
+    function toggleUserBox() {
+      document.getElementById("user-box").classList.toggle("visible");
+    }
+    function toggleMenu() {
+      document.getElementById("menu-juegos").classList.toggle("visible");
+    }
+    
+    // Cerrar menús al hacer clic fuera de ellos
+    document.addEventListener('click', function(event) {
+      const userBox = document.getElementById('user-box');
+      const userIcon = document.querySelector('.user-icon');
+      const menuJuegos = document.getElementById('menu-juegos');
+      const hamburger = document.querySelector('.hamburger');
+      
+      // Cerrar user-box si se hace clic fuera
+      if (userBox && userIcon && !userIcon.contains(event.target)) {
+        userBox.classList.remove('visible');
+      }
+      
+      // Cerrar menu-juegos si se hace clic fuera
+      if (menuJuegos && hamburger && !hamburger.contains(event.target)) {
+        menuJuegos.classList.remove('visible');
+      }
+    });
+    
+    // Auto-ocultar mensajes flash después de 3 segundos
+    setTimeout(function() {
+      const flashMessages = document.querySelector('.flash-messages');
+      if (flashMessages) {
+        flashMessages.style.opacity = '0';
+        setTimeout(() => flashMessages.remove(), 300);
+      }
+    }, 3000);
+  </script>
+</body>
+</html>

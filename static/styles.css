@@ -1,0 +1,1150 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: #f8f9fa;
+  color: #333;
+}
+
+/* Mensajes flash en página principal */
+.flash-messages-main {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1000;
+  max-width: 300px;
+}
+
+.flash-message-main {
+  padding: 0.75rem;
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.flash-message-main.flash-error {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.flash-message-main.flash-success {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+/* Mensajes flash para páginas de juegos */
+.flash-messages {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1000;
+  max-width: 300px;
+}
+
+.flash-message {
+  padding: 0.75rem;
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.flash-message.flash-error {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.flash-message.flash-success {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+/* ==== HEADER ==== */
+.header {
+  background-color: #222;
+  padding: 1rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  z-index: 10;
+}
+.hamburger {
+  position: relative;
+  cursor: pointer;
+}
+.hamburger .icon {
+  width: 32px;
+  height: 32px;
+  stroke: #fff;
+  fill: none;
+}
+
+/* Menú de juegos desplegable */
+.menu-juegos {
+  position: absolute;
+  top: 40px;
+  left: 0;
+  background: #fff;
+  color: #333;
+  padding: 0.8rem 1rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  display: none;
+  width: 180px;
+}
+.menu-juegos.visible {
+  display: block;
+}
+.menu-juegos .menu-title {
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+}
+.menu-juegos ul {
+  list-style: none;
+  padding: 0;
+}
+.menu-juegos li {
+  margin-bottom: 0.5rem;
+}
+.menu-juegos a {
+  color: #333;
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+.menu-juegos a:hover {
+  color: #000;
+  font-weight: bold;
+}
+
+/* Íconos del header a la derecha */
+.icon-container {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  position: relative;
+}
+.icon {
+  width: 32px;
+  height: 32px;
+  fill: #ffffff;
+  transition: transform 0.2s ease;
+}
+.icon:hover {
+  transform: scale(1.2);
+  cursor: pointer;
+}
+
+.icon.active {
+  fill: #667eea;
+}
+
+/* Contenedor del ícono de cartera con notificación */
+.wallet-icon-container {
+  position: relative;
+  cursor: pointer;
+}
+
+/* Badge de notificación de cartera */
+.wallet-notification-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #28a745;
+  color: white;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 2px solid #222;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  animation: wallet-notification-pulse 2s infinite;
+}
+
+/* Animación de pulso para la notificación */
+@keyframes wallet-notification-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  }
+  50% {
+    transform: scale(1.1);
+    box-shadow: 0 4px 8px rgba(40, 167, 69, 0.4);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  }
+}
+
+/* Contenedor del ícono de dashboard */
+.dashboard-icon-container {
+  position: relative;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.dashboard-icon-container:hover {
+  transform: scale(1.1);
+}
+
+.dashboard-icon-container .icon {
+  fill: #ffffff;
+  transition: fill 0.2s ease;
+}
+
+.dashboard-icon-container:hover .icon {
+  fill: #667eea;
+}
+
+/* Contenedor del ícono de noticias con notificación */
+.news-icon-container {
+  position: relative;
+  cursor: pointer;
+}
+
+/* Badge de notificación de noticias */
+.news-notification-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #007bff;
+  color: white;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 2px solid #222;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  animation: news-notification-pulse 2s infinite;
+}
+
+/* Animación de pulso para la notificación de noticias */
+@keyframes news-notification-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  }
+  50% {
+    transform: scale(1.1);
+    box-shadow: 0 4px 8px rgba(0, 123, 255, 0.4);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  }
+}
+
+/* Caja de usuario */
+.user-icon {
+  position: relative;
+}
+.user-box {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  background-color: #fff;
+  color: #333;
+  padding: 0.8rem 1rem;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  display: none;
+  width: max-content;
+  min-width: 220px;
+}
+.user-box.visible {
+  display: block;
+}
+.user-box p {
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+}
+.user-box .admin-btn {
+  display: inline-block;
+  margin-top: 0.5rem;
+  margin-right: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: #667eea;
+  color: #fff;
+  text-decoration: none;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+.user-box .admin-btn:hover {
+  background: #5a6fd8;
+}
+
+.user-box .logout-btn {
+  display: inline-block;
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: #333;
+  color: #fff;
+  text-decoration: none;
+  border-radius: 4px;
+}
+.user-box .logout-btn:hover {
+  background: #444;
+}
+
+/* ==== PANEL SALDO ==== */
+.user-panel {
+  background-color: #f8f9fa;
+  text-align: center;
+  font-size: 1.1rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid #ddd;
+}
+
+/* ==== HISTORIAL ==== */
+.transactions {
+  padding: 2rem;
+  text-align: center;
+}
+.transaction-title {
+  background: linear-gradient(90deg, #333, #000);
+  color: #fff;
+  padding: 0.5rem 1rem;
+  border-radius: 12px;
+  display: inline-block;
+  margin-bottom: 1.5rem;
+  font-size: 1.4rem;
+  box-shadow: 0 0 4px rgba(0,0,0,0.3);
+}
+
+/* Contenedor de transacciones simplificado */
+.transaction-container {
+  max-width: 500px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Tarjeta de transacción simple */
+.transaction-card-simple {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+  border: 1px solid #e9ecef;
+  padding: 0.75rem;
+  transition: box-shadow 0.2s ease;
+}
+
+.transaction-card-simple:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+/* Fila principal de la transacción */
+.transaction-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.transaction-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.control-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.control-num {
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #495057;
+}
+
+.status-simple {
+  font-size: 0.9rem;
+}
+
+.package-cost {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.package {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #667eea;
+}
+
+.cost {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #dc3545;
+}
+
+/* PIN de la transacción */
+.transaction-pin {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: #f8f9fa;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid #dee2e6;
+}
+
+.pin-code-simple {
+  font-family: 'Courier New', monospace;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #212529;
+  letter-spacing: 0.5px;
+}
+
+.copy-btn-simple {
+  background-color: #667eea;
+  color: white;
+  border: none;
+  padding: 0.25rem 0.4rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.2s ease;
+  min-width: 28px;
+  height: 24px;
+}
+
+.copy-btn-simple:hover {
+  background-color: #5a6fd8;
+  transform: scale(1.05);
+}
+
+.copy-btn-simple:active {
+  transform: scale(0.95);
+}
+
+/* Estilos para múltiples pines en el historial */
+.multiple-pins {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.pins-count {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #28a745;
+  margin-bottom: 0.25rem;
+}
+
+.pin-item-simple {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  border: 1px solid #dee2e6;
+}
+
+.copy-all-btn-simple {
+  background-color: #28a745;
+  color: white;
+  border: none;
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  margin-top: 0.25rem;
+  align-self: flex-start;
+}
+
+.copy-all-btn-simple:hover {
+  background-color: #218838;
+  transform: translateY(-1px);
+}
+
+.copy-all-btn-simple:active {
+  transform: scale(0.95);
+}
+
+/* Footer de la transacción */
+.transaction-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 0.5rem;
+  border-top: 1px solid #f1f3f4;
+  font-size: 0.8rem;
+  color: #6c757d;
+}
+
+.date-simple {
+  font-family: 'Courier New', monospace;
+  font-weight: 500;
+}
+
+.user-simple {
+  font-weight: 500;
+}
+
+/* Estado vacío */
+.no-transactions {
+  text-align: center;
+  padding: 3rem 1rem;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.empty-icon {
+  width: 64px;
+  height: 64px;
+  fill: #adb5bd;
+}
+
+.empty-state p {
+  color: #6c757d;
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+
+/* Paginación */
+.pagination {
+  margin-top: 2rem;
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0 1rem;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.pagination::-webkit-scrollbar {
+  height: 4px;
+}
+
+.pagination::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 2px;
+}
+
+.pagination::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 2px;
+}
+
+.pagination::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+.page {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #aaa;
+  background-color: #fff;
+  border-radius: 4px;
+  text-decoration: none;
+  color: #333;
+  transition: all 0.2s ease;
+  min-width: 40px;
+  text-align: center;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.page:hover {
+  background-color: #eee;
+}
+.page.active {
+  background-color: #333;
+  color: #fff;
+  border-color: #333;
+}
+.page.disabled {
+  background-color: #f8f9fa;
+  color: #6c757d;
+  border-color: #dee2e6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Responsive para paginación */
+@media (max-width: 768px) {
+  .pagination {
+    gap: 0.25rem;
+    padding: 0 0.5rem;
+    justify-content: flex-start;
+  }
+  
+  .page {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.9rem;
+    min-width: 36px;
+  }
+}
+
+@media (max-width: 480px) {
+  .pagination {
+    gap: 0.2rem;
+    padding: 0 0.25rem;
+    justify-content: flex-start;
+  }
+  
+  .page {
+    padding: 0.3rem 0.5rem;
+    font-size: 0.85rem;
+    min-width: 32px;
+  }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .transactions {
+    padding: 1rem;
+  }
+  
+  .transaction-title {
+    font-size: 1.2rem;
+    margin-bottom: 1rem;
+  }
+  
+  .transaction-container {
+    margin: 0 0.5rem;
+    gap: 0.5rem;
+  }
+  
+  .transaction-card-simple {
+    padding: 0.5rem;
+  }
+  
+  .transaction-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+    margin-bottom: 0.4rem;
+  }
+  
+  .transaction-main {
+    gap: 0.2rem;
+  }
+  
+  .control-status {
+    gap: 0.4rem;
+  }
+  
+  .control-num {
+    font-size: 0.8rem;
+  }
+  
+  .package-cost {
+    gap: 0.5rem;
+  }
+  
+  .package {
+    font-size: 0.85rem;
+  }
+  
+  .cost {
+    font-size: 0.85rem;
+  }
+  
+  .transaction-pin {
+    padding: 0.3rem 0.5rem;
+    align-self: flex-end;
+  }
+  
+  .pin-code-simple {
+    font-size: 0.75rem;
+  }
+  
+  .copy-btn-simple {
+    padding: 0.2rem 0.3rem;
+    font-size: 0.7rem;
+    min-width: 24px;
+    height: 20px;
+  }
+  
+  .transaction-footer {
+    padding-top: 0.4rem;
+    font-size: 0.75rem;
+  }
+  
+  .date-simple,
+  .user-simple {
+    font-size: 0.75rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .transaction-container {
+    margin: 0 0.25rem;
+  }
+  
+  .transaction-card-simple {
+    padding: 0.4rem;
+  }
+  
+  .control-num {
+    font-size: 0.75rem;
+  }
+  
+  .package,
+  .cost {
+    font-size: 0.8rem;
+  }
+  
+  .pin-code-simple {
+    font-size: 0.7rem;
+  }
+  
+  .copy-btn-simple {
+    min-width: 20px;
+    height: 18px;
+    font-size: 0.65rem;
+  }
+  
+  .transaction-footer {
+    font-size: 0.7rem;
+  }
+}
+
+/* ==== ESTILOS PARA PÁGINAS DE JUEGOS ==== */
+.juego-container {
+  max-width: 600px;
+  margin: 2rem auto;
+  padding: 2rem;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.juego-titulo {
+  text-align: center;
+  font-size: 2rem;
+  margin-bottom: 2rem;
+  color: #333;
+  font-weight: 700;
+}
+
+.juego-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.juego-form label {
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 0.5rem;
+}
+
+.form-control {
+  padding: 0.75rem;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: border-color 0.3s ease;
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.juego-form button {
+  padding: 1rem;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.juego-form button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.juego-descripcion {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #667eea;
+}
+
+.juego-descripcion p {
+  margin-bottom: 1rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.juego-descripcion ul {
+  margin-bottom: 1rem;
+}
+
+.juego-descripcion li {
+  margin-bottom: 0.5rem;
+}
+
+.nota-importante {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 6px;
+}
+
+.nota-importante p {
+  margin: 0;
+  color: #856404;
+  font-size: 0.9rem;
+}
+
+.volver-container {
+  text-align: center;
+  margin-top: 2rem;
+}
+
+.volver-btn {
+  display: inline-block;
+  padding: 0.75rem 1.5rem;
+  background: #6c757d;
+  color: white;
+  text-decoration: none;
+  border-radius: 6px;
+  font-weight: 500;
+  transition: background-color 0.3s ease;
+}
+
+.volver-btn:hover {
+  background: #5a6268;
+}
+
+/* Estilos para compra exitosa */
+.compra-exitosa {
+  margin-top: 2rem;
+  padding: 2rem;
+  background: linear-gradient(135deg, #d4edda, #c3e6cb);
+  border: 2px solid #28a745;
+  border-radius: 12px;
+  text-align: center;
+}
+
+.compra-exitosa h3 {
+  color: #155724;
+  margin-bottom: 1.5rem;
+  font-size: 1.5rem;
+}
+
+.pin-container, .solicitud-container {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin: 1rem 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.pin-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.pin-label {
+  font-weight: 700;
+  color: #333;
+  margin: 0;
+}
+
+.pin-code {
+  font-family: 'Courier New', monospace;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #28a745;
+  background: #f8f9fa;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: 2px solid #28a745;
+  margin: 0;
+}
+
+.copy-btn {
+  background: #28a745;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+}
+
+.copy-btn:hover {
+  background: #218838;
+  transform: scale(1.05);
+}
+
+.monto-info {
+  text-align: center;
+}
+
+.monto-info p {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #333;
+}
+
+.entrega-info {
+  margin-top: 1rem;
+  color: #155724;
+}
+
+.entrega-info p {
+  margin: 0.5rem 0;
+  font-weight: 500;
+}
+
+/* Estilos específicos para Blood Striker */
+.solicitud-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.solicitud-label {
+  font-weight: 700;
+  color: #333;
+  margin: 0;
+}
+
+.solicitud-estado {
+  font-family: 'Courier New', monospace;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #ffc107;
+  background: #f8f9fa;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: 2px solid #ffc107;
+  margin: 0;
+}
+
+.detalles-info {
+  text-align: left;
+}
+
+.detalles-info p {
+  margin: 0.5rem 0;
+  color: #333;
+}
+
+/* Responsive para páginas de juegos */
+@media (max-width: 768px) {
+  .juego-container {
+    margin: 1rem;
+    padding: 1.5rem;
+  }
+  
+  .juego-titulo {
+    font-size: 1.5rem;
+  }
+  
+  .pin-info, .solicitud-info {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  
+  .pin-code, .solicitud-estado {
+    font-size: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .juego-container {
+    margin: 0.5rem;
+    padding: 1rem;
+  }
+  
+  .juego-titulo {
+    font-size: 1.3rem;
+  }
+  
+  .juego-form {
+    gap: 1rem;
+  }
+  
+  .form-control {
+    padding: 0.6rem;
+    font-size: 0.9rem;
+  }
+  
+  .juego-form button {
+    padding: 0.8rem;
+    font-size: 1rem;
+  }
+}
+
+/* ==== ESTILOS PARA TRANSACCIONES DE BLOOD STRIKER ==== */
+.bloodstriker-transaction {
+  border: 1px solid #dee2e6;
+  background: #fff;
+}
+
+.bloodstriker-transaction .control-num {
+  color: #495057;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.bloodstriker-transaction .package {
+  color: #667eea;
+  font-weight: 600;
+}
+
+.bloodstriker-transaction .cost {
+  color: #dc3545;
+  font-weight: 700;
+}
+
+/* Contenedor de acciones para los botones */
+.transaction-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* Botones de block */
+.block-btn {
+  padding: 0.4rem 0.8rem;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  min-width: 80px;
+  text-align: center;
+}
+
+.block-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.block-btn:active {
+  transform: translateY(0);
+}
+
+.block-btn.approve {
+  background-color: #28a745;
+  color: white;
+}
+
+.block-btn.approve:hover {
+  background-color: #218838;
+}
+
+.block-btn.reject {
+  background-color: #dc3545;
+  color: white;
+}
+
+.block-btn.reject:hover {
+  background-color: #c82333;
+}
+
+.block-btn.pending {
+  background-color: #ffc107;
+  color: #212529;
+}
+
+.block-btn.pending:hover {
+  background-color: #e0a800;
+}
+
+/* Responsive para botones de block */
+@media (max-width: 768px) {
+  .transaction-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+  
+  .transaction-actions {
+    justify-content: center;
+    gap: 0.3rem;
+    margin-top: 0.5rem;
+    order: 3;
+  }
+  
+  .transaction-pin {
+    order: 2;
+    align-self: flex-end;
+  }
+  
+  .block-btn {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.75rem;
+    min-width: 70px;
+  }
+}
+
+@media (max-width: 480px) {
+  .transaction-actions {
+    flex-direction: column;
+    gap: 0.25rem;
+    width: 100%;
+    order: 3;
+  }
+  
+  .transaction-pin {
+    order: 2;
+    align-self: center;
+  }
+  
+  .block-btn {
+    width: 100%;
+    padding: 0.4rem;
+    font-size: 0.8rem;
+  }
+}

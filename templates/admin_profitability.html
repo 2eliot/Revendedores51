@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Análisis de Rentabilidad - Admin Panel</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}">
+    <style>
+        .profitability-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .profit-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .profit-header h1 {
+            margin: 0;
+            font-size: 2.5em;
+            font-weight: 300;
+        }
+        
+        .profit-header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+        
+        .game-section {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            overflow: hidden;
+        }
+        
+        .game-header {
+            padding: 20px 30px;
+            font-size: 1.4em;
+            font-weight: 600;
+            color: #333;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        
+        .freefire-latam .game-header {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            color: white;
+        }
+        
+        .freefire-global .game-header {
+            background: linear-gradient(135deg, #4834d4, #686de0);
+            color: white;
+        }
+        
+        .bloodstriker .game-header {
+            background: linear-gradient(135deg, #130f40, #30336b);
+            color: white;
+        }
+        
+        .packages-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            padding: 30px;
+        }
+        
+        .package-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            border-left: 4px solid #007bff;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .package-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+        }
+        
+        .package-name {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 15px;
+        }
+        
+        .price-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .price-item {
+            text-align: center;
+            padding: 10px;
+            border-radius: 8px;
+        }
+        
+        .sale-price {
+            background: #e8f5e8;
+            border: 1px solid #28a745;
+        }
+        
+        .purchase-price {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+        }
+        
+        .price-label {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .price-value {
+            font-size: 1.1em;
+            font-weight: 600;
+        }
+        
+        .profit-summary {
+            background: linear-gradient(135deg, #28a745, #20c997);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .profit-amount {
+            font-size: 1.3em;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+        
+        .profit-margin {
+            font-size: 0.95em;
+            opacity: 0.9;
+        }
+        
+        .negative-profit {
+            background: linear-gradient(135deg, #dc3545, #c82333) !important;
+        }
+        
+        .back-button {
+            display: inline-block;
+            background: linear-gradient(135deg, #6c757d, #495057);
+            color: white;
+            padding: 12px 25px;
+            text-decoration: none;
+            border-radius: 25px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            margin-bottom: 20px;
+        }
+        
+        .back-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            text-decoration: none;
+            color: white;
+        }
+        
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+        
+        .stat-value {
+            font-size: 2em;
+            font-weight: 700;
+            color: #007bff;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="profitability-container">
+        <a href="{{ url_for('admin') }}" class="back-button">← Volver al Panel Admin</a>
+        
+        <div class="profit-header">
+            <h1>📊 Análisis de Rentabilidad</h1>
+            <p>Gestión completa de precios de compra, venta y márgenes de ganancia</p>
+        </div>
+        
+        <div class="summary-stats">
+            <div class="stat-card">
+                <div class="stat-value">{{ profit_data|length }}</div>
+                <div class="stat-label">Productos Analizados</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">
+                    {% set profitable_count = profit_data|selectattr('ganancia', '>', 0)|list|length %}
+                    {{ profitable_count }}
+                </div>
+                <div class="stat-label">Productos Rentables</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">
+                    {% set total_profit = profit_data|sum(attribute='ganancia') %}
+                    ${{ "%.2f"|format(total_profit) }}
+                </div>
+                <div class="stat-label">Ganancia Promedio Total</div>
+            </div>
+        </div>
+        
+        {% for juego, packages in profit_data|groupby('juego') %}
+        <div class="game-section {{ juego.replace('_', '-') }}">
+            <div class="game-header">
+                {% if juego == 'freefire_latam' %}
+                    🔥 Free Fire LATAM
+                {% elif juego == 'freefire_global' %}
+                    🌍 Free Fire Global
+                {% elif juego == 'bloodstriker' %}
+                    ⚔️ Blood Striker
+                {% endif %}
+            </div>
+            
+            <div class="packages-grid">
+                {% for package in packages %}
+                <div class="package-card">
+                    <div class="package-name">{{ package.paquete_nombre }}</div>
+                    
+                    <div class="price-info">
+                        <div class="price-item sale-price">
+                            <div class="price-label">Precio de Venta</div>
+                            <div class="price-value">${{ "%.2f"|format(package.precio_venta) }}</div>
+                        </div>
+                        <div class="price-item purchase-price">
+                            <div class="price-label">Precio de Compra</div>
+                            <div class="price-value">${{ "%.2f"|format(package.precio_compra) }}</div>
+                        </div>
+                    </div>
+                    
+                    <div class="profit-summary {% if package.ganancia < 0 %}negative-profit{% endif %}">
+                        <div class="profit-amount">
+                            Ganancia: ${{ "%.2f"|format(package.ganancia) }}
+                        </div>
+                        <div class="profit-margin">
+                            Margen: {{ "%.1f"|format(package.margen_porcentaje) }}%
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+        
+        {% if not profit_data %}
+        <div class="game-section">
+            <div class="game-header">📋 Sin Datos</div>
+            <div style="padding: 30px; text-align: center; color: #666;">
+                <p>No hay datos de rentabilidad disponibles.</p>
+                <p>Los datos se generarán automáticamente cuando se configuren los precios de compra.</p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>

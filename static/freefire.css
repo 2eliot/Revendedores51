@@ -1,0 +1,709 @@
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: #f8f9fa;
+  padding: 0;
+  text-align: center;
+  margin: 0;
+}
+
+/* Mensajes flash */
+.flash-messages {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1000;
+  max-width: 300px;
+}
+
+.flash-message {
+  padding: 0.75rem;
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.flash-message.flash-error {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.flash-message.flash-success {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+/* ==== HEADER ==== */
+.header {
+  background-color: #222;
+  padding: 1rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  z-index: 10;
+}
+.hamburger {
+  position: relative;
+  cursor: pointer;
+}
+.hamburger .icon {
+  width: 32px;
+  height: 32px;
+  stroke: #fff;
+  fill: none;
+}
+
+/* Menú de juegos desplegable */
+.menu-juegos {
+  position: absolute;
+  top: 40px;
+  left: 0;
+  background: #fff;
+  color: #333;
+  padding: 0.8rem 1rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  display: none;
+  width: 180px;
+}
+.menu-juegos.visible {
+  display: block;
+}
+.menu-juegos .menu-title {
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+}
+.menu-juegos ul {
+  list-style: none;
+  padding: 0;
+}
+.menu-juegos li {
+  margin-bottom: 0.5rem;
+}
+.menu-juegos a {
+  color: #333;
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+.menu-juegos a:hover {
+  color: #000;
+  font-weight: bold;
+}
+
+/* Íconos del header a la derecha */
+.icon-container {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  position: relative;
+}
+.icon {
+  width: 32px;
+  height: 32px;
+  fill: #ffffff;
+  transition: transform 0.2s ease;
+}
+.icon:hover {
+  transform: scale(1.2);
+  cursor: pointer;
+}
+
+.icon.active {
+  fill: #667eea;
+}
+
+/* Caja de usuario */
+.user-icon {
+  position: relative;
+}
+.user-box {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  background-color: #fff;
+  color: #333;
+  padding: 0.8rem 1rem;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  display: none;
+  width: max-content;
+  min-width: 220px;
+}
+.user-box.visible {
+  display: block;
+}
+.user-box p {
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+}
+.user-box .admin-btn {
+  display: inline-block;
+  margin-top: 0.5rem;
+  margin-right: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: #667eea;
+  color: #fff;
+  text-decoration: none;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+.user-box .admin-btn:hover {
+  background: #5a6fd8;
+}
+
+.user-box .logout-btn {
+  display: inline-block;
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: #333;
+  color: #fff;
+  text-decoration: none;
+  border-radius: 4px;
+}
+.user-box .logout-btn:hover {
+  background: #444;
+}
+
+/* Panel del usuario */
+.user-panel {
+  background-color: #f8f9fa;
+  text-align: center;
+  font-size: 1.1rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid #ddd;
+  margin-bottom: 2rem;
+}
+
+.juego-container {
+  max-width: 500px;
+  margin: auto;
+  background: linear-gradient(135deg, #fff 0%, #f8f9fa 100%);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+  padding: 2.5rem;
+  border: 1px solid rgba(255,255,255,0.2);
+  position: relative;
+  overflow: hidden;
+}
+
+.juego-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #2d5016, #4a7c59, #6b8e23);
+  border-radius: 16px 16px 0 0;
+}
+
+.juego-titulo {
+  font-size: 2.2rem;
+  margin-bottom: 1.5rem;
+  color: #1a1a1a;
+  text-align: center;
+  font-weight: 700;
+  background: linear-gradient(135deg, #2d5016, #4a7c59);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.juego-form {
+  margin-bottom: 2rem;
+  background: rgba(255,255,255,0.7);
+  padding: 1.5rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.3);
+  backdrop-filter: blur(10px);
+}
+
+.juego-form label {
+  display: block;
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+  font-size: 1.1rem;
+  color: #2c3e50;
+  text-align: left;
+}
+
+/* Diseño de dos columnas para el formulario */
+.form-row {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.form-col {
+  flex: 1;
+}
+
+.form-col label {
+  margin-bottom: 0.5rem;
+}
+
+.juego-form select {
+  padding: 0.75rem 1rem;
+  font-size: 1rem;
+  border-radius: 10px;
+  border: 2px solid #e9ecef;
+  width: 100%;
+  margin-bottom: 0;
+  background: #fff;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.juego-form select:disabled {
+  background-color: #f8f9fa !important;
+  color: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.juego-form select:focus {
+  outline: none;
+  border-color: #ff6b35;
+  box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.1);
+  transform: translateY(-1px);
+}
+
+.juego-form button {
+  padding: 0.75rem 2rem;
+  background: linear-gradient(135deg, #ff6b35, #f7931e);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  font-weight: 600;
+  width: 100%;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(255, 107, 53, 0.3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.juego-form button:hover {
+  background: linear-gradient(135deg, #f7931e, #ffcc02);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(255, 107, 53, 0.4);
+}
+
+.juego-form button:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 10px rgba(255, 107, 53, 0.3);
+}
+
+.total-price {
+  margin-top: 0.75rem;
+  padding: 0.5rem;
+  background: linear-gradient(135deg, #e8f5e8, #d4edda);
+  border-radius: 6px;
+  text-align: center;
+  font-size: 1.1rem;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.juego-descripcion {
+  font-size: 0.95rem;
+  background: linear-gradient(135deg, #fff3e0, #ffe0b2);
+  padding: 1.25rem;
+  border-radius: 12px;
+  color: #37474f;
+  margin-bottom: 1.5rem;
+  border-left: 4px solid #ff6b35;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+  position: relative;
+}
+
+.juego-descripcion::before {
+  content: '💡';
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  font-size: 1.2rem;
+}
+
+.juego-descripcion p {
+  margin: 0;
+  padding-left: 2rem;
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+/* Compra exitosa */
+.compra-exitosa {
+  background-color: #d4edda;
+  border: 1px solid #c3e6cb;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  text-align: left;
+}
+
+.compra-exitosa h3 {
+  color: #155724;
+  margin-bottom: 1rem;
+  text-align: center;
+  font-size: 1.3rem;
+}
+
+/* Contenedor del PIN */
+.pin-container {
+  background-color: #fff;
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  border: 1px solid #c3e6cb;
+}
+
+.pin-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background-color: #f8f9fa;
+  border-radius: 6px;
+  border: 2px dashed #28a745;
+}
+
+.pin-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #155724;
+  margin: 0;
+  min-width: 35px;
+}
+
+.pin-code {
+  font-family: 'Courier New', monospace;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #212529;
+  background-color: #fff;
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  border: 1px solid #dee2e6;
+  margin: 0;
+  flex: 1;
+  text-align: center;
+  letter-spacing: 1px;
+}
+
+.copy-btn {
+  background-color: #667eea;
+  color: white;
+  border: none;
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.2s ease;
+  min-width: 40px;
+}
+
+.copy-btn:hover {
+  background-color: #5a6fd8;
+  transform: scale(1.05);
+}
+
+.copy-btn:active {
+  transform: scale(0.95);
+}
+
+.copy-all-container {
+  text-align: center;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 2px dashed #28a745;
+}
+
+.copy-all-btn {
+  background: linear-gradient(135deg, #2d5016, #4a7c59);
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(45, 80, 22, 0.3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.copy-all-btn:hover {
+  background: linear-gradient(135deg, #4a7c59, #6b8e23);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(45, 80, 22, 0.4);
+}
+
+.copy-all-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 10px rgba(45, 80, 22, 0.3);
+}
+
+.monto-info {
+  text-align: center;
+  padding: 0.75rem;
+  background-color: #f8f9fa;
+  border-radius: 6px;
+}
+
+.monto-info p {
+  margin: 0;
+  font-size: 1rem;
+  color: #155724;
+}
+
+.monto-info strong {
+  color: #155724;
+}
+
+.entrega-info {
+  background-color: #f8f9fa;
+  padding: 0.8rem;
+  border-radius: 6px;
+  border-left: 4px solid #28a745;
+}
+
+.entrega-info p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #155724;
+  font-weight: 500;
+}
+
+.volver-container {
+  text-align: center;
+  margin-top: 1rem;
+}
+
+.volver-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  background: linear-gradient(135deg, #6c757d, #495057);
+  color: #fff;
+  text-decoration: none;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(108, 117, 125, 0.3);
+}
+
+.volver-btn::before {
+  content: '←';
+  font-size: 1.1rem;
+  font-weight: bold;
+}
+
+.volver-btn:hover {
+  background: linear-gradient(135deg, #5a6268, #3d4043);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(108, 117, 125, 0.4);
+}
+
+.volver-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(108, 117, 125, 0.3);
+}
+
+/* Responsive - Mobile */
+@media (max-width: 768px) {
+  body {
+    font-size: 14px;
+  }
+  
+  .header {
+    padding: 0.75rem 1rem;
+  }
+  
+  .hamburger .icon,
+  .icon {
+    width: 28px;
+    height: 28px;
+  }
+  
+  .user-panel {
+    font-size: 0.9rem;
+    padding: 0.75rem 0;
+    margin-bottom: 1rem;
+  }
+  
+  .juego-container {
+    max-width: 90%;
+    margin: 0 auto;
+    padding: 1rem;
+    border-radius: 8px;
+  }
+  
+  .juego-titulo {
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+  }
+  
+  .juego-form label {
+    font-size: 0.95rem;
+    margin-bottom: 0.4rem;
+  }
+  
+  /* Hacer que las columnas se apilen en móvil */
+  .form-row {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  
+  .juego-form select {
+    padding: 0.4rem;
+    font-size: 0.9rem;
+    margin-bottom: 0.75rem;
+  }
+  
+  .juego-form button {
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+  }
+  
+  .compra-exitosa {
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+  
+  .compra-exitosa h3 {
+    font-size: 1.1rem;
+    margin-bottom: 0.75rem;
+  }
+  
+  .pin-container {
+    padding: 1rem;
+  }
+  
+  .pin-info {
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    align-items: stretch;
+  }
+  
+  .pin-label {
+    font-size: 0.8rem;
+    text-align: center;
+    min-width: auto;
+  }
+  
+  .pin-code {
+    font-size: 0.95rem;
+    padding: 0.4rem 0.5rem;
+    letter-spacing: 0.5px;
+  }
+  
+  .copy-btn {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.9rem;
+    align-self: center;
+    min-width: 60px;
+  }
+  
+  .monto-info {
+    padding: 0.5rem;
+  }
+  
+  .monto-info p {
+    font-size: 0.9rem;
+  }
+  
+  .entrega-info {
+    padding: 0.6rem;
+  }
+  
+  .entrega-info p {
+    font-size: 0.8rem;
+  }
+  
+  .juego-descripcion {
+    font-size: 0.85rem;
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+  }
+  
+  .volver-btn {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.8rem;
+  }
+  
+  .menu-juegos {
+    width: 160px;
+    padding: 0.6rem 0.8rem;
+  }
+  
+  .menu-juegos .menu-title {
+    font-size: 0.9rem;
+  }
+  
+  .menu-juegos a {
+    font-size: 0.85rem;
+  }
+  
+  .user-box {
+    min-width: 200px;
+    padding: 0.6rem 0.8rem;
+  }
+  
+  .user-box p {
+    font-size: 0.8rem;
+    margin: 0.4rem 0;
+  }
+  
+  .user-box .logout-btn {
+    padding: 0.3rem 0.5rem;
+    font-size: 0.8rem;
+  }
+  
+  .flash-messages {
+    max-width: 250px;
+    top: 15px;
+    right: 15px;
+  }
+  
+  .flash-message {
+    padding: 0.6rem;
+    font-size: 0.8rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .juego-container {
+    max-width: 95%;
+    padding: 0.75rem;
+  }
+  
+  .juego-titulo {
+    font-size: 1.3rem;
+  }
+  
+  .pin-info {
+    padding: 0.5rem;
+  }
+  
+  .pin-code {
+    font-size: 0.85rem;
+    padding: 0.3rem 0.4rem;
+  }
+  
+  .copy-btn {
+    padding: 0.3rem 0.5rem;
+    font-size: 0.8rem;
+    min-width: 50px;
+  }
+}

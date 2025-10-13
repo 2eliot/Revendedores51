@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mi Billetera</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Mensajes flash -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-messages-main">
+        {% for category, message in messages %}
+          <div class="flash-message-main flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <!-- Header con navegación -->
+  <header class="header">
+    <div class="hamburger" onclick="window.location.href='/'">
+      <svg class="icon" viewBox="0 0 24 24">
+        <path d="M19 12H5m7-7l-7 7 7 7" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+
+    <div class="icon-container">
+      <svg class="icon" onclick="window.location.href='/'" viewBox="0 0 24 24"><path d="M3 10L12 2l9 8v10a1 1 0 01-1 1h-6v-6H10v6H4a1 1 0 01-1-1V10z"/></svg>
+      <svg class="icon active" viewBox="0 0 24 24"><path d="M18 4H6C4.9 4 4 4.9 4 6v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM6 6h12v2H6V6zm0 4h12v8H6v-8zm2 2h8v1H8v-1zm0 2h6v1H8v-1z"/></svg>
+
+      <div class="user-icon" onclick="toggleUserBox()">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M12 12a5 5 0 100-10 5 5 0 000 10zm0 2c-4.418 0-8 2.239-8 5v1h16v-1c0-2.761-3.582-5-8-5z"/></svg>
+        <div id="user-box" class="user-box">
+          <p><strong>Nombre:</strong> {{ session.get('nombre', '---') }}</p>
+          <p><strong>Apellido:</strong> {{ session.get('apellido', '---') }}</p>
+          <p><strong>Correo:</strong> {{ session.get('usuario', '---') }}</p>
+          <p><strong>ID:</strong> {{ user_id }}</p>
+          <a href="/logout" class="logout-btn">Cerrar sesión</a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  {% if is_admin %}
+    <!-- Panel del administrador -->
+    <section class="user-panel">
+      <p>🛠️ Cartera del Administrador - Créditos Agregados a Usuarios</p>
+    </section>
+
+    <!-- Créditos de billetera para admin -->
+    <section class="transactions">
+      <h2 class="transaction-title">Historial de Créditos Agregados</h2>
+      <div class="transaction-container">
+        {% if wallet_credits %}
+          {% for credit in wallet_credits %}
+          <div class="transaction-card-simple">
+            <div class="transaction-row">
+              <div class="transaction-main">
+                <div class="control-status">
+                  <span class="control-num">💰 Crédito</span>
+                  <span class="status-simple">✅</span>
+                </div>
+                <div class="package-cost">
+                  <span class="package">{{ credit.nombre }} {{ credit.apellido }}</span>
+                  <span class="cost">${{ "%.2f"|format(credit.monto) }}</span>
+                </div>
+              </div>
+            </div>
+            <div class="transaction-footer">
+              <span class="date-simple">{{ credit.fecha.split(' ')[0] }} {{ credit.fecha.split(' ')[1].split('.')[0] }}</span>
+              <span class="user-simple">
+                {{ credit.correo }}
+                {% if credit.saldo_anterior is defined and credit.saldo_anterior is not none %}
+                  | Saldo anterior: ${{ "%.2f"|format(credit.saldo_anterior) }}
+                {% endif %}
+              </span>
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="no-transactions">
+            <div class="empty-state">
+              <svg class="empty-icon" viewBox="0 0 24 24">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+              </svg>
+              <p>No hay créditos registrados en el sistema</p>
+            </div>
+          </div>
+        {% endif %}
+      </div>
+    </section>
+  {% else %}
+    <!-- Panel del usuario normal -->
+    <section class="user-panel">
+      <p>💰 Mi Billetera - ID {{ user_id }} &nbsp; | &nbsp; Saldo ${{ "%.2f"|format(balance) }}</p>
+    </section>
+
+    <!-- Créditos de billetera para usuario normal -->
+    <section class="transactions">
+      <h2 class="transaction-title">Créditos Recibidos</h2>
+      <div class="transaction-container">
+        {% if wallet_credits %}
+          {% for credit in wallet_credits %}
+          <div class="transaction-card-simple">
+            <div class="transaction-row">
+              <div class="transaction-main">
+                <div class="control-status">
+                  <span class="control-num">💰 Crédito</span>
+                  <span class="status-simple">✅</span>
+                </div>
+                <div class="package-cost">
+                  <span class="package">Saldo agregado</span>
+                  <span class="cost">${{ "%.2f"|format(credit.monto) }}</span>
+                </div>
+              </div>
+            </div>
+            <div class="transaction-footer">
+              <span class="date-simple">{{ credit.fecha.split(' ')[0] }} {{ credit.fecha.split(' ')[1].split('.')[0] }}</span>
+              <span class="user-simple">{{ session.get('nombre', '') }} {{ session.get('apellido', '') }}</span>
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="no-transactions">
+            <div class="empty-state">
+              <svg class="empty-icon" viewBox="0 0 24 24">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+              </svg>
+              <p>No hay créditos registrados en tu billetera</p>
+            </div>
+          </div>
+        {% endif %}
+      </div>
+      <div class="pagination">
+        <a href="#" class="page">«</a>
+        <a href="#" class="page active">1</a>
+        <a href="#" class="page">2</a>
+        <a href="#" class="page">»</a>
+      </div>
+    </section>
+  {% endif %}
+
+  <script>
+    function toggleUserBox() {
+      document.getElementById("user-box").classList.toggle("visible");
+    }
+    
+    // Auto-ocultar mensajes flash después de 2 segundos
+    setTimeout(function() {
+      const flashMessages = document.querySelector('.flash-messages');
+      if (flashMessages) {
+        flashMessages.style.opacity = '0';
+        setTimeout(() => flashMessages.remove(), 300);
+      }
+    }, 2000);
+  </script>
+</body>
+</html>

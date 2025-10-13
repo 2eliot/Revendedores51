@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Administrar Blood Striker - Transacciones Pendientes</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        .bloodstriker-header {
+            background: linear-gradient(90deg, #8B0000, #DC143C);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 30px;
+            border-radius: 10px;
+        }
+        
+        .transaction-card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            overflow: hidden;
+            border-left: 5px solid #DC143C;
+        }
+        
+        .transaction-header {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .transaction-body {
+            padding: 20px;
+        }
+        
+        .transaction-actions {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            border-top: 1px solid #eee;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .btn-approve {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-approve:hover {
+            background: #218838;
+            transform: translateY(-2px);
+        }
+        
+        .btn-reject {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-reject:hover {
+            background: #c82333;
+            transform: translateY(-2px);
+        }
+        
+        .transaction-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .info-item {
+            background: #f8f9fa;
+            padding: 10px 15px;
+            border-radius: 5px;
+            border-left: 3px solid #DC143C;
+        }
+        
+        .info-label {
+            font-weight: 600;
+            color: #8B0000;
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+        
+        .info-value {
+            color: #333;
+            font-size: 14px;
+        }
+        
+        .status-pending {
+            background: #fff3cd;
+            color: #856404;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .notes-textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            resize: vertical;
+            min-height: 60px;
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .no-transactions {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+        
+        .back-btn {
+            display: inline-block;
+            background: #6c757d;
+            color: white;
+            padding: 12px 25px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            margin-bottom: 20px;
+        }
+        
+        .back-btn:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+    <div class="admin-container">
+        <!-- Mensajes flash -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-messages">
+                    {% for category, message in messages %}
+                        <div class="flash-message flash-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        <a href="/admin" class="back-btn">← Volver al Panel Admin</a>
+
+        <div class="bloodstriker-header">
+            <h1>🎯 Blood Striker - Transacciones Pendientes</h1>
+            <p>Gestiona las solicitudes de recarga de los usuarios</p>
+        </div>
+
+        {% if transactions %}
+            {% for transaction in transactions %}
+            <div class="transaction-card">
+                <div class="transaction-header">
+                    <h3>Solicitud #{{ transaction.id }} - {{ transaction.nombre }} {{ transaction.apellido }}</h3>
+                    <span class="status-pending">{{ transaction.estado }}</span>
+                </div>
+                
+                <div class="transaction-body">
+                    <div class="transaction-info">
+                        <div class="info-item">
+                            <div class="info-label">Usuario</div>
+                            <div class="info-value">{{ transaction.correo }}</div>
+                        </div>
+                        
+                        <div class="info-item">
+                            <div class="info-label">ID de Jugador</div>
+                            <div class="info-value">{{ transaction.player_id }}</div>
+                        </div>
+                        
+                        <div class="info-item">
+                            <div class="info-label">Paquete</div>
+                            <div class="info-value">{{ transaction.paquete_nombre }}</div>
+                        </div>
+                        
+                        <div class="info-item">
+                            <div class="info-label">Monto</div>
+                            <div class="info-value">${{ "%.2f"|format(abs(transaction.monto)) }}</div>
+                        </div>
+                        
+                        <div class="info-item">
+                            <div class="info-label">Fecha</div>
+                            <div class="info-value">{{ transaction.fecha.strftime('%d/%m/%Y %H:%M') if transaction.fecha else 'N/A' }}</div>
+                        </div>
+                        
+                        <div class="info-item">
+                            <div class="info-label">Número de Control</div>
+                            <div class="info-value">{{ transaction.numero_control }}</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="transaction-actions">
+                    <form method="POST" action="/admin/bloodstriker_approve" style="display: inline-block;">
+                        <input type="hidden" name="transaction_id" value="{{ transaction.id }}">
+                        <textarea name="notas" placeholder="Notas de aprobación (opcional)" class="notes-textarea" style="width: 300px; margin-right: 10px;"></textarea>
+                        <button type="submit" class="btn-approve" onclick="return confirm('¿Confirmar aprobación de esta recarga?')">
+                            ✅ Aprobar Recarga
+                        </button>
+                    </form>
+                    
+                    <form method="POST" action="/admin/bloodstriker_reject" style="display: inline-block;">
+                        <input type="hidden" name="transaction_id" value="{{ transaction.id }}">
+                        <textarea name="notas" placeholder="Motivo del rechazo" class="notes-textarea" style="width: 300px; margin-right: 10px;" required></textarea>
+                        <button type="submit" class="btn-reject" onclick="return confirm('¿Confirmar rechazo? Se devolverá el saldo al usuario.')">
+                            ❌ Rechazar
+                        </button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="no-transactions">
+                <h3>📭 No hay transacciones pendientes</h3>
+                <p>Todas las solicitudes de Blood Striker han sido procesadas.</p>
+            </div>
+        {% endif %}
+    </div>
+
+    <script>
+        // Auto-ocultar mensajes flash después de 3 segundos
+        setTimeout(function() {
+            const flashMessages = document.querySelector('.flash-messages');
+            if (flashMessages) {
+                flashMessages.style.opacity = '0';
+                setTimeout(() => flashMessages.remove(), 300);
+            }
+        }, 3000);
+    </script>
+</body>
+</html>
