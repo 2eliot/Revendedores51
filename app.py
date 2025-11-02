@@ -1522,6 +1522,43 @@ def get_all_pins():
     conn.close()
     return pins
 
+def get_pins_by_game(game_type, only_unused=True):
+    """Obtiene pines por juego (freefire_latam o freefire_global)."""
+    table = 'pines_freefire' if game_type == 'freefire_latam' else 'pines_freefire_global'
+    conn = get_db_connection()
+    try:
+        if only_unused:
+            query = f'''
+                SELECT id, monto_id, pin_codigo, usado, fecha_agregado
+                FROM {table}
+                WHERE usado = FALSE
+                ORDER BY fecha_agregado DESC
+            '''
+        else:
+            query = f'''
+                SELECT id, monto_id, pin_codigo, usado, fecha_agregado
+                FROM {table}
+                ORDER BY fecha_agregado DESC
+            '''
+        pins = conn.execute(query).fetchall()
+        return pins
+    finally:
+        conn.close()
+
+def delete_pins_by_ids(game_type, pin_ids):
+    """Elimina pines por IDs para el juego indicado."""
+    if not pin_ids:
+        return 0
+    table = 'pines_freefire' if game_type == 'freefire_latam' else 'pines_freefire_global'
+    placeholders = ','.join('?' for _ in pin_ids)
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute(f"DELETE FROM {table} WHERE id IN ({placeholders})", tuple(pin_ids))
+        conn.commit()
+        return cursor.rowcount
+    finally:
+        conn.close()
+
 def remove_duplicate_pins():
     """Elimina pines duplicados de la base de datos, manteniendo el más reciente de cada código"""
     conn = get_db_connection()
@@ -1981,6 +2018,53 @@ def admin_add_credit():
         flash('Datos inválidos para agregar crédito', 'error')
     
     return redirect('/admin')
+
+@app.route('/admin/pins')
+def admin_pins_list():
+    if not session.get('is_admin'):
+        flash('Acceso denegado. Solo administradores.', 'error')
+        return redirect('/auth')
+    game = request.args.get('game', 'freefire_latam')
+    only_unused = request.args.get('estado', 'unused') == 'unused'
+    pins = get_pins_by_game(game, only_unused=only_unused)
+
+    # Mapear nombres de paquetes
+    if game == 'freefire_latam':
+        package_dict = get_package_info_with_prices()
+    else:
+        package_dict = get_freefire_global_prices()
+
+    # Convertir a estructura simple para template
+    pins_view = []
+    for p in pins:
+        pins_view.append({
+            'id': p['id'],
+            'monto_id': p['monto_id'],
+            'paquete': package_dict.get(p['monto_id'], {}).get('nombre', f'Paquete {p["monto_id"]}'),
+            'pin_codigo': p['pin_codigo'],
+            'usado': bool(p['usado']),
+            'fecha_agregado': p['fecha_agregado']
+        })
+
+    return render_template('admin_pins.html', pins=pins_view, game=game, only_unused=only_unused)
+
+@app.route('/admin/delete_pins', methods=['POST'])
+def admin_delete_pins():
+    if not session.get('is_admin'):
+        flash('Acceso denegado. Solo administradores.', 'error')
+        return redirect('/auth')
+    game = request.form.get('game')
+    ids_raw = request.form.getlist('pin_ids')
+    try:
+        pin_ids = [int(x) for x in ids_raw if str(x).isdigit()]
+    except Exception:
+        pin_ids = []
+    deleted = delete_pins_by_ids(game, pin_ids)
+    if deleted > 0:
+        flash(f'Se eliminaron {deleted} pines correctamente', 'success')
+    else:
+        flash('No se eliminaron pines (lista vacía)', 'warning')
+    return redirect(f'/admin/pins?game={game}')
 
 @app.route('/admin/update_balance', methods=['POST'])
 def admin_update_balance():
