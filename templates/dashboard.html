@@ -29,7 +29,7 @@
 
     /* Sección de estadísticas integrada */
     .stats-section {
-      background: white;
+      background: #ffffff;
       padding: 24px;
       border-radius: 12px;
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -170,7 +170,7 @@
     }
 
     .stat-card {
-      background: white;
+      background: #ffffff;
       padding: 24px;
       border-radius: 12px;
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -248,7 +248,7 @@
     }
 
     .chart-section {
-      background: white;
+      background: #ffffff;
       padding: 24px;
       border-radius: 12px;
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -276,7 +276,7 @@
     }
 
     .games-section {
-      background: white;
+      background: #ffffff;
       padding: 24px;
       border-radius: 12px;
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -288,6 +288,55 @@
       color: #0f172a;
       margin-bottom: 20px;
     }
+
+    /* Título de transacciones en oscuro (tema claro) */
+    .transactions-section .section-title {
+      color: #0f172a;
+    }
+
+    /* Tabla oscura */
+    .table-dark {
+      width: 100%;
+      border-collapse: collapse;
+      color: #334155;
+    }
+    .table-dark th, .table-dark td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .table-dark th {
+      color: #64748b;
+      font-weight: 600;
+      text-align: left;
+    }
+    .table-header-row {
+      background: #ffffff;
+    }
+    .table-row:hover {
+      background: #f8fafc;
+    }
+
+    /* Cantidades positivas resaltadas */
+    .qty-positive {
+      color: #f59e0b;
+      font-weight: 600;
+    }
+
+    /* Separador visual entre categorías */
+    .category-separator td {
+      border-top: 2px solid #e5e7eb;
+    }
+
+    /* Contenedor responsive con scroll horizontal si es necesario */
+    .table-responsive {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* Variantes de texto para desktop/móvil */
+    .item-desktop { display: inline; }
+    .item-mobile { display: none; }
 
     .game-item {
       display: flex;
@@ -669,12 +718,14 @@
     }
 
     .dashboard-icon-container .icon {
-      fill: #ffffff;
-      transition: fill 0.2s ease;
+      color: #ffffff;
+      fill: currentColor;
+      stroke: currentColor;
+      transition: opacity 0.2s ease;
     }
 
     .dashboard-icon-container:hover .icon {
-      fill: #667eea;
+      opacity: 0.85;
     }
 
     /* Contenedor del ícono de noticias con notificación */
@@ -930,6 +981,30 @@
       .transaction-amount {
         font-size: 11px;
       }
+
+      /* Tabla compacta en móvil */
+      .table-dark {
+        font-size: 12px;
+      }
+      .table-dark th, .table-dark td {
+        padding: 6px 8px;
+        white-space: nowrap;
+      }
+      .games-section .section-title { font-size: 16px; }
+      .chart-subtitle { font-size: 12px; }
+
+      /* Mostrar versión móvil del Ítem (una palabra por línea) */
+      .item-desktop { display: none; }
+      .item-mobile { display: inline-block; line-height: 1.1; }
+
+      /* Mantener tabla como grilla en móvil (sin separar filas) */
+      .table-dark { table-layout: fixed; }
+      .table-dark th, .table-dark td { white-space: normal; }
+      .table-dark th.col-cat { width: 20%; }
+      .table-dark th.col-item { width: 30%; }
+      .table-dark th.col-paquete { width: 35%; }
+      .table-dark th.col-cantidad { width: 15%; }
+      .table-dark td.col-cantidad { text-align: center; }
     }
   </style>
 </head>
@@ -955,8 +1030,17 @@
       
       <!-- Botón de Dashboard (para usuarios normales y admin) -->
       <div class="dashboard-icon-container" onclick="window.location.href='/dashboard'" title="{% if session.get('is_admin') %}Dashboard Administrativo{% else %}Mi Dashboard{% endif %}">
-        <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/>
+        <svg class="icon" viewBox="0 0 200 200" fill="none" aria-hidden="true" style="color:#ffffff">
+          <!-- Ejes -->
+          <line x1="30" y1="10" x2="30" y2="170" stroke="currentColor" stroke-width="12" stroke-linecap="round"/>
+          <line x1="30" y1="170" x2="190" y2="170" stroke="currentColor" stroke-width="12" stroke-linecap="round"/>
+          <!-- Barras -->
+          <rect x="45" y="110" width="20" height="60" fill="currentColor" rx="4"/>
+          <rect x="75" y="80" width="20" height="90" fill="currentColor" rx="4"/>
+          <rect x="105" y="110" width="20" height="60" fill="currentColor" rx="4"/>
+          <rect x="135" y="90" width="20" height="80" fill="currentColor" rx="4"/>
+          <!-- Línea de tendencia -->
+          <polyline points="55,110 85,80 115,110 145,90" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </div>
       
@@ -1003,14 +1087,7 @@
       <div class="stats-header">
         <!-- Título del dashboard y filtros -->
         <div class="dashboard-info-section">
-          <h1 class="dashboard-title">{% if is_admin %}Dashboard Administrativo{% else %}Mi Dashboard{% endif %}</h1>
-          <p class="dashboard-subtitle">
-            {% if is_admin %}
-              Panel de estadísticas globales del sistema
-            {% else %}
-              Bienvenido {{ user.nombre }} {{ user.apellido }} - Analiza tu actividad de compras
-            {% endif %}
-          </p>
+          
           
           <!-- Filtros de fecha -->
           <div class="filter-buttons-integrated">
@@ -1027,36 +1104,89 @@
         </div>
       </div>
 
-      <!-- Tarjetas de estadísticas -->
+      <!-- Tarjetas de estadísticas (estilo imagen) -->
       <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-header">
-          <div class="stat-title">Transacciones</div>
-          <div class="stat-icon transactions">📊</div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-title">Gasto del día</div>
+          </div>
+          <div id="kpi-gasto-dia" class="stat-value">${{ "%.2f"|format(gasto_dia) }} $</div>
+          <div class="stat-subtitle" id="kpi-gasto-dia-fecha">{{ fin }}</div>
         </div>
-        <div class="stat-value">{{ total_transacciones }}</div>
-        <div class="stat-subtitle">Total de operaciones</div>
-      </div>
-      
-      <div class="stat-card">
-        <div class="stat-header">
-          <div class="stat-title">Monto aprobado</div>
-          <div class="stat-icon amount">💰</div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-title">Ítem de Stock</div>
+          </div>
+          <div class="stat-value">{{ items_stock }}</div>
         </div>
-        <div class="stat-value">${{ "%.2f"|format(monto_total) }}</div>
-        <div class="stat-subtitle">Total gastado</div>
-      </div>
-      
-      <div class="stat-card">
-        <div class="stat-header">
-          <div class="stat-title">Requerimientos distintos</div>
-          <div class="stat-icon balance">🎮</div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-title">Ítem de Solicitud</div>
+          </div>
+          <div class="stat-value">{{ items_solicitud }}</div>
         </div>
-        <div class="stat-value">{{ stats_por_juego|length }}</div>
-        <div class="stat-subtitle">Tipos de juegos</div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-title">Total de Transacciones</div>
+          </div>
+          <div class="stat-value">{{ total_transacciones }}</div>
+        </div>
       </div>
-      
+
+      <!-- Gráfico de rango -->
+      <div class="chart-section" style="margin-top:16px;">
+        <div class="chart-header">
+          <div class="chart-title">Rango: {{ inicio }} — {{ fin }}</div>
+          <div class="chart-subtitle">Gasto por día · Pico: <span id="top-day-date"></span> <span id="top-day-value"></span></div>
+        </div>
+        <div class="chart-container">
+          <canvas id="serieChart"></canvas>
+        </div>
       </div>
+
+      <!-- Tabla de compras por paquete del día seleccionado -->
+      <div class="games-section" style="margin-top:16px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div class="section-title">Compras por paquete en el día seleccionado</div>
+          <div class="chart-subtitle"><span id="selected-date">{{ fin }}</span></div>
+        </div>
+        <div class="table-responsive">
+        <table class="table-dark">
+          <thead class="table-header-row">
+            <tr>
+              <th>Categoria</th>
+              <th>Ítem</th>
+              <th>Paquete</th>
+              <th>Cantidad</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% set prev_cat = None %}
+            {% for row in paquetes_catalogo %}
+            {% set is_new_cat = (prev_cat != row.categoria) %}
+            <tr class="table-row {% if is_new_cat %}category-separator{% endif %}">
+              <td data-label="Categoría">{{ row.categoria }}</td>
+              <td data-label="Ítem">
+                <span class="item-desktop">{{ row.item }}</span>
+                <span class="item-mobile">{% for w in row.item.split(' ') %}{{ w }}<br/>{% endfor %}</span>
+              </td>
+              <td data-label="Paquete">
+                <span class="item-desktop">{{ row.paquete }}</span>
+                <span class="item-mobile">
+                  {% set pkg_mobile = row.paquete|replace(' 💎','💎')|replace(' 🪙','🪙') %}
+                  {% for w in pkg_mobile.split(' ') %}{{ w }}<br/>{% endfor %}
+                </span>
+              </td>
+              {% set cnt = compras_paquete_map.get(row.paquete, 0) %}
+              <td data-label="Cantidad" class="col-cantidad {% if cnt > 0 %}qty-positive{% endif %}">{{ cnt }}</td>
+            </tr>
+            {% set prev_cat = row.categoria %}
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </div>
+
     </div>
 
     <!-- Top Usuarios (solo para admin) -->
@@ -1081,51 +1211,13 @@
     </div>
     {% endif %}
 
-    <!-- Lista de Transacciones -->
-    <div class="transactions-section">
-      <div class="transactions-header">
-        <div class="section-title">Transacciones</div>
-      </div>
-      
-      <div class="transactions-summary">
-        <div class="summary-item">
-          <span class="summary-label">� Totales</span>
-        </div>
-        <div class="summary-item">
-          <span class="summary-label">Transacciones:</span>
-          <span class="summary-value">{{ total_transacciones }}</span>
-        </div>
-        <div class="summary-item">
-          <span class="summary-label">Monto:</span>
-          <span class="summary-value">${{ "%.2f"|format(monto_total) }}</span>
-        </div>
-      </div>
-      
-      {% if transacciones %}
-        {% for transaccion in transacciones %}
-        <div class="transaction-item">
-          <div class="transaction-info">
-            <div class="transaction-package">{{ transaccion.paquete }}</div>
-            <div class="transaction-details">
-              {{ transaccion.fecha.split(' ')[0] }} {{ transaccion.fecha.split(' ')[1].split('.')[0] }} 
-              | Control: {{ transaccion.numero_control }}
-              {% if transaccion.get('is_bloodstriker') %}
-                | {{ transaccion.pin }}
-              {% endif %}
-            </div>
-          </div>
-          <div class="transaction-amount">-${{ "%.2f"|format(transaccion.monto) }}</div>
-        </div>
-        {% endfor %}
-      {% else %}
-        <div class="no-data">
-          <div class="no-data-icon">📭</div>
-          <div class="no-data-title">No hay transacciones en el período seleccionado</div>
-          <div class="no-data-subtitle">Intenta seleccionar un rango de fechas diferente</div>
-        </div>
-      {% endif %}
-    </div>
+    
   </div>
+
+  <!-- Datos del gráfico en JSON para evitar errores del linter JS -->
+  <script id="data-series-labels" type="application/json">{{ series_labels|tojson }}</script>
+  <script id="data-series-values" type="application/json">{{ series_values|tojson }}</script>
+  <script id="data-compras-por-dia" type="application/json">{{ compras_por_dia_paquete|tojson }}</script>
 
   <script>
     // Funciones para los menús del header integrado
@@ -1155,18 +1247,113 @@
       }
     });
 
-    // Auto-establecer fecha máxima como hoy
+    // Auto-establecer fecha máxima como hoy y dibujar gráfico
     document.addEventListener('DOMContentLoaded', function() {
       const today = new Date().toISOString().split('T')[0];
       const dateInputs = document.querySelectorAll('input[type="date"]');
-      dateInputs.forEach(input => {
-        input.max = today;
-      });
+      dateInputs.forEach(input => { input.max = today; });
 
-      // Mostrar mensaje simple en lugar del gráfico para evitar errores de sintaxis
-      const chartContainer = document.querySelector('.chart-container');
-      if (chartContainer) {
-        chartContainer.innerHTML = '<div class="no-data"><div class="no-data-icon">📊</div><div class="no-data-title">Estadísticas Visuales</div><div class="no-data-subtitle">Los datos se muestran en las tarjetas de estadísticas</div></div>';
+      const ctx = document.getElementById('serieChart');
+      if (ctx) {
+        const labels = JSON.parse(document.getElementById('data-series-labels').textContent || '[]');
+        const values = JSON.parse(document.getElementById('data-series-values').textContent || '[]'); // montos por día
+        const comprasPorDiaPaquete = JSON.parse(document.getElementById('data-compras-por-dia').textContent || '{}');
+
+        // Etiquetas multilínea: [DíaSemana, Fecha]
+        const dias = ['D','L','M','M','J','V','S'];
+        const labelsMulti = labels.map(d => {
+          const dt = new Date(d + 'T00:00:00-04:00');
+          const dow = dias[dt.getDay()];
+          return [dow, d];
+        });
+        // Calcular día con mayor ventas (pico)
+        let maxIdx = 0; let maxVal = 0;
+        values.forEach((v, i) => { if (v > maxVal) { maxVal = v; maxIdx = i; } });
+        const pointR = values.map((_, i) => i === maxIdx ? 6 : 3);
+        const pointBg = values.map((_, i) => i === maxIdx ? '#06b6d4' : '#93c5fd');
+        // Escribir resumen del pico
+        const elTopDate = document.getElementById('top-day-date');
+        const elTopVal = document.getElementById('top-day-value');
+        if (elTopDate) elTopDate.textContent = labels[maxIdx] || '';
+        if (elTopVal) elTopVal.textContent = maxVal ? ('· $ ' + Number(maxVal).toFixed(2)) : '';
+        const chart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labelsMulti,
+            datasets: [{
+              label: 'Gasto',
+              data: values,
+              borderColor: '#06b6d4',
+              backgroundColor: 'rgba(6,182,212,0.18)',
+              borderWidth: 3,
+              tension: 0.45,
+              fill: true,
+              pointRadius: pointR,
+              pointHoverRadius: 6,
+              hitRadius: 10,
+              pointBackgroundColor: pointBg
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            onClick: function(evt) {
+              const points = chart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
+              if (!points.length) return;
+              const index = points[0].index;
+              const dateSel = labels[index];
+              const gastoSel = values[index] || 0;
+              // Actualizar KPI de gasto del día
+              const kpiVal = document.getElementById('kpi-gasto-dia');
+              const kpiFecha = document.getElementById('kpi-gasto-dia-fecha');
+              if (kpiVal) kpiVal.textContent = '$' + Number(gastoSel).toFixed(2) + ' ';
+              if (kpiFecha) kpiFecha.textContent = dateSel;
+              // Actualizar tabla
+              const selectedDateSpan = document.getElementById('selected-date');
+              if (selectedDateSpan) selectedDateSpan.textContent = dateSel;
+              const tbody = document.querySelector('.games-section table tbody');
+              const counts = (comprasPorDiaPaquete && comprasPorDiaPaquete[dateSel]) ? comprasPorDiaPaquete[dateSel] : {};
+              if (tbody) {
+                const rows = tbody.querySelectorAll('tr');
+                rows.forEach(tr => {
+                  const cells = tr.querySelectorAll('td');
+                  if (cells.length >= 4) {
+                    const paquete = cells[2].innerText.trim();
+                    cells[3].innerText = counts[paquete] ? counts[paquete] : 0;
+                  }
+                });
+              }
+            },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: function(context) {
+                    const v = context.parsed.y || 0;
+                    return '$ ' + v.toFixed(2);
+                  }
+                }
+              }
+            },
+            scales: {
+              x: {
+                ticks: { color: '#64748b' },
+                grid: { color: '#eef2f7' },
+                minRotation: 45,
+                maxRotation: 45
+              },
+              y: {
+                ticks: {
+                  color: '#64748b',
+                  callback: function(value) { return '$ ' + Number(value).toFixed(0); }
+                },
+                grid: { color: '#eef2f7' },
+                beginAtZero: true,
+                suggestedMax: Math.max(...values, 0) * 1.3 || 10
+              }
+            }
+          }
+        });
       }
     });
   </script>

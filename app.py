@@ -4222,9 +4222,11 @@ def dashboard():
     fecha_fin = request.args.get('fin', '')
     preset = request.args.get('preset', 'hoy')  # Por defecto "hoy"
     
-    # Manejar presets de fecha
+    # Manejar presets de fecha (usar zona horaria de Venezuela)
     from datetime import datetime, timedelta
-    today = datetime.now()
+    import pytz
+    venezuela_tz = pytz.timezone('America/Caracas')
+    today = datetime.now(venezuela_tz)
     
     if preset == 'hoy' or (not preset and not fecha_inicio and not fecha_fin):
         # Por defecto siempre mostrar "hoy"
@@ -4420,6 +4422,102 @@ def dashboard():
         stats_por_juego[juego]['cantidad'] += 1
         stats_por_juego[juego]['monto'] += transaction['monto']
     
+    # Serie temporal por día (para gráfico) y gasto del día seleccionado
+    from collections import OrderedDict
+    try:
+        fecha_inicio_dt = datetime.strptime(fecha_inicio, '%Y-%m-%d')
+        fecha_fin_dt = datetime.strptime(fecha_fin, '%Y-%m-%d')
+    except:
+        from datetime import datetime as _dt
+        fecha_inicio_dt = _dt.now()
+        fecha_fin_dt = _dt.now()
+
+    dias = []
+    current = fecha_inicio_dt
+    while current <= fecha_fin_dt:
+        dias.append(current.strftime('%Y-%m-%d'))
+        from datetime import timedelta as _td
+        current += _td(days=1)
+    # Asegurar al menos 7 días para que la línea se dibuje y se vean los días de la semana
+    if len(dias) < 7:
+        from datetime import timedelta as _td
+        faltan = 7 - len(dias)
+        # Prepend días anteriores al inicio
+        prepend = []
+        cur = fecha_inicio_dt - _td(days=1)
+        for _ in range(faltan):
+            prepend.append(cur.strftime('%Y-%m-%d'))
+            cur -= _td(days=1)
+        dias = list(reversed(prepend)) + dias
+
+    serie_map = OrderedDict((d, 0.0) for d in dias)
+    # Mapa de compras por día y por paquete para actualizar tabla desde el gráfico
+    compras_por_dia_paquete = {d: {} for d in dias}
+    for t in transacciones_procesadas:
+        fecha_str = str(t['fecha']).split(' ')[0]
+        if fecha_str in serie_map:
+            serie_map[fecha_str] += float(t['monto'])
+            paquete_nombre = t.get('paquete', 'Desconocido')
+            compras_por_dia_paquete[fecha_str][paquete_nombre] = compras_por_dia_paquete[fecha_str].get(paquete_nombre, 0) + 1
+
+    series_labels = list(serie_map.keys())
+    series_values = [round(v, 2) for v in serie_map.values()]
+
+    # Gasto del día (usa el fin del rango como día seleccionado)
+    gasto_dia = 0.0
+    if fecha_fin in serie_map:
+        gasto_dia = round(serie_map[fecha_fin], 2)
+
+    # Conteo de compras por paquete en el día seleccionado
+    compras_paquete_counter = {}
+    for t in transacciones_procesadas:
+        fecha_str = str(t['fecha']).split(' ')[0]
+        if fecha_str == fecha_fin:
+            nombre = t.get('paquete', 'Desconocido')
+            compras_paquete_counter[nombre] = compras_paquete_counter.get(nombre, 0) + 1
+
+    # Construir filas para tabla: Categoria, Ítem (juego), Paquete, Cantidad
+    compras_paquete = []
+    for nombre, cantidad in sorted(compras_paquete_counter.items(), key=lambda x: x[0]):
+        # Detectar juego para la columna Ítem
+        if '🪙' in nombre or 'Blood' in nombre:
+            item = 'Blood Striker'
+        elif '💎' in nombre or 'Tarjeta' in nombre:
+            # Intento de distinguir LATAM/Global por patrones del nombre
+            if any(x in nombre for x in ['110 💎', '341 💎', '572 💎', '1.166 💎', '2.376 💎', '6.138 💎', 'Tarjeta']):
+                item = 'Freefire Bolivia'
+            else:
+                item = 'Freefire'
+        else:
+            item = 'Otros'
+        compras_paquete.append({
+            'categoria': 'Juegos',
+            'item': item,
+            'paquete': nombre,
+            'cantidad': cantidad
+        })
+
+    # Catálogo completo de paquetes para mostrar filas con 0 cuando no hubo compras
+    paquetes_catalogo = []
+    try:
+        # Free Fire LATAM
+        for _id, info in packages_info.items():
+            paquetes_catalogo.append({'categoria': 'Juegos', 'item': 'Freefire Bolivia', 'paquete': info['nombre']})
+        # Free Fire Global
+        for _id, info in freefire_global_packages_info.items():
+            paquetes_catalogo.append({'categoria': 'Juegos', 'item': 'Freefire', 'paquete': info['nombre']})
+        # Blood Striker
+        for _id, info in bloodstriker_packages_info.items():
+            paquetes_catalogo.append({'categoria': 'Juegos', 'item': 'Blood Striker', 'paquete': info['nombre']})
+    except Exception:
+        pass
+
+    compras_paquete_map = compras_paquete_counter
+
+    # Valores por defecto (si no existen tablas de stock/solicitudes)
+    items_stock = 0
+    items_solicitud = 0
+
     # Obtener contador de notificaciones de cartera para usuarios normales
     wallet_notification_count = 0
     if not is_admin and user_id:
@@ -4444,7 +4542,16 @@ def dashboard():
                          is_admin=is_admin,
                          top_users=top_users,
                          wallet_notification_count=wallet_notification_count,
-                         news_notification_count=news_notification_count)
+                         news_notification_count=news_notification_count,
+                         series_labels=series_labels,
+                         series_values=series_values,
+                         gasto_dia=gasto_dia,
+                         items_stock=items_stock,
+                         items_solicitud=items_solicitud,
+                         compras_paquete=compras_paquete,
+                         compras_paquete_map=compras_paquete_map,
+                         paquetes_catalogo=paquetes_catalogo,
+                         compras_por_dia_paquete=compras_por_dia_paquete)
 
 @app.route('/logout')
 def logout():
