@@ -61,7 +61,12 @@
       <!-- Pestaña de Usuarios -->
       <div id="tab-usuarios" class="tab-content active">
         <section class="users-section">
-      <h2>Gestión de Usuarios</h2>
+      <div class="section-header">
+        <h2>Gestión de Usuarios</h2>
+        <div class="search-inline">
+          <input type="number" id="user-id-search" placeholder="id">
+        </div>
+      </div>
       
       {% if users %}
         <div class="users-grid">
@@ -456,6 +461,26 @@
       priceGameSelect.addEventListener('change', function() {
         renderPricePackageList(this.value);
       });
+    }
+
+    // Buscador por ID de usuario
+    window.filterUsersById = function() {
+      const q = (document.getElementById('user-id-search')?.value || '').trim();
+      const cards = document.querySelectorAll('.users-grid .user-card');
+      if (!q) {
+        cards.forEach(c => c.style.display = '');
+        return;
+      }
+      cards.forEach(card => {
+        const idEl = card.querySelector('.user-id');
+        const txt = idEl ? idEl.textContent : '';
+        const match = txt.replace(/[^0-9]/g, '') === q;
+        card.style.display = match ? '' : 'none';
+      });
+    }
+    const userSearch = document.getElementById('user-id-search');
+    if (userSearch) {
+      userSearch.addEventListener('keyup', function(e){ if (e.key === 'Enter') filterUsersById(); });
     }
 
     }, 2000);
