@@ -65,6 +65,7 @@
         <h2>Gestión de Usuarios</h2>
         <div class="search-inline">
           <input type="number" id="user-id-search" placeholder="id">
+          <button type="button" id="user-id-clear" class="btn btn-clear-id" aria-label="Limpiar">×</button>
         </div>
       </div>
       
@@ -481,6 +482,12 @@
     const userSearch = document.getElementById('user-id-search');
     if (userSearch) {
       userSearch.addEventListener('keyup', function(e){ if (e.key === 'Enter') filterUsersById(); });
+      userSearch.addEventListener('input', function(){ filterUsersById(); });
+      userSearch.addEventListener('change', function(){ filterUsersById(); });
+    }
+    const clearBtn = document.getElementById('user-id-clear');
+    if (clearBtn && userSearch) {
+      clearBtn.addEventListener('click', function(){ userSearch.value = ''; filterUsersById(); userSearch.focus(); });
     }
 
     }, 2000);
