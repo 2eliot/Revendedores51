@@ -28,9 +28,15 @@
       <div id="menu-juegos" class="menu-juegos">
         <p class="menu-title">🎮 Juegos</p>
         <ul>
+          {% if games_active.freefire %}
           <li><a href="/juego/freefire_latam">Free Fire Latam</a></li>
+          {% endif %}
+          {% if games_active.freefire_global %}
           <li><a href="/juego/freefire">Free Fire</a></li>
+          {% endif %}
+          {% if games_active.bloodstriker %}
           <li><a href="/juego/bloodstriker">Blood Striker</a></li>
+          {% endif %}
         </ul>
       </div>
     </div>

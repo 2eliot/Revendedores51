@@ -19,17 +19,7 @@
     {% endif %}
   {% endwith %}
 
-  <!-- Header de administrador -->
-  <header class="admin-header">
-    <div class="admin-title">
-      <h1>🛠️ Panel de Administrador</h1>
-    </div>
-    <div class="admin-info">
-      <span>{{ session.get('nombre', 'Admin') }} {{ session.get('apellido', '') }}</span>
-      <a href="/" class="btn" style="background: #007bff; color: white; padding: 8px 16px; text-decoration: none; border-radius: 4px; margin-right: 10px;">🏠 Volver al Inicio</a>
-      <a href="/logout" class="logout-btn">Cerrar Sesión</a>
-    </div>
-  </header>
+  
 
   <!-- Panel principal -->
   <main class="admin-main">
@@ -45,14 +35,28 @@
       </div>
     </div>
 
-    <!-- Sistema de pestañas -->
-    <div class="tabs-container">
-      <div class="tabs-header">
-        <button class="tab-button active" onclick="showTab('usuarios')">👥 Usuarios</button>
-        <button class="tab-button" onclick="showTab('pines')">📌 Gestor de Pines</button>
-        <button class="tab-button" onclick="showTab('precios')">💰 Precios</button>
-        <button class="tab-button" onclick="showTab('noticias')">📰 Noticias</button>
-      </div>
+    <!-- Layout con sidebar lateral -->
+    <div class="admin-shell">
+      <aside class="admin-sidebar">
+        <button class="side-tab-button active" onclick="showTab('usuarios')" aria-label="Usuarios">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="label">Usuarios</span>
+        </button>
+        <button class="side-tab-button" onclick="showTab('pines')" aria-label="Pines">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3l5 5-7 7-4 1 1-4 7-7z"/><path d="M2 22l6-6"/></svg></span><span class="label">Pines</span>
+        </button>
+        <button class="side-tab-button" onclick="showTab('precios')" aria-label="Precios">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><span class="label">Precios</span>
+        </button>
+        <button class="side-tab-button" onclick="showTab('noticias')" aria-label="Noticias">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19h16a2 2 0 0 0 2-2V5H6a2 2 0 0 0-2 2z"/><path d="M16 3v4a2 2 0 0 0 2 2h4"/><path d="M8 11h8"/><path d="M8 15h8"/></svg></span><span class="label">Noticias</span>
+        </button>
+        <a class="side-tab-button" href="/" aria-label="Volver al Inicio" style="text-decoration:none;">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7"/><path d="M9 22V12h6v10"/></svg></span><span class="label">Inicio</span>
+        </a>
+      </aside>
+
+      <!-- Contenido de pestañas -->
+      <div class="tabs-container">
 
       <!-- Pestaña de Usuarios -->
       <div id="tab-usuarios" class="tab-content active">
@@ -60,55 +64,49 @@
       <h2>Gestión de Usuarios</h2>
       
       {% if users %}
-        <div class="users-table-container">
-          <table class="users-table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Nombre</th>
-                <th>Apellido</th>
-                <th>Correo</th>
-                <th>Teléfono</th>
-                <th>Saldo</th>
-                <th>Fecha Registro</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for user in users %}
-              <tr>
-                <td>{{ user.id }}</td>
-                <td>{{ user.nombre }}</td>
-                <td>{{ user.apellido }}</td>
-                <td>{{ user.correo }}</td>
-                <td>{{ user.telefono }}</td>
-                <td class="balance">${{ "%.2f"|format(user.saldo) }}</td>
-                <td>{{ user.fecha_registro[:10] }}</td>
-                <td class="actions">
-                  <!-- Agregar crédito -->
-                  <form method="POST" action="/admin/add_credit" class="inline-form">
-                    <input type="hidden" name="user_id" value="{{ user.id }}">
-                    <input type="number" name="amount" placeholder="Monto" step="0.01" min="0.01" required class="small-input">
-                    <button type="submit" class="btn btn-success">+ Crédito</button>
-                  </form>
-                  
-                  <!-- Modificar saldo -->
-                  <form method="POST" action="/admin/update_balance" class="inline-form">
-                    <input type="hidden" name="user_id" value="{{ user.id }}">
-                    <input type="number" name="new_balance" placeholder="Nuevo saldo" step="0.01" min="0" required class="small-input">
-                    <button type="submit" class="btn btn-warning">Modificar</button>
-                  </form>
-                  
-                  <!-- Eliminar usuario -->
-                  <form method="POST" action="/admin/delete_user" class="inline-form" onsubmit="return confirm('¿Estás seguro de eliminar este usuario? Esta acción no se puede deshacer.')">
-                    <input type="hidden" name="user_id" value="{{ user.id }}">
-                    <button type="submit" class="btn btn-danger">Eliminar</button>
-                  </form>
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+        <div class="users-grid">
+          {% for user in users %}
+          <div class="user-card">
+            <div class="user-card-header">
+              <div class="user-name">{{ user.nombre }} {{ user.apellido }}</div>
+              <div class="user-id">ID: {{ user.id }}</div>
+            </div>
+            <div class="user-card-body">
+              <div class="user-row">
+                <div class="user-label">Email</div>
+                <div class="user-value">{{ user.correo }}</div>
+              </div>
+              <div class="user-row">
+                <div class="user-label">Teléfono</div>
+                <div class="user-value">{{ user.telefono }}</div>
+              </div>
+              <div class="user-row">
+                <div class="user-label">Saldo</div>
+                <div class="user-value balance">${{ "%.2f"|format(user.saldo) }}</div>
+              </div>
+              <div class="user-row">
+                <div class="user-label">Fecha</div>
+                <div class="user-value">{{ user.fecha_registro[:10] }}</div>
+              </div>
+            </div>
+            <div class="user-card-actions">
+              <form method="POST" action="/admin/add_credit" class="inline-form">
+                <input type="hidden" name="user_id" value="{{ user.id }}">
+                <input type="number" name="amount" placeholder="Monto" step="0.01" min="0.01" required class="small-input">
+                <button type="submit" class="btn btn-success">+ Crédito</button>
+              </form>
+              <form method="POST" action="/admin/update_balance" class="inline-form">
+                <input type="hidden" name="user_id" value="{{ user.id }}">
+                <input type="number" name="new_balance" placeholder="Nuevo saldo" step="0.01" min="0" required class="small-input">
+                <button type="submit" class="btn btn-warning">Modificar</button>
+              </form>
+              <form method="POST" action="/admin/delete_user" class="inline-form" onsubmit="return confirm('¿Estás seguro de eliminar este usuario? Esta acción no se puede deshacer.')">
+                <input type="hidden" name="user_id" value="{{ user.id }}">
+                <button type="submit" class="btn btn-danger">Eliminar</button>
+              </form>
+            </div>
+          </div>
+          {% endfor %}
         </div>
       {% else %}
         <div class="no-users">
@@ -122,306 +120,65 @@
       <div id="tab-pines" class="tab-content">
         <section class="pins-section">
       <h2>📌 Gestión de Pines Free Fire</h2>
-      <div style="margin: 8px 0 16px;">
-        <a href="/admin/pins?game=freefire_latam" class="btn" style="background:#28a745;color:#fff;padding:8px 12px;text-decoration:none;border-radius:4px;">👀 Ver pines y eliminar</a>
-      </div>
       
       <div class="pin-management">
-        <div class="pin-forms-container">
-          <!-- Agregar Pin Individual -->
-          <div class="pin-form-section">
-            <h3>Agregar Pin Individual</h3>
-            <form method="POST" action="/admin/add_pin" class="admin-form">
-              <div class="form-group">
-                <label for="game_type_single">🎮 Juego:</label>
-                <select id="game_type_single" name="game_type" onchange="updateSinglePinPackages()" required>
-                  <option value="">Seleccione juego</option>
-                  <option value="freefire_latam">Free Fire Latam</option>
-                  <option value="freefire_global">Free Fire</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label for="monto_id">Tipo de Paquete:</label>
-                <select id="monto_id" name="monto_id" required disabled>
-                  <option value="">Seleccione paquete</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label for="pin_codigo">Código del Pin:</label>
-                <input type="text" id="pin_codigo" name="pin_codigo" placeholder="Ingrese el código del pin" required>
-              </div>
-              <button type="submit" class="btn btn-primary">Agregar Pin</button>
-            </form>
-          </div>
-
-          <!-- Agregar Pines en Lote -->
-          <div class="pin-form-section">
-            <h3>📦 Agregar Pines en Lote</h3>
-            <p class="batch-info">Agregue hasta 10 pines a la vez. Separe cada pin con una línea nueva o coma.</p>
-            <form method="POST" action="/admin/add_pins_batch" class="admin-form">
-              <div class="form-group">
-                <label for="game_type_batch">🎮 Juego:</label>
-                <select id="game_type_batch" name="game_type" onchange="updateBatchPinPackages()" required>
-                  <option value="">Seleccione juego</option>
-                  <option value="freefire_latam">Free Fire Latam</option>
-                  <option value="freefire_global">Free Fire</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label for="batch_monto_id">Tipo de Paquete:</label>
-                <select id="batch_monto_id" name="batch_monto_id" required disabled>
-                  <option value="">Seleccione paquete</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label for="pins_batch">Códigos de Pines (máximo 10):</label>
-                <textarea id="pins_batch" name="pins_batch" rows="6" placeholder="Ingrese los códigos de pines, uno por línea:&#10;PIN123456&#10;PIN789012&#10;PIN345678&#10;..." required></textarea>
-                <small class="form-help">Separe cada pin con una línea nueva o coma. Máximo 10 pines por lote.</small>
-              </div>
-              <button type="submit" class="btn btn-success">📦 Agregar Lote de Pines</button>
-            </form>
-          </div>
+        <div class="pin-selector-row">
+          <label for="pin_game_selector" class="pin-selector-label">🎮 Juego:</label>
+          <select id="pin_game_selector" class="pin-selector">
+            {% if games_active.freefire %}
+            <option value="freefire_latam" selected>Free Fire Latam</option>
+            {% endif %}
+            {% if games_active.freefire_global %}
+            <option value="freefire_global">Free Fire</option>
+            {% endif %}
+          </select>
         </div>
+
+        <div id="package-list" class="package-list"></div>
       </div>
-
-        <!-- Stock de Pines por Juego -->
-        <div class="pin-stock">
-          <h3>📦 Stock de Pines por Juego</h3>
-          
-          <!-- Free Fire LATAM -->
-          <div class="game-stock-section">
-            <h4>🔥 Free Fire LATAM</h4>
-            <div class="stock-grid">
-              {% for price in prices %}
-              <div class="stock-item">
-                <div class="stock-info">
-                  <span class="package-name">{{ price.nombre }}</span>
-                  <span class="package-price">${{ "%.2f"|format(price.precio) }}</span>
-                  <span class="stock-count">{{ pin_stock.get(price.id, 0) }} pines</span>
-                </div>
-                
-                <!-- Toggle de configuración de fuente -->
-                <div class="source-config">
-                  <label class="source-label">Fuente:</label>
-                  <div class="source-toggle-group">
-                    <form method="POST" action="/admin/toggle_pin_source" class="source-toggle-form">
-                      <input type="hidden" name="monto_id" value="{{ price.id }}">
-                      <input type="hidden" name="fuente" value="local">
-                      <button type="submit" class="btn btn-source-toggle btn-local {% if pin_sources_config.get(price.id) == 'local' %}active{% endif %}" 
-                              title="Los usuarios obtendrán pines del stock local">
-                        📦 Local {% if pin_sources_config.get(price.id) == 'local' %}✓{% endif %}
-                      </button>
-                    </form>
-                    
-                    <form method="POST" action="/admin/toggle_pin_source" class="source-toggle-form">
-                      <input type="hidden" name="monto_id" value="{{ price.id }}">
-                      <input type="hidden" name="fuente" value="api_externa">
-                      <button type="submit" class="btn btn-source-toggle btn-api {% if pin_sources_config.get(price.id) == 'api_externa' %}active{% endif %}" 
-                              title="Los usuarios obtendrán pines directamente de la API externa">
-                        🌐 API {% if pin_sources_config.get(price.id) == 'api_externa' %}✓{% endif %}
-                      </button>
-                    </form>
-                  </div>
-                </div>
-              </div>
-              {% endfor %}
-            </div>
-          </div>
-          
-          <!-- Free Fire Global -->
-          <div class="game-stock-section">
-            <h4>🎮 Free Fire</h4>
-            <div class="stock-grid">
-              {% for price in freefire_global_prices %}
-              <div class="stock-item">
-                <div class="stock-info">
-                  <span class="package-name">{{ price.nombre }}</span>
-                  <span class="package-price">${{ "%.2f"|format(price.precio) }}</span>
-                  <span class="stock-count">{{ pin_stock_freefire_global.get(price.id, 0) }} pines</span>
-                </div>
-                
-                <div class="source-config">
-                  <label class="source-label">Fuente:</label>
-                  <div class="source-info">
-                    <span class="source-badge">📦 Solo Local</span>
-                  </div>
-                </div>
-              </div>
-              {% endfor %}
-            </div>
-          </div>
-          
-          <!-- Estado de API Externa -->
-          <div class="api-status-section">
-            <h4>🌐 Estado de API Externa (Solo Free Fire LATAM)</h4>
-            <div class="api-status-info">
-              <p>La API externa permite obtener pines automáticamente cuando el stock local está bajo.</p>
-              <form method="POST" action="/admin/test_external_api" class="test-api-form">
-                <button type="submit" class="btn btn-test-api">🧪 Probar Conexión API</button>
-              </form>
-            </div>
-          </div>
-          
-          <!-- Herramientas de mantenimiento -->
-          <div class="pin-maintenance">
-            <h3>🔧 Herramientas de Mantenimiento</h3>
-            <div class="maintenance-actions">
-              <form method="POST" action="/admin/remove_duplicates" class="maintenance-form" onsubmit="return confirm('¿Estás seguro de eliminar todos los pines duplicados? Esta acción no se puede deshacer.')">
-                <div class="maintenance-info">
-                  <p>🗑️ <strong>Eliminar Pines Duplicados</strong></p>
-                  <small>Esta función eliminará automáticamente todos los pines duplicados de la base de datos, manteniendo solo el más reciente de cada código único por paquete.</small>
-                </div>
-                <button type="submit" class="btn btn-maintenance">🗑️ Eliminar Duplicados</button>
-              </form>
-            </div>
-          </div>
-        </div>
+      
+        
         </section>
       </div>
 
       <!-- Pestaña de Precios -->
       <div id="tab-precios" class="tab-content">
         <section class="prices-section">
-          <h2>💰 Gestión de Precios</h2>
-          
-            <div class="prices-management">
-            <div class="price-selector-container">
-              <h3>Modificar Precios</h3>
-              <p class="prices-info">Seleccione el juego y paquete para modificar su precio. Los cambios se aplicarán inmediatamente.</p>
-              
-              <form method="POST" action="/admin/update_price" class="price-selector-form">
-                <div class="form-row">
+          <div class="price-selector-container">
+            <div class="form-row">
               <div class="form-group">
-                <label for="game_select">🎮 Juego:</label>
-                <select id="game_select" onchange="updatePackages()">
+                <label for="price_game_select">🎮 Juego:</label>
+                <select id="price_game_select">
                   <option value="freefire">Free Fire Latam</option>
                   <option value="freefire_global">Free Fire</option>
                   <option value="bloodstriker">Blood Striker</option>
-                  <option value="other_games" disabled>Otros Juegos (Próximamente)</option>
                 </select>
               </div>
-                  
-                  <div class="form-group">
-                    <label for="package_select">📦 Paquete:</label>
-                    <select id="package_select" name="package_id" onchange="updatePriceInfo()" required>
-                      <option value="">Seleccione un paquete</option>
-                      {% for price in prices %}
-                        <option value="{{ price.id }}" 
-                                data-current-price="{{ price.precio }}" 
-                                data-name="{{ price.nombre }}" 
-                                data-description="{{ price.descripcion }}">
-                          {{ price.nombre }}
-                        </option>
-                      {% endfor %}
-                    </select>
-                  </div>
-                  
-                  <div class="form-group">
-                    <label for="new_price_input">💰 Nuevo Precio:</label>
-                    <input type="number" 
-                           id="new_price_input" 
-                           name="new_price" 
-                           step="0.01" 
-                           min="0" 
-                           placeholder="0.00" 
-                           required>
-                  </div>
-                  
-                  <div class="form-group">
-                    <button type="submit" class="btn btn-update-price">Actualizar Precio</button>
-                  </div>
-                </div>
-              </form>
-              
-              <div id="price-info" class="price-info-display" style="display: none;">
-                <div class="current-price-info">
-                  <h4 id="selected-package-name">-</h4>
-                  <p id="selected-package-description">-</p>
-                  <div class="price-comparison">
-                    <span class="current-price-label">Precio actual:</span>
-                    <span id="current-price-value" class="current-price-badge">$0.00</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            <!-- Nueva sección para cambiar nombres de paquetes -->
-            <div class="name-selector-container">
-              <h3>Modificar Nombres de Paquetes</h3>
-              <p class="names-info">Seleccione el juego y paquete para modificar su nombre. Los cambios se aplicarán inmediatamente.</p>
-              
-              <form method="POST" action="/admin/update_name" class="name-selector-form">
-                <div class="form-row">
-                  <div class="form-group">
-                    <label for="name_game_select">🎮 Juego:</label>
-                    <select id="name_game_select" onchange="updateNamePackages()">
-                      <option value="freefire">Free Fire Latam</option>
-                      <option value="freefire_global">Free Fire</option>
-                      <option value="bloodstriker">Blood Striker</option>
-                    </select>
-                  </div>
-                  
-                  <div class="form-group">
-                    <label for="name_package_select">📦 Paquete:</label>
-                    <select id="name_package_select" name="package_id" onchange="updateNameInfo()" required>
-                      <option value="">Seleccione un paquete</option>
-                      {% for price in prices %}
-                        <option value="{{ price.id }}" 
-                                data-current-name="{{ price.nombre }}" 
-                                data-description="{{ price.descripcion }}">
-                          {{ price.nombre }}
-                        </option>
-                      {% endfor %}
-                    </select>
-                  </div>
-                  
-                  <div class="form-group">
-                    <label for="new_name_input">📝 Nuevo Nombre:</label>
-                    <input type="text" 
-                           id="new_name_input" 
-                           name="new_name" 
-                           maxlength="50" 
-                           placeholder="Ingrese el nuevo nombre" 
-                           required>
-                    <small class="form-help">Máximo 50 caracteres</small>
-                  </div>
-                  
-                  <div class="form-group">
-                    <button type="submit" class="btn btn-update-name">Actualizar Nombre</button>
-                  </div>
-                </div>
-              </form>
-              
-              <div id="name-info" class="name-info-display" style="display: none;">
-                <div class="current-name-info">
-                  <h4>Información del Paquete</h4>
-                  <p id="selected-name-package-description">-</p>
-                  <div class="name-comparison">
-                    <span class="current-name-label">Nombre actual:</span>
-                    <span id="current-name-value" class="current-name-badge">-</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            <div class="prices-overview">
-              <h3>Vista General de Precios</h3>
-              <div class="prices-grid">
-                {% for price in prices %}
-                <div class="price-overview-card">
-                  <div class="price-overview-header">
-                    <h4>{{ price.nombre }}</h4>
-                    <span class="price-badge">${{ "%.2f"|format(price.precio) }}</span>
-                  </div>
-                  <p class="price-overview-description">{{ price.descripcion }}</p>
-                  <div class="price-overview-meta">
-                    <small>Actualizado: {{ price.fecha_actualizacion[:16] if price.fecha_actualizacion else 'N/A' }}</small>
-                  </div>
-                </div>
-                {% endfor %}
+              <div class="form-group" style="display:flex;align-items:flex-end;gap:8px;">
+                <form method="POST" action="/admin/toggle_game" onsubmit="document.getElementById('tg_game').value = document.getElementById('price_game_select').value; document.getElementById('tg_active').value = '1';">
+                  <input type="hidden" name="game" id="tg_game" value="freefire">
+                  <input type="hidden" name="active" id="tg_active" value="1">
+                  <button type="submit" class="btn btn-success">Activar</button>
+                </form>
+                <form method="POST" action="/admin/toggle_game" onsubmit="document.getElementById('tg_game2').value = document.getElementById('price_game_select').value; document.getElementById('tg_active2').value = '0';">
+                  <input type="hidden" name="game" id="tg_game2" value="freefire">
+                  <input type="hidden" name="active" id="tg_active2" value="0">
+                  <button type="submit" class="btn btn-danger">Desactivar</button>
+                </form>
               </div>
             </div>
           </div>
+
+          <form id="batch-price-form" method="POST" action="/admin/save_prices_batch">
+            <input type="hidden" name="game" id="batch_game" value="freefire">
+            <input type="hidden" name="payload" id="batch_payload" value="[]">
+
+            <div id="price-package-list" class="package-list"></div>
+
+            <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
+              <button type="button" class="btn btn-update-price" onclick="saveAllPrices()">Guardar Cambios</button>
+            </div>
+          </form>
         </section>
       </div>
 
@@ -526,6 +283,23 @@
     ]
   </script>
 
+  <!-- Stock por paquete (LATAM y Global) -->
+  <script type="application/json" id="freefire-latam-stock">
+    {
+      {% for price in prices %}
+        "{{ price.id }}": {{ pin_stock.get(price.id, 0) }}{% if not loop.last %},{% endif %}
+      {% endfor %}
+    }
+  </script>
+
+  <script type="application/json" id="freefire-global-stock">
+    {
+      {% for price in freefire_global_prices %}
+        "{{ price.id }}": {{ pin_stock_freefire_global.get(price.id, 0) }}{% if not loop.last %},{% endif %}
+      {% endfor %}
+    }
+  </script>
+
   <script type="application/json" id="bloodstriker-data">
     [
       {% for price in bloodstriker_prices %}
@@ -546,392 +320,188 @@
         flashMessages.style.opacity = '0';
         setTimeout(() => flashMessages.remove(), 300);
       }
+
+    // Renderizador de lista de paquetes para Pines
+    function renderPackageList(game) {
+      const container = document.getElementById('package-list');
+      if (!container) return;
+      const data = game === 'freefire_global' ? freefireGlobalPackages : freefireLatamPackages;
+      const stockMap = game === 'freefire_global' ? freefireGlobalStock : freefireLatamStock;
+      container.innerHTML = '';
+      data.forEach(pkg => {
+        const card = document.createElement('div');
+        card.className = 'package-card';
+        card.innerHTML = `
+          <div class="package-card-header">
+            <div class="package-left">
+              <span class="package-stock">${(stockMap[String(pkg.id)]||0)} pines</span>
+              <div class="package-title">${pkg.nombre}</div>
+              <div class="package-price">$${pkg.precio.toFixed(2)}</div>
+            </div>
+            <div class="package-right">
+              <div class="package-actions">
+                <a href="/admin/pins?game=${game}&estado=unused&monto=${pkg.id}" class="btn btn-outline btn-small btn-compact">Ver/Eliminar</a>
+                <button type="button" class="btn btn-primary btn-small btn-compact btn-toggle-ind" data-id="${pkg.id}">Agregar pin</button>
+                <button type="button" class="btn btn-success btn-small btn-compact btn-toggle-batch" data-id="${pkg.id}">Agregar lote</button>
+              </div>
+            </div>
+          </div>
+          <div class="package-forms">
+            <form method="POST" action="/admin/add_pin" class="package-form collapse" id="ind-form-${pkg.id}">
+              <input type="hidden" name="game_type" value="${game}">
+              <input type="hidden" name="monto_id" value="${pkg.id}">
+              <label>Código individual</label>
+              <input type="text" name="pin_codigo" placeholder="PIN123456" required>
+              <button type="submit" class="btn btn-primary btn-small">Agregar</button>
+            </form>
+            <form method="POST" action="/admin/add_pins_batch" class="package-form collapse" id="batch-form-${pkg.id}">
+              <input type="hidden" name="game_type" value="${game}">
+              <input type="hidden" name="batch_monto_id" value="${pkg.id}">
+              <label>Lote (máx 10)</label>
+              <textarea name="pins_batch" rows="2" placeholder="PIN1, PIN2, PIN3" required></textarea>
+              <button type="submit" class="btn btn-success btn-small">Agregar Lote</button>
+            </form>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+
+      // Wire up toggle buttons
+      container.querySelectorAll('.btn-toggle-ind').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-id');
+          const f = document.getElementById(`ind-form-${id}`);
+          if (f) f.classList.toggle('show');
+        });
+      });
+      container.querySelectorAll('.btn-toggle-batch').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-id');
+          const f = document.getElementById(`batch-form-${id}`);
+          if (f) f.classList.toggle('show');
+        });
+      });
+    }
+
+    // Inicializar selector de juego para pines
+    const pinGameSelector = document.getElementById('pin_game_selector');
+    if (pinGameSelector) {
+      renderPackageList(pinGameSelector.value);
+      pinGameSelector.addEventListener('change', function() {
+        renderPackageList(this.value);
+      });
+    }
+
+    // ======= Gestión de Precios (lista editable) =======
+    function renderPricePackageList(game) {
+      const container = document.getElementById('price-package-list');
+      const batchGame = document.getElementById('batch_game');
+      if (!container || !batchGame) return;
+      batchGame.value = game;
+
+      let data = [];
+      if (game === 'freefire') data = freefireLatamPackages;
+      else if (game === 'freefire_global') data = freefireGlobalPackages;
+      else if (game === 'bloodstriker') data = bloodstrikerPackages;
+
+      container.innerHTML = '';
+      data.forEach(pkg => {
+        const card = document.createElement('div');
+        card.className = 'package-card';
+        card.innerHTML = `
+          <div class="package-card-header">
+            <div class="package-left">
+              <div class="package-title">ID ${pkg.id}</div>
+            </div>
+          </div>
+          <div class="package-forms">
+            <div class="package-form">
+              <label>Nombre</label>
+              <input type="text" class="pkg-name" data-id="${pkg.id}" value="${pkg.nombre}" maxlength="50">
+            </div>
+            <div class="package-form">
+              <label>Precio</label>
+              <input type="number" class="pkg-price" data-id="${pkg.id}" value="${Number(pkg.precio).toFixed(2)}" step="0.01" min="0">
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    window.saveAllPrices = function() {
+      const list = [];
+      const container = document.getElementById('price-package-list');
+      if (!container) return;
+      const names = container.querySelectorAll('.pkg-name');
+      names.forEach(nameEl => {
+        const id = nameEl.getAttribute('data-id');
+        const priceEl = container.querySelector(`.pkg-price[data-id="${id}"]`);
+        if (!priceEl) return;
+        const nombre = nameEl.value.trim();
+        const precio = parseFloat(priceEl.value || '0');
+        if (!isFinite(precio)) return;
+        list.push({ id: Number(id), nombre, precio });
+      });
+      const payloadInput = document.getElementById('batch_payload');
+      if (payloadInput) payloadInput.value = JSON.stringify(list);
+      const form = document.getElementById('batch-price-form');
+      if (form) form.submit();
+    }
+
+    // Inicializar precios
+    const priceGameSelect = document.getElementById('price_game_select');
+    if (priceGameSelect) {
+      renderPricePackageList(priceGameSelect.value);
+      priceGameSelect.addEventListener('change', function() {
+        renderPricePackageList(this.value);
+      });
+    }
+
     }, 2000);
 
     // Sistema de pestañas
     function showTab(tabName) {
       // Ocultar todas las pestañas
       const tabContents = document.querySelectorAll('.tab-content');
-      tabContents.forEach(tab => {
-        tab.classList.remove('active');
-      });
+      tabContents.forEach(tab => tab.classList.remove('active'));
 
-      // Desactivar todos los botones
-      const tabButtons = document.querySelectorAll('.tab-button');
-      tabButtons.forEach(button => {
-        button.classList.remove('active');
-      });
+      // Desactivar todos los botones (top y sidebar)
+      document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('.side-tab-button').forEach(btn => btn.classList.remove('active'));
 
       // Mostrar la pestaña seleccionada
-      document.getElementById('tab-' + tabName).classList.add('active');
-      
-      // Activar el botón correspondiente
-      event.target.classList.add('active');
-    }
+      const target = document.getElementById('tab-' + tabName);
+      if (target) target.classList.add('active');
 
-    // Actualizar información de precios
-    function updatePriceInfo() {
-      const select = document.getElementById('package_select');
-      const selectedOption = select.options[select.selectedIndex];
-      const priceInfo = document.getElementById('price-info');
-      
-      if (selectedOption.value) {
-        const currentPrice = selectedOption.getAttribute('data-current-price');
-        const name = selectedOption.getAttribute('data-name');
-        const description = selectedOption.getAttribute('data-description');
-        
-        document.getElementById('selected-package-name').textContent = name;
-        document.getElementById('selected-package-description').textContent = description;
-        document.getElementById('current-price-value').textContent = '$' + parseFloat(currentPrice).toFixed(2);
-        document.getElementById('new_price_input').value = currentPrice;
-        
-        priceInfo.style.display = 'block';
+      // Activar el botón que llamó (si existe)
+      if (event && event.target) {
+        event.target.classList.add('active');
       } else {
-        priceInfo.style.display = 'none';
-        document.getElementById('new_price_input').value = '';
+        // Activar manualmente el botón de sidebar correspondiente
+        const sideBtn = Array.from(document.querySelectorAll('.side-tab-button'))
+          .find(b => b.textContent.trim().toLowerCase().includes(tabName));
+        if (sideBtn) sideBtn.classList.add('active');
       }
     }
+
+    
 
     // Datos de paquetes desde elementos HTML
     const freefireLatamPackages = JSON.parse(document.getElementById('freefire-latam-data').textContent);
     const freefireGlobalPackages = JSON.parse(document.getElementById('freefire-global-data').textContent);
     const bloodstrikerPackages = JSON.parse(document.getElementById('bloodstriker-data').textContent);
+    const freefireLatamStock = JSON.parse(document.getElementById('freefire-latam-stock').textContent);
+    const freefireGlobalStock = JSON.parse(document.getElementById('freefire-global-stock').textContent);
 
     // Funciones para actualizar paquetes con datos dinámicos
-    function updateSinglePinPackages() {
-      const gameSelect = document.getElementById('game_type_single');
-      const packageSelect = document.getElementById('monto_id');
-      
-      // Limpiar opciones
-      packageSelect.innerHTML = '<option value="">Seleccione paquete</option>';
-      
-      if (gameSelect.value === 'freefire_latam') {
-        packageSelect.disabled = false;
-        freefireLatamPackages.forEach(pkg => {
-          const option = document.createElement('option');
-          option.value = pkg.id;
-          option.textContent = pkg.nombre + ' / $' + pkg.precio.toFixed(2);
-          packageSelect.appendChild(option);
-        });
-      } else if (gameSelect.value === 'freefire_global') {
-        packageSelect.disabled = false;
-        freefireGlobalPackages.forEach(pkg => {
-          const option = document.createElement('option');
-          option.value = pkg.id;
-          option.textContent = pkg.nombre + ' / $' + pkg.precio.toFixed(2);
-          packageSelect.appendChild(option);
-        });
-      } else {
-        packageSelect.disabled = true;
-      }
-    }
+    
 
-    function updateBatchPinPackages() {
-      const gameSelect = document.getElementById('game_type_batch');
-      const packageSelect = document.getElementById('batch_monto_id');
-      
-      // Limpiar opciones
-      packageSelect.innerHTML = '<option value="">Seleccione paquete</option>';
-      
-      if (gameSelect.value === 'freefire_latam') {
-        packageSelect.disabled = false;
-        freefireLatamPackages.forEach(pkg => {
-          const option = document.createElement('option');
-          option.value = pkg.id;
-          option.textContent = pkg.nombre + ' / $' + pkg.precio.toFixed(2);
-          packageSelect.appendChild(option);
-        });
-      } else if (gameSelect.value === 'freefire_global') {
-        packageSelect.disabled = false;
-        freefireGlobalPackages.forEach(pkg => {
-          const option = document.createElement('option');
-          option.value = pkg.id;
-          option.textContent = pkg.nombre + ' / $' + pkg.precio.toFixed(2);
-          packageSelect.appendChild(option);
-        });
-      } else {
-        packageSelect.disabled = true;
-      }
-    }
+    
 
-    // Función para actualizar paquetes en gestión de precios
-    function updatePackages() {
-      const gameSelect = document.getElementById('game_select');
-      const packageSelect = document.getElementById('package_select');
-      const priceForm = packageSelect.closest('form');
-      
-      // Limpiar opciones
-      packageSelect.innerHTML = '<option value="">Seleccione un paquete</option>';
-      
-      if (gameSelect.value === 'freefire') {
-        priceForm.action = '/admin/update_price';
-        packageSelect.disabled = false;
-        freefireLatamPackages.forEach(pkg => {
-          const option = document.createElement('option');
-          option.value = pkg.id;
-          option.setAttribute('data-current-price', pkg.precio);
-          option.setAttribute('data-name', pkg.nombre);
-          option.setAttribute('data-description', 'Free Fire LATAM - ' + pkg.nombre);
-          option.textContent = pkg.nombre;
-          packageSelect.appendChild(option);
-        });
-      } else if (gameSelect.value === 'freefire_global') {
-        priceForm.action = '/admin/update_freefire_global_price';
-        packageSelect.disabled = false;
-        freefireGlobalPackages.forEach(pkg => {
-          const option = document.createElement('option');
-          option.value = pkg.id;
-          option.setAttribute('data-current-price', pkg.precio);
-          option.setAttribute('data-name', pkg.nombre);
-          option.setAttribute('data-description', 'Free Fire - ' + pkg.nombre);
-          option.textContent = pkg.nombre;
-          packageSelect.appendChild(option);
-        });
-      } else if (gameSelect.value === 'bloodstriker') {
-        priceForm.action = '/admin/update_bloodstriker_price';
-        packageSelect.disabled = false;
-        bloodstrikerPackages.forEach(pkg => {
-          const option = document.createElement('option');
-          option.value = pkg.id;
-          option.setAttribute('data-current-price', pkg.precio);
-          option.setAttribute('data-name', pkg.nombre);
-          option.setAttribute('data-description', 'Blood Striker - ' + pkg.nombre);
-          option.textContent = pkg.nombre;
-          packageSelect.appendChild(option);
-        });
-      } else {
-        packageSelect.disabled = true;
-        priceForm.action = '/admin/update_price';
-      }
-      
-      // Ocultar información de precio
-      document.getElementById('price-info').style.display = 'none';
-      document.getElementById('new_price_input').value = '';
-    }
+    
 
-    // Funciones para gestión de rentabilidad
-    function updateProfitPackages() {
-      const gameSelect = document.getElementById('profit_game_select');
-      const packageSelect = document.getElementById('profit_package_select');
-      
-      // Limpiar opciones
-      packageSelect.innerHTML = '<option value="">Seleccione paquete</option>';
-      
-      if (gameSelect.value === 'freefire_latam') {
-        packageSelect.disabled = false;
-        freefireLatamPackages.forEach(pkg => {
-          const option = document.createElement('option');
-          option.value = pkg.id;
-          option.setAttribute('data-sale-price', pkg.precio);
-          option.setAttribute('data-name', pkg.nombre);
-          option.textContent = pkg.nombre + ' / $' + pkg.precio.toFixed(2);
-          packageSelect.appendChild(option);
-        });
-      } else if (gameSelect.value === 'freefire_global') {
-        packageSelect.disabled = false;
-        freefireGlobalPackages.forEach(pkg => {
-          const option = document.createElement('option');
-          option.value = pkg.id;
-          option.setAttribute('data-sale-price', pkg.precio);
-          option.setAttribute('data-name', pkg.nombre);
-          option.textContent = pkg.nombre + ' / $' + pkg.precio.toFixed(2);
-          packageSelect.appendChild(option);
-        });
-      } else if (gameSelect.value === 'bloodstriker') {
-        packageSelect.disabled = false;
-        bloodstrikerPackages.forEach(pkg => {
-          const option = document.createElement('option');
-          option.value = pkg.id;
-          option.setAttribute('data-sale-price', pkg.precio);
-          option.setAttribute('data-name', pkg.nombre);
-          option.textContent = pkg.nombre + ' / $' + pkg.precio.toFixed(2);
-          packageSelect.appendChild(option);
-        });
-      } else {
-        packageSelect.disabled = true;
-      }
-      
-      // Ocultar información de rentabilidad
-      document.getElementById('profit-info').style.display = 'none';
-      document.getElementById('purchase_price_input').value = '';
-    }
-
-    function updateProfitInfo() {
-      const select = document.getElementById('profit_package_select');
-      const selectedOption = select.options[select.selectedIndex];
-      const profitInfo = document.getElementById('profit-info');
-      const gameSelect = document.getElementById('profit_game_select');
-      
-      if (selectedOption.value && gameSelect.value) {
-        const salePrice = parseFloat(selectedOption.getAttribute('data-sale-price'));
-        const name = selectedOption.getAttribute('data-name');
-        const packageId = selectedOption.value;
-        const gameType = gameSelect.value;
-        
-        // Obtener precio de compra real desde la base de datos
-        fetch(`/admin/get_purchase_price/${gameType}/${packageId}`)
-          .then(response => response.json())
-          .then(data => {
-            if (data.error) {
-              console.error('Error al obtener precio de compra:', data.error);
-              return;
-            }
-            
-            const purchasePrice = data.precio_compra || 0;
-            
-            document.getElementById('selected-profit-package-name').textContent = name;
-            document.getElementById('sale-price-value').textContent = '$' + salePrice.toFixed(2);
-            document.getElementById('current-purchase-price-value').textContent = '$' + purchasePrice.toFixed(2);
-            
-            const profit = salePrice - purchasePrice;
-            const margin = salePrice > 0 ? (profit / salePrice * 100) : 0;
-            
-            // Actualizar colores según la rentabilidad
-            const profitElement = document.getElementById('current-profit-value');
-            const marginElement = document.getElementById('current-margin-value');
-            
-            profitElement.textContent = '$' + profit.toFixed(2);
-            marginElement.textContent = margin.toFixed(1) + '%';
-            
-            // Cambiar colores según rentabilidad
-            if (profit > 0) {
-              profitElement.style.background = 'linear-gradient(135deg, #27ae60 0%, #229954 100%)';
-              marginElement.style.background = 'linear-gradient(135deg, #f39c12 0%, #e67e22 100%)';
-            } else if (profit < 0) {
-              profitElement.style.background = 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)';
-              marginElement.style.background = 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)';
-            } else {
-              profitElement.style.background = 'linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%)';
-              marginElement.style.background = 'linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%)';
-            }
-            
-            document.getElementById('purchase_price_input').value = purchasePrice.toFixed(2);
-            
-            profitInfo.style.display = 'block';
-          })
-          .catch(error => {
-            console.error('Error al obtener precio de compra:', error);
-            // Fallback a estimación si hay error
-            const defaultPurchasePrice = salePrice * 0.85;
-            
-            document.getElementById('selected-profit-package-name').textContent = name;
-            document.getElementById('sale-price-value').textContent = '$' + salePrice.toFixed(2);
-            document.getElementById('current-purchase-price-value').textContent = '$' + defaultPurchasePrice.toFixed(2);
-            
-            const profit = salePrice - defaultPurchasePrice;
-            const margin = (profit / salePrice * 100);
-            
-            document.getElementById('current-profit-value').textContent = '$' + profit.toFixed(2);
-            document.getElementById('current-margin-value').textContent = margin.toFixed(1) + '%';
-            
-            document.getElementById('purchase_price_input').value = defaultPurchasePrice.toFixed(2);
-            
-            profitInfo.style.display = 'block';
-          });
-      } else {
-        profitInfo.style.display = 'none';
-        document.getElementById('purchase_price_input').value = '';
-      }
-    }
-
-
-    // Función para manejar el envío del formulario de rentabilidad
-    function handleProfitFormSubmit(event) {
-      const submitBtn = document.getElementById('profit-submit-btn');
-      const originalText = submitBtn.textContent;
-      
-      // Cambiar texto del botón para indicar que se está procesando
-      submitBtn.textContent = '⏳ Actualizando...';
-      submitBtn.disabled = true;
-      
-      // Permitir que el formulario se envíe normalmente
-      // Después del redirect, la página se recargará y mostrará el precio actualizado
-      
-      // Restaurar el botón después de un tiempo (en caso de error)
-      setTimeout(() => {
-        submitBtn.textContent = originalText;
-        submitBtn.disabled = false;
-      }, 5000);
-    }
-
-    // Funciones para gestión de nombres de paquetes
-    function updateNamePackages() {
-      const gameSelect = document.getElementById('name_game_select');
-      const packageSelect = document.getElementById('name_package_select');
-      const nameForm = packageSelect.closest('form');
-      
-      // Limpiar opciones
-      packageSelect.innerHTML = '<option value="">Seleccione un paquete</option>';
-      
-      if (gameSelect.value === 'freefire') {
-        nameForm.action = '/admin/update_name';
-        packageSelect.disabled = false;
-        freefireLatamPackages.forEach(pkg => {
-          const option = document.createElement('option');
-          option.value = pkg.id;
-          option.setAttribute('data-current-name', pkg.nombre);
-          option.setAttribute('data-description', 'Free Fire LATAM - ' + pkg.nombre);
-          option.textContent = pkg.nombre;
-          packageSelect.appendChild(option);
-        });
-      } else if (gameSelect.value === 'freefire_global') {
-        nameForm.action = '/admin/update_freefire_global_name';
-        packageSelect.disabled = false;
-        freefireGlobalPackages.forEach(pkg => {
-          const option = document.createElement('option');
-          option.value = pkg.id;
-          option.setAttribute('data-current-name', pkg.nombre);
-          option.setAttribute('data-description', 'Free Fire - ' + pkg.nombre);
-          option.textContent = pkg.nombre;
-          packageSelect.appendChild(option);
-        });
-      } else if (gameSelect.value === 'bloodstriker') {
-        nameForm.action = '/admin/update_bloodstriker_name';
-        packageSelect.disabled = false;
-        bloodstrikerPackages.forEach(pkg => {
-          const option = document.createElement('option');
-          option.value = pkg.id;
-          option.setAttribute('data-current-name', pkg.nombre);
-          option.setAttribute('data-description', 'Blood Striker - ' + pkg.nombre);
-          option.textContent = pkg.nombre;
-          packageSelect.appendChild(option);
-        });
-      } else {
-        packageSelect.disabled = true;
-        nameForm.action = '/admin/update_name';
-      }
-      
-      // Ocultar información de nombre
-      document.getElementById('name-info').style.display = 'none';
-      document.getElementById('new_name_input').value = '';
-    }
-
-    // Actualizar información de nombres
-    function updateNameInfo() {
-      const select = document.getElementById('name_package_select');
-      const selectedOption = select.options[select.selectedIndex];
-      const nameInfo = document.getElementById('name-info');
-      
-      if (selectedOption.value) {
-        const currentName = selectedOption.getAttribute('data-current-name');
-        const description = selectedOption.getAttribute('data-description');
-        
-        document.getElementById('selected-name-package-description').textContent = description;
-        document.getElementById('current-name-value').textContent = currentName;
-        document.getElementById('new_name_input').value = currentName;
-        
-        nameInfo.style.display = 'block';
-      } else {
-        nameInfo.style.display = 'none';
-        document.getElementById('new_name_input').value = '';
-      }
-    }
-
-    // Inicializar
-    document.addEventListener('DOMContentLoaded', function() {
-      updatePackages();
-      updateNamePackages();
-    });
+    
   </script>
 </body>
 </html>
