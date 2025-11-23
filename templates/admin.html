@@ -50,6 +50,9 @@
         <button class="side-tab-button" onclick="showTab('noticias')" aria-label="Noticias">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19h16a2 2 0 0 0 2-2V5H6a2 2 0 0 0-2 2z"/><path d="M16 3v4a2 2 0 0 0 2 2h4"/><path d="M8 11h8"/><path d="M8 15h8"/></svg></span><span class="label">Noticias</span>
         </button>
+        <button class="side-tab-button" onclick="showTab('estadisticas')" aria-label="Estadísticas">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg></span><span class="label">Estadísticas</span>
+        </button>
         <a class="side-tab-button" href="/" aria-label="Volver al Inicio" style="text-decoration:none;">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7"/><path d="M9 22V12h6v10"/></svg></span><span class="label">Inicio</span>
         </a>
@@ -119,6 +122,53 @@
           <p>No hay usuarios registrados en el sistema.</p>
         </div>
       {% endif %}
+        </section>
+      </div>
+      
+      <!-- Pestaña de Estadísticas -->
+      <div id="tab-estadisticas" class="tab-content">
+        <section class="stats-admin-section">
+          <h2>📊 Estadísticas</h2>
+          <div class="stats-section" id="stats-summary-cards">
+            <div class="stat-card"><h3>Total gastado (histórico)</h3><div class="stat-number" id="stat-total-spent">$0.00</div></div>
+            <div class="stat-card"><h3>Saldo activo total</h3><div class="stat-number" id="stat-active-balance">$0.00</div></div>
+            <div class="stat-card"><h3>Pines disponibles</h3><div class="stat-number" id="stat-pins-available">0</div></div>
+            <div class="stat-card"><h3>Saldo en pines</h3><div class="stat-number" id="stat-pins-balance">$0.00</div></div>
+          </div>
+
+          <div class="card" style="margin-top:16px;">
+            <div class="card-header"><h3>Top clientes del mes</h3></div>
+            <div class="card-body">
+              <table class="table" style="width:100%;">
+                <thead>
+                  <tr><th>#</th><th>Cliente</th><th>Total gastado</th><th>Compras</th><th>% del top</th></tr>
+                </thead>
+                <tbody id="top-clients-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="grid-2" style="margin-top:16px; display:grid; grid-template-columns: 1fr; gap:16px;">
+            <div class="card">
+              <div class="card-header"><h3>Profit diario</h3></div>
+              <div class="card-body">
+                <table class="table" style="width:100%;">
+                  <thead><tr><th>Día</th><th>Mes actual</th><th>Mes anterior</th></tr></thead>
+                  <tbody id="profit-daily-body"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:16px;">
+            <div class="card-header">
+              <h3>Costos por juego (para calcular ganancia)</h3>
+            </div>
+            <div class="card-body" id="profit-config-games">
+              <!-- Secciones por juego se inyectan aquí -->
+              <small>Nota: el costo se usa para calcular la ganancia. En esquema legacy se guarda en <code>precios_compra</code>; en canónico en <code>package_cost_config</code>.</small>
+            </div>
+          </div>
         </section>
       </div>
 
@@ -515,6 +565,10 @@
           .find(b => b.textContent.trim().toLowerCase().includes(tabName));
         if (sideBtn) sideBtn.classList.add('active');
       }
+      // Cargar datos de estadísticas al abrir la pestaña
+      if (tabName === 'estadisticas') {
+        loadAdminStats();
+      }
     }
 
     
@@ -533,6 +587,143 @@
 
     
 
+    // ======= Estadísticas (consumo API) =======
+    async function loadAdminStats() {
+      const tz = 'America/Caracas';
+      try {
+        const [summaryRes, topRes, pinsRes, tsRes, confRes] = await Promise.all([
+          fetch(`/admin/stats/summary`),
+          fetch(`/admin/stats/top-clients?tz=${encodeURIComponent(tz)}`),
+          fetch(`/admin/stats/pins-daily?tz=${encodeURIComponent(tz)}`),
+          fetch(`/admin/stats/timeseries?tz=${encodeURIComponent(tz)}`),
+          fetch(`/admin/stats/profit-packages-config`)
+        ]);
+        const summary = await summaryRes.json();
+        const top = await topRes.json();
+        const pins = await pinsRes.json();
+        const ts = await tsRes.json();
+        
+        const conf = await confRes.json();
+
+        // Summary cards
+        document.getElementById('stat-total-spent').textContent = `$${Number(summary?.summary?.total_spent_all_time || 0).toFixed(2)}`;
+        document.getElementById('stat-active-balance').textContent = `$${Number(summary?.summary?.active_balance_total || 0).toFixed(2)}`;
+        document.getElementById('stat-pins-available').textContent = `${Number(summary?.summary?.pins_available_total || 0)}`;
+        document.getElementById('stat-pins-balance').textContent = `$${Number(summary?.summary?.pins_balance_total || 0).toFixed(2)}`;
+
+        // Top clients
+        const topTbody = document.getElementById('top-clients-body');
+        topTbody.innerHTML = '';
+        (top?.top_clients_month || []).forEach((row, idx) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${idx+1}</td><td>${row.display_name||row.user_id}</td><td>$${Number(row.total_spent||0).toFixed(2)}</td><td>${row.purchases_count||0}</td><td>${Number(row.pct||0).toFixed(1)}%</td>`;
+          topTbody.appendChild(tr);
+        });
+
+        // Pins daily (removido de UI)
+
+        // Gasto diario (removido de UI)
+
+        // Timeseries: profit month vs prev
+        const profitBody = document.getElementById('profit-daily-body');
+        profitBody.innerHTML = '';
+        const byDayCurr = Object.fromEntries((ts?.timeseries?.profit_daily_month||[]).map(x => [x.day, x.profit]));
+        const byDayPrev = Object.fromEntries((ts?.timeseries?.profit_daily_prev_month||[]).map(x => [x.day, x.profit]));
+        const allDays = Array.from(new Set([ ...Object.keys(byDayCurr), ...Object.keys(byDayPrev) ])).sort();
+        allDays.forEach(day => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${day}</td><td>$${Number(byDayCurr[day]||0).toFixed(2)}</td><td>$${Number(byDayPrev[day]||0).toFixed(2)}</td>`;
+          profitBody.appendChild(tr);
+        });
+        // Totales
+        const totalCurr = Object.values(byDayCurr).reduce((a,b)=>a+Number(b||0),0);
+        const totalPrev = Object.values(byDayPrev).reduce((a,b)=>a+Number(b||0),0);
+        const trTotal = document.createElement('tr');
+        trTotal.innerHTML = `<td><strong>Total</strong></td><td><strong>$${totalCurr.toFixed(2)}</strong></td><td><strong>$${totalPrev.toFixed(2)}</strong></td>`;
+        profitBody.appendChild(trTotal);
+
+        // Profit packages config agrupado por juego/source
+        const root = document.getElementById('profit-config-games');
+        root.innerHTML = '';
+        const itemsAll = conf?.profit_packages_config || [];
+        // Agrupar por source (juego)
+        const groups = {};
+        itemsAll.forEach(it => {
+          const src = it.source || 'canonical';
+          if (!groups[src]) groups[src] = [];
+          groups[src].push(it);
+        });
+        Object.entries(groups).forEach(([src, list]) => {
+          const section = document.createElement('div');
+          section.className = 'profit-game-section';
+          const secId = `pg-${src}`;
+          section.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0;">
+              <div>
+                <strong>Juego:</strong> ${src}
+              </div>
+              <div style="display:flex;gap:8px;">
+                <button type="button" class="btn btn-warning" data-toggle="${secId}">Editar costos</button>
+                <button type="button" class="btn btn-primary" data-save="${secId}">Guardar</button>
+              </div>
+            </div>
+            <div id="${secId}" class="profit-game-table" style="display:none;">
+              <table class="table" style="width:100%;">
+                <thead><tr><th>Paquete</th><th>Precio venta</th><th>Costo</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          `;
+          root.appendChild(section);
+          // Rellenar filas
+          const tbody = section.querySelector('tbody');
+          list.forEach(item => {
+            const pkgId = item.package_id ?? item.category_id;
+            const base = Number(item.base_price || 0);
+            const cost = item.cost != null ? Number(item.cost) : '';
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td>${item.package_name}</td>
+              <td>$${base.toFixed(2)}</td>
+              <td><input type="number" step="0.01" min="0" class="small-input" style="width:120px" data-package-id="${pkgId}" data-source="${src}" value="${cost === '' ? '' : cost.toFixed(2)}" placeholder="0.00"></td>
+            `;
+            tbody.appendChild(tr);
+          });
+        });
+
+        // Listeners de toggle y guardado por juego
+        root.querySelectorAll('button[data-toggle]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const id = btn.getAttribute('data-toggle');
+            const panel = document.getElementById(id);
+            if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+          });
+        });
+        root.querySelectorAll('button[data-save]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-save');
+            const panel = document.getElementById(id);
+            if (!panel) return;
+            const inputs = Array.from(panel.querySelectorAll('input[data-package-id]'));
+            const items = inputs
+              .map(inp => ({
+                package_id: Number(inp.getAttribute('data-package-id')),
+                source: inp.getAttribute('data-source'),
+                cost: inp.value ? Number(inp.value) : null
+              }))
+              .filter(x => x.cost !== null && isFinite(x.cost));
+            const res = await fetch('/admin/stats/profit-packages-config', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items })
+            });
+            const js = await res.json();
+            alert(js && js.ok ? 'Costos guardados.' : 'No se pudieron guardar los costos.');
+          });
+        });
+
+      } catch (e) {
+        console.error('Error cargando estadísticas', e);
+      }
+    }
     
   </script>
 </body>

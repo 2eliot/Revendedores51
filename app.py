@@ -26,6 +26,7 @@ from pin_manager import create_pin_manager
 from functools import lru_cache
 import random
 import string
+from admin_stats import bp as admin_stats_bp
 
 app = Flask(__name__)
 
@@ -53,6 +54,9 @@ app.config['MAIL_DEFAULT_SENDER'] = app.config['MAIL_USERNAME']
 
 # Inicializar Flask-Mail
 mail = Mail(app)
+
+# Registrar blueprint de estadísticas de administración
+app.register_blueprint(admin_stats_bp, url_prefix='/admin/stats')
 
 # Configuración de la base de datos con optimizaciones y compatibilidad con Render
 def get_render_compatible_db_path():
