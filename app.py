@@ -14,6 +14,8 @@ def get_games_active():
 from flask import Flask, render_template, request, redirect, session, flash, jsonify
 import json
 import sqlite3
+import pytz
+from datetime import datetime
 import hashlib
 import os
 import secrets
@@ -123,8 +125,13 @@ def record_profit_for_transaction(conn, usuario_id, is_admin, juego, paquete_id,
             """,
             (int(usuario_id), str(juego), int(paquete_id), int(cantidad), precio_venta_unit, costo_unit, profit_unit, total, transaccion_id)
         )
-        # Upsert agregado diario
-        day = cur.execute("SELECT date('now')").fetchone()[0]
+        # Upsert agregado diario (usar día en zona horaria local para coincidir con UI)
+        tz_name = os.environ.get('DEFAULT_TZ', 'America/Caracas')
+        try:
+            tz = pytz.timezone(tz_name)
+            day = datetime.now(tz).date().isoformat()
+        except Exception:
+            day = datetime.utcnow().date().isoformat()
         existing = cur.execute("SELECT profit_total FROM profit_daily_aggregate WHERE day = ?", (day,)).fetchone()
         if existing:
             cur.execute(
@@ -4817,6 +4824,19 @@ def api_simple_endpoint():
             INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, monto)
             VALUES (?, ?, ?, ?, ?)
         ''', (user['id'], numero_control, pins_texto, transaccion_id, -precio_total))
+        # Persistir profit (legacy) también para compras vía API
+        try:
+            admin_ids_env = os.environ.get('ADMIN_USER_IDS', '').strip()
+            admin_emails_env = os.environ.get('ADMIN_EMAILS', '').strip()
+            single_admin_email = os.environ.get('ADMIN_EMAIL', '').strip()
+            admin_ids = [int(x.strip()) for x in admin_ids_env.split(',') if x.strip().isdigit()]
+            admin_emails = [x.strip() for x in admin_emails_env.split(',') if x.strip()]
+            if single_admin_email and single_admin_email not in admin_emails:
+                admin_emails.append(single_admin_email)
+            is_admin_user = (user['id'] in admin_ids) or (user['correo'] in admin_emails)
+            record_profit_for_transaction(conn, user['id'], is_admin_user, 'freefire_latam', package_id, quantity, precio_unitario, transaccion_id)
+        except Exception:
+            pass
         
         # Limitar transacciones a 30 por usuario
         conn.execute('''

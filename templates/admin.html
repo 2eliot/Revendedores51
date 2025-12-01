@@ -653,7 +653,13 @@
             bar.title = `${d.day}: $${d.value.toFixed(2)}`;
             chart.appendChild(bar);
             const xl = document.createElement('div');
-            xl.textContent = String(new Date(d.day).getDate() || d.day.split('-')[2] || idx+1);
+            // Evitar desfase por timezone al usar Date("YYYY-MM-DD"). Usar la parte del string.
+            try {
+              const parts = String(d.day).split('-');
+              xl.textContent = parts.length === 3 ? String(parseInt(parts[2], 10)) : String(idx+1);
+            } catch (e) {
+              xl.textContent = String(idx+1);
+            }
             xlabels.appendChild(xl);
           });
           const total = dataset.reduce((a,b)=>a+b.value,0);
