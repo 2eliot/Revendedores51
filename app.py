@@ -95,6 +95,51 @@ def get_db_connection_optimized():
     conn.execute('PRAGMA temp_store=MEMORY')
     return conn
 
+# ===== Helpers de persistencia de profit (legacy) =====
+def record_profit_for_transaction(conn, usuario_id, is_admin, juego, paquete_id, cantidad, precio_unitario, transaccion_id=None):
+    try:
+        if is_admin:
+            return
+        if juego is None or paquete_id is None or cantidad is None or precio_unitario is None:
+            return
+        cur = conn.cursor()
+        # Buscar costo activo en precios_compra
+        row = cur.execute(
+            """
+            SELECT precio_compra FROM precios_compra
+            WHERE juego = ? AND paquete_id = ? AND activo = 1
+            """,
+            (juego, int(paquete_id))
+        ).fetchone()
+        costo_unit = float(row[0]) if row else 0.0
+        precio_venta_unit = float(precio_unitario)
+        profit_unit = round(precio_venta_unit - costo_unit, 6)
+        total = round(profit_unit * int(cantidad), 6)
+        # Insertar en ledger
+        cur.execute(
+            """
+            INSERT INTO profit_ledger (usuario_id, juego, paquete_id, cantidad, precio_venta_unit, costo_unit, profit_unit, profit_total, transaccion_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (int(usuario_id), str(juego), int(paquete_id), int(cantidad), precio_venta_unit, costo_unit, profit_unit, total, transaccion_id)
+        )
+        # Upsert agregado diario
+        day = cur.execute("SELECT date('now')").fetchone()[0]
+        existing = cur.execute("SELECT profit_total FROM profit_daily_aggregate WHERE day = ?", (day,)).fetchone()
+        if existing:
+            cur.execute(
+                "UPDATE profit_daily_aggregate SET profit_total = ?, updated_at = datetime('now') WHERE day = ?",
+                (round(float(existing[0]) + total, 6), day)
+            )
+        else:
+            cur.execute(
+                "INSERT INTO profit_daily_aggregate (day, profit_total) VALUES (?, ?)",
+                (day, total)
+            )
+    except Exception:
+        # No interrumpir la compra por error de estadística
+        pass
+
 def return_db_connection(conn):
     """Cierra la conexión (sin pool para evitar problemas de threading)"""
     conn.close()
@@ -344,16 +389,41 @@ def init_db():
                 VALUES (?, ?, ?, ?, ?)
             ''', precios_freefire_global)
         
-        # Tabla de precios de compra (costos) para gestión de rentabilidad
+        # Tabla de precios de compra (legacy)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS precios_compra (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 juego TEXT NOT NULL,
                 paquete_id INTEGER NOT NULL,
-                precio_compra REAL NOT NULL DEFAULT 0.0,
-                fecha_actualizacion DATETIME DEFAULT CURRENT_TIMESTAMP,
-                activo BOOLEAN DEFAULT TRUE,
+                precio_compra REAL NOT NULL,
+                fecha_actualizacion TEXT DEFAULT (datetime('now')),
+                activo INTEGER DEFAULT 1,
                 UNIQUE(juego, paquete_id)
+            )
+        ''')
+
+        # Tabla de ledger de profit (legacy persistente)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS profit_ledger (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                usuario_id INTEGER NOT NULL,
+                juego TEXT NOT NULL,
+                paquete_id INTEGER NOT NULL,
+                cantidad INTEGER NOT NULL,
+                precio_venta_unit REAL NOT NULL,
+                costo_unit REAL NOT NULL,
+                profit_unit REAL NOT NULL,
+                profit_total REAL NOT NULL,
+                transaccion_id TEXT,
+                fecha TEXT DEFAULT (datetime('now'))
+            )
+        ''')
+
+        # Tabla de agregados diarios de profit (legacy persistente)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS profit_daily_aggregate (
+                day TEXT PRIMARY KEY,
+                profit_total REAL NOT NULL,
+                updated_at TEXT DEFAULT (datetime('now'))
             )
         ''')
         
@@ -2574,6 +2644,11 @@ def validar_freefire_latam():
                 INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, monto)
                 VALUES (?, ?, ?, ?, ?)
             ''', (user_id, numero_control, pines_texto, transaccion_id, monto_transaccion))
+            # Persistir profit (legacy)
+            try:
+                record_profit_for_transaction(conn, user_id, is_admin, 'freefire_latam', monto_id, cantidad, precio_unitario, transaccion_id)
+            except Exception:
+                pass
             
             # Limitar transacciones a 100 por usuario (aumentado de 30 para evitar eliminaciones frecuentes)
             conn.execute('''
@@ -3070,6 +3145,14 @@ def approve_bloodstriker_transaction(transaction_id):
                 bs_transaction['transaccion_id'],
                 bs_transaction['monto']
             ))
+            # Persistir profit (legacy) para Blood Striker (cantidad=1)
+            try:
+                admin_ids_env = os.environ.get('ADMIN_USER_IDS', '').strip()
+                admin_ids = [int(x.strip()) for x in admin_ids_env.split(',') if x.strip().isdigit()]
+                is_admin_target = bs_transaction['usuario_id'] in admin_ids
+                record_profit_for_transaction(conn, bs_transaction['usuario_id'], is_admin_target, 'bloodstriker', bs_transaction['paquete_id'], 1, bs_transaction['precio'], bs_transaction['transaccion_id'])
+            except Exception:
+                pass
             
             # Limitar transacciones a 100 por usuario (aumentado de 30 para evitar eliminaciones frecuentes)
             conn.execute('''
@@ -4151,6 +4234,11 @@ def validar_freefire():
             INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, monto)
             VALUES (?, ?, ?, ?, ?)
         ''', (user_id, numero_control, pines_texto, transaccion_id, monto_transaccion))
+        # Persistir profit (legacy)
+        try:
+            record_profit_for_transaction(conn, user_id, is_admin, 'freefire_global', monto_id, cantidad, precio_unitario, transaccion_id)
+        except Exception:
+            pass
         
         # Limitar transacciones a 30 por usuario
         conn.execute('''

@@ -270,6 +270,9 @@ def summary():
     rng = tz_ranges(tz_name)
     ms = to_utc_iso(rng['month_start'])
     me = to_utc_iso(rng['month_end'])
+    # Fechas locales para consultas en tablas legacy agregadas por día
+    month_start_day = rng['month_start'].date().isoformat()
+    month_end_day = rng['month_end'].date().isoformat()
     try:
         conn = get_conn()
         if table_exists(conn, 'spent_ledger'):
@@ -356,12 +359,20 @@ def summary():
             ).fetchone()
             parts['profit_month_total'] = r['profit'] if r else 0
         else:
-            # Legacy: recalcular desde transacciones y costos
-            lst = compute_legacy_profit_by_day(conn, ms, me)
-            if isinstance(lst, list):
-                parts['profit_month_total'] = round(sum(item.get('profit', 0) for item in lst), 6)
+            # Legacy persistente: usar agregados diarios
+            if table_exists(conn, 'profit_daily_aggregate'):
+                row = conn.execute(
+                    "SELECT COALESCE(SUM(profit_total),0) AS s FROM profit_daily_aggregate WHERE day >= ? AND day < ?",
+                    (month_start_day, month_end_day)
+                ).fetchone()
+                parts['profit_month_total'] = row['s'] if row else 0
             else:
-                parts['profit_month_total'] = 0
+                # Fallback: calcular al vuelo
+                lst = compute_legacy_profit_by_day(conn, ms, me)
+                if isinstance(lst, list):
+                    parts['profit_month_total'] = round(sum(item.get('profit', 0) for item in lst), 6)
+                else:
+                    parts['profit_month_total'] = 0
     except sqlite3.Error as e:
         parts['profit_month_total_error'] = str(e)
     return jsonify({'summary': parts})
@@ -418,6 +429,8 @@ def timeseries():
     ms, me = to_utc_iso(rng['month_start']), to_utc_iso(rng['month_end'])
     ws, we = to_utc_iso(rng['week_start']), to_utc_iso(rng['week_end'])
     pms, pme = to_utc_iso(rng['prev_month_start']), to_utc_iso(rng['prev_month_end'])
+    ms_day, me_day = rng['month_start'].date().isoformat(), rng['month_end'].date().isoformat()
+    pms_day, pme_day = rng['prev_month_start'].date().isoformat(), rng['prev_month_end'].date().isoformat()
     res = {
         'daily_spent_month': [],
         'daily_spent_week': [],
@@ -468,6 +481,11 @@ def timeseries():
                 """,
                 (ms, me)
             ).fetchall()
+        elif table_exists(conn, 'profit_daily_aggregate'):
+            q3 = conn.execute(
+                "SELECT day, profit_total AS profit FROM profit_daily_aggregate WHERE day >= ? AND day < ? ORDER BY day",
+                (ms_day, me_day)
+            ).fetchall()
         elif table_exists(conn, 'transacciones'):
             q3 = compute_legacy_profit_by_day(conn, ms, me)
         else:
@@ -489,6 +507,11 @@ def timeseries():
                 """,
                 (pms, pme)
             ).fetchall()
+        elif table_exists(conn, 'profit_daily_aggregate'):
+            q4 = conn.execute(
+                "SELECT day, profit_total AS profit FROM profit_daily_aggregate WHERE day >= ? AND day < ? ORDER BY day",
+                (pms_day, pme_day)
+            ).fetchall()
         elif table_exists(conn, 'transacciones'):
             q4 = compute_legacy_profit_by_day(conn, pms, pme)
         else:
@@ -497,6 +520,55 @@ def timeseries():
     except sqlite3.Error as e:
         res['profit_daily_prev_month_error'] = str(e)
     return jsonify({'timeseries': res, 'tz': tz_name})
+
+
+@bp.route('/backfill-legacy-profit', methods=['POST'])
+def backfill_legacy_profit():
+    """Backfill de agregados diarios de profit para esquema legacy.
+    Protegido por token: enviar ?token=... que debe coincidir con BACKFILL_TOKEN en env.
+    Parámetros:
+      - days: int (default 60)
+      - tz: zona horaria (default America/Caracas)
+    """
+    token = request.args.get('token') or (request.get_json(silent=True) or {}).get('token')
+    expected = os.environ.get('BACKFILL_TOKEN')
+    if not expected or token != expected:
+        return jsonify({'error': 'unauthorized'}), 401
+    days = request.args.get('days', type=int) or (request.get_json(silent=True) or {}).get('days') or 60
+    tz_name = request.args.get('tz', 'America/Caracas')
+    rng = tz_ranges(tz_name)
+    tz = rng['tz']
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        today_local = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+        count = 0
+        for i in range(days):
+            day_start = today_local - timedelta(days=i)
+            day_end = day_start + timedelta(days=1)
+            s, e = to_utc_iso(day_start), to_utc_iso(day_end)
+            # Calcular usando fallback actual
+            lst = compute_legacy_profit_by_day(conn, s, e)
+            total = 0.0
+            if isinstance(lst, list):
+                total = round(sum(item.get('profit', 0) for item in lst), 6)
+            # Upsert en profit_daily_aggregate
+            day = day_start.date().isoformat()
+            ex = cur.execute("SELECT profit_total FROM profit_daily_aggregate WHERE day=?", (day,)).fetchone()
+            if ex:
+                cur.execute("UPDATE profit_daily_aggregate SET profit_total=?, updated_at=datetime('now') WHERE day=?", (total, day))
+            else:
+                cur.execute("INSERT INTO profit_daily_aggregate(day, profit_total) VALUES(?, ?)", (day, total))
+            count += 1
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'days_processed': count})
+    except sqlite3.Error as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return jsonify({'error': 'backfill_failed', 'message': str(e)}), 500
 
 
 @bp.route('/packages-history')

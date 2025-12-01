@@ -24,7 +24,7 @@
   <!-- Panel principal -->
   <main class="admin-main">
     <!-- Estadísticas generales -->
-    <div class="stats-section">
+    <div class="stats-section" style="display:none;">
       <div class="stat-card">
         <h3>Total de Usuarios</h3>
         <div class="stat-number">{{ users|length }}</div>
@@ -150,12 +150,19 @@
 
           <div class="grid-2" style="margin-top:16px; display:grid; grid-template-columns: 1fr; gap:16px;">
             <div class="card">
-              <div class="card-header"><h3>Profit diario</h3></div>
+              <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+                <h3 style="margin:0;">Profit diario</h3>
+                <div style="display:flex;align-items:center;gap:12px;">
+                  <div style="font-weight:600;">Total: <span id="profit-total-display">$0.00</span></div>
+                  <div class="toggle-group">
+                    <button type="button" id="btn-month-current" class="toggle active">Mes actual</button>
+                    <button type="button" id="btn-month-prev" class="toggle">Mes anterior</button>
+                  </div>
+                </div>
+              </div>
               <div class="card-body">
-                <table class="table" style="width:100%;">
-                  <thead><tr><th>Día</th><th>Mes actual</th><th>Mes anterior</th></tr></thead>
-                  <tbody id="profit-daily-body"></tbody>
-                </table>
+                <div id="profit-chart" class="bar-chart"></div>
+                <div class="bar-chart-xlabels" id="profit-chart-xlabels"></div>
               </div>
             </div>
           </div>
@@ -624,23 +631,51 @@
 
         // Gasto diario (removido de UI)
 
-        // Timeseries: profit month vs prev
-        const profitBody = document.getElementById('profit-daily-body');
-        profitBody.innerHTML = '';
-        const byDayCurr = Object.fromEntries((ts?.timeseries?.profit_daily_month||[]).map(x => [x.day, x.profit]));
-        const byDayPrev = Object.fromEntries((ts?.timeseries?.profit_daily_prev_month||[]).map(x => [x.day, x.profit]));
-        const allDays = Array.from(new Set([ ...Object.keys(byDayCurr), ...Object.keys(byDayPrev) ])).sort();
-        allDays.forEach(day => {
-          const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${day}</td><td>$${Number(byDayCurr[day]||0).toFixed(2)}</td><td>$${Number(byDayPrev[day]||0).toFixed(2)}</td>`;
-          profitBody.appendChild(tr);
-        });
-        // Totales
-        const totalCurr = Object.values(byDayCurr).reduce((a,b)=>a+Number(b||0),0);
-        const totalPrev = Object.values(byDayPrev).reduce((a,b)=>a+Number(b||0),0);
-        const trTotal = document.createElement('tr');
-        trTotal.innerHTML = `<td><strong>Total</strong></td><td><strong>$${totalCurr.toFixed(2)}</strong></td><td><strong>$${totalPrev.toFixed(2)}</strong></td>`;
-        profitBody.appendChild(trTotal);
+        // Timeseries: Profit diario como barras con toggle
+        const dataCurr = (ts?.timeseries?.profit_daily_month||[]).map(x => ({ day: x.day, value: Number(x.profit||0) }));
+        const dataPrev = (ts?.timeseries?.profit_daily_prev_month||[]).map(x => ({ day: x.day, value: Number(x.profit||0) }));
+        const chart = document.getElementById('profit-chart');
+        const xlabels = document.getElementById('profit-chart-xlabels');
+        const totalEl = document.getElementById('profit-total-display');
+        const btnCurr = document.getElementById('btn-month-current');
+        const btnPrev = document.getElementById('btn-month-prev');
+
+        function renderBars(dataset) {
+          if (!chart || !xlabels) return;
+          chart.innerHTML = '';
+          xlabels.innerHTML = '';
+          const max = Math.max(1, ...dataset.map(d => d.value));
+          dataset.forEach((d, idx) => {
+            const bar = document.createElement('div');
+            bar.className = 'bar';
+            const h = (d.value / max) * 100;
+            bar.style.height = `${h}%`;
+            bar.title = `${d.day}: $${d.value.toFixed(2)}`;
+            chart.appendChild(bar);
+            const xl = document.createElement('div');
+            xl.textContent = String(new Date(d.day).getDate() || d.day.split('-')[2] || idx+1);
+            xlabels.appendChild(xl);
+          });
+          const total = dataset.reduce((a,b)=>a+b.value,0);
+          totalEl.textContent = `$${total.toFixed(2)}`;
+        }
+
+        function setActive(which) {
+          if (which === 'curr') {
+            btnCurr.classList.add('active');
+            btnPrev.classList.remove('active');
+            renderBars(dataCurr);
+          } else {
+            btnPrev.classList.add('active');
+            btnCurr.classList.remove('active');
+            renderBars(dataPrev);
+          }
+        }
+
+        // Inicial por defecto: mes actual
+        setActive('curr');
+        btnCurr?.addEventListener('click', ()=> setActive('curr'));
+        btnPrev?.addEventListener('click', ()=> setActive('prev'));
 
         // Profit packages config agrupado por juego/source
         const root = document.getElementById('profit-config-games');
