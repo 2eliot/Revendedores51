@@ -768,43 +768,52 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
     freefire_global_packages_info = get_freefire_global_prices()
     bloodstriker_packages_info = get_bloodstriker_prices()
     
-    # Agregar información del paquete basado en el monto dinámico
+    # Agregar información del paquete basado primero en PIN (exacto) y luego por monto (fallback)
     transactions_with_package = []
     for transaction in transactions:
         transaction_dict = dict(transaction)
         monto = abs(transaction['monto'])  # Usar valor absoluto para comparar
         
-        # Buscar el paquete que coincida con el monto (con tolerancia para decimales)
+        # 1) Resolver por PIN exacto (mejor precisión)
         paquete_encontrado = False
-        tolerance = 0.05  # tolerancia para diferencias de redondeo/float
-        
-        # Primero buscar en paquetes de Free Fire LATAM (considerando múltiplos hasta 20)
-        for package_id, package_info in packages_info.items():
-            precio_unit = package_info['precio']
-            # Coincidencia directa
-            if abs(monto - precio_unit) <= tolerance:
-                transaction_dict['paquete'] = package_info['nombre']
-                paquete_encontrado = True
-                break
-            # Coincidencia por múltiplos
-            for n in range(2, 21):
-                if abs(monto - (precio_unit * n)) <= tolerance:
-                    transaction_dict['paquete'] = f"{package_info['nombre']} x{n}"
-                    paquete_encontrado = True
-                    break
-            if paquete_encontrado:
-                break
-        
-        # Si no se encuentra en Free Fire LATAM, buscar en Free Fire Global (múltiplos hasta 20)
+        try:
+            raw_pin = transaction_dict.get('pin') or ''
+            pins_list = [p.strip() for p in (raw_pin.replace('\r','').split('\n') if '\n' in raw_pin else [raw_pin]) if p.strip()]
+            cantidad_pines = len(pins_list)
+            pin_sample = pins_list[0] if pins_list else None
+            if pin_sample:
+                c2 = get_db_connection()
+                try:
+                    row_latam = c2.execute('SELECT monto_id FROM pines_freefire WHERE pin_codigo = ? LIMIT 1', (pin_sample,)).fetchone()
+                    row_global = None if row_latam else c2.execute('SELECT monto_id FROM pines_freefire_global WHERE pin_codigo = ? LIMIT 1', (pin_sample,)).fetchone()
+                finally:
+                    c2.close()
+                if row_latam:
+                    mid = int(row_latam['monto_id']) if isinstance(row_latam, sqlite3.Row) else int(row_latam[0])
+                    nombre = packages_info.get(mid, {}).get('nombre')
+                    if nombre:
+                        transaction_dict['paquete'] = f"{nombre}{'' if cantidad_pines <= 1 else f' x{cantidad_pines}'}"
+                        paquete_encontrado = True
+                elif row_global:
+                    mid = int(row_global['monto_id']) if isinstance(row_global, sqlite3.Row) else int(row_global[0])
+                    nombre = freefire_global_packages_info.get(mid, {}).get('nombre')
+                    if nombre:
+                        transaction_dict['paquete'] = f"{nombre}{'' if cantidad_pines <= 1 else f' x{cantidad_pines}'}"
+                        paquete_encontrado = True
+        except Exception:
+            # Ignorar errores de lookup por PIN y continuar con fallback por monto
+            paquete_encontrado = False or paquete_encontrado
+
+        # 2) Fallback por monto si no se pudo resolver por PIN
         if not paquete_encontrado:
-            for package_id, package_info in freefire_global_packages_info.items():
+            tolerance = 0.05  # tolerancia para diferencias de redondeo/float
+            # Buscar LATAM
+            for package_id, package_info in packages_info.items():
                 precio_unit = package_info['precio']
-                # Coincidencia directa
                 if abs(monto - precio_unit) <= tolerance:
                     transaction_dict['paquete'] = package_info['nombre']
                     paquete_encontrado = True
                     break
-                # Coincidencia por múltiplos
                 for n in range(2, 21):
                     if abs(monto - (precio_unit * n)) <= tolerance:
                         transaction_dict['paquete'] = f"{package_info['nombre']} x{n}"
@@ -812,18 +821,30 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
                         break
                 if paquete_encontrado:
                     break
-        
-        # Si no se encuentra en Free Fire, buscar en Blood Striker
-        if not paquete_encontrado:
-            for package_id, package_info in bloodstriker_packages_info.items():
-                if abs(monto - package_info['precio']) <= tolerance:  # Tolerancia
-                    transaction_dict['paquete'] = package_info['nombre']
-                    paquete_encontrado = True
-                    break
-        
-        # Si no se encuentra coincidencia exacta, usar el nombre por defecto
-        if not paquete_encontrado:
-            transaction_dict['paquete'] = f"Paquete ${monto:.2f}"
+            # Buscar GLOBAL
+            if not paquete_encontrado:
+                for package_id, package_info in freefire_global_packages_info.items():
+                    precio_unit = package_info['precio']
+                    if abs(monto - precio_unit) <= tolerance:
+                        transaction_dict['paquete'] = package_info['nombre']
+                        paquete_encontrado = True
+                        break
+                    for n in range(2, 21):
+                        if abs(monto - (precio_unit * n)) <= tolerance:
+                            transaction_dict['paquete'] = f"{package_info['nombre']} x{n}"
+                            paquete_encontrado = True
+                            break
+                    if paquete_encontrado:
+                        break
+            # Blood Striker
+            if not paquete_encontrado:
+                for package_id, package_info in bloodstriker_packages_info.items():
+                    if abs(monto - package_info['precio']) <= tolerance:
+                        transaction_dict['paquete'] = package_info['nombre']
+                        paquete_encontrado = True
+                        break
+            if not paquete_encontrado:
+                transaction_dict['paquete'] = f"Paquete ${monto:.2f}"
         
         # Convertir fecha a zona horaria de Venezuela
         transaction_dict['fecha'] = convert_to_venezuela_time(transaction_dict['fecha'])
