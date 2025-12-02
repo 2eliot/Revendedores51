@@ -87,18 +87,21 @@
           <select id="monto" name="monto" class="form-control" style="background-color: #AAF0F4;" required>
             <option value="">Seleccione paquete</option>
             {% for package_id, package_info in prices.items() %}
-            <option value="{{ package_id }}">{{ package_info.nombre }} / ${{ "%.2f"|format(package_info.precio) }}</option>
+            {% set stock_pkg = (stock_freefire_global.get(package_id, 0) if stock_freefire_global else 0) %}
+            {% set has_stock = stock_pkg > 0 %}
+            <option value="{{ package_id }}" data-stock="{{ stock_pkg }}" {% if not has_stock %}disabled{% endif %}>
+              {{ package_info.nombre }} / ${{ "%.2f"|format(package_info.precio) }}
+              {% if has_stock %}✅{% else %}❌{% endif %}
+            </option>
             {% endfor %}
           </select>
         </div>
         <div class="form-col">
           <label for="cantidad">Cantidad de pines:</label>
-          <select id="cantidad" name="cantidad" class="form-control" style="background-color: #AAF0F4;" required>
-            <option value="1">1 pin</option>
-            <option value="2">2 pines</option>
-            <option value="3">3 pines</option>
-            <option value="4">4 pines</option>
-            <option value="5">5 pines</option>
+          <select id="cantidad" name="cantidad" class="form-control" style="background-color: #AAF0F4;" required disabled>
+            {% for i in range(1, 21) %}
+            <option value="{{ i }}">{{ i }} {{ 'pin' if i == 1 else 'pines' }}</option>
+            {% endfor %}
           </select>
         </div>
       </div>
@@ -219,10 +222,54 @@
       const cantidadSelect = document.getElementById('cantidad');
       
       if (montoSelect) {
-        montoSelect.addEventListener('change', updateTotalPrice);
+        montoSelect.addEventListener('change', function() {
+          // Limitar cantidad según stock del paquete seleccionado (máx 20)
+          const selected = montoSelect.options[montoSelect.selectedIndex];
+          const stock = parseInt(selected.getAttribute('data-stock') || '0');
+          const maxQty = Math.min(20, isNaN(stock) ? 0 : stock);
+          
+          // Reconstruir opciones de cantidad
+          if (cantidadSelect) {
+            const currentValue = parseInt(cantidadSelect.value || '1');
+            cantidadSelect.innerHTML = '';
+            const limit = Math.max(0, maxQty);
+            for (let i = 1; i <= limit; i++) {
+              const opt = document.createElement('option');
+              opt.value = i;
+              opt.textContent = `${i} ${i === 1 ? 'pin' : 'pines'}`;
+              cantidadSelect.appendChild(opt);
+            }
+            // Habilitar/deshabilitar según stock
+            if (limit > 0) {
+              cantidadSelect.disabled = false;
+              // Ajustar selección actual si excede el límite
+              if (currentValue >= 1 && currentValue <= limit) {
+                cantidadSelect.value = String(currentValue);
+              } else {
+                cantidadSelect.value = '1';
+              }
+              document.getElementById('submit-btn').disabled = false;
+            } else {
+              // Sin stock
+              const opt = document.createElement('option');
+              opt.value = '';
+              opt.textContent = '-';
+              cantidadSelect.appendChild(opt);
+              cantidadSelect.value = '';
+              cantidadSelect.disabled = true;
+              document.getElementById('submit-btn').disabled = true;
+            }
+          }
+          updateTotalPrice();
+        });
       }
       if (cantidadSelect) {
         cantidadSelect.addEventListener('change', updateTotalPrice);
+      }
+      // Disparar una vez para inicializar el límite de cantidad si ya hay selección
+      if (montoSelect && montoSelect.value) {
+        const event = new Event('change');
+        montoSelect.dispatchEvent(event);
       }
     });
     

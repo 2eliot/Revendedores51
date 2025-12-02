@@ -4125,6 +4125,8 @@ def freefire():
     
     # Obtener precios dinámicos de Free Fire Global
     prices = get_freefire_global_prices()
+    # Obtener stock disponible por paquete (Free Fire Global)
+    stock_freefire_global = get_pin_stock_freefire_global_optimized()
     
     # Verificar si hay una compra exitosa para mostrar (solo una vez)
     compra_exitosa = False
@@ -4139,6 +4141,7 @@ def freefire():
                          user_id=session.get('id', '00000'),
                          balance=session.get('saldo', 0),
                          prices=prices,
+                         stock_freefire_global=stock_freefire_global,
                          compra_exitosa=compra_exitosa,
                          games_active=get_games_active(),
                          **compra_data)
@@ -4159,9 +4162,9 @@ def validar_freefire():
         monto_id = int(monto_id)
         cantidad = int(cantidad)
         
-        # Validar cantidad (entre 1 y 5)
-        if cantidad < 1 or cantidad > 5:
-            flash('La cantidad debe estar entre 1 y 5 pines', 'error')
+        # Validar cantidad (entre 1 y 20)
+        if cantidad < 1 or cantidad > 20:
+            flash('La cantidad debe estar entre 1 y 20 pines', 'error')
             return redirect('/juego/freefire')
     except ValueError:
         flash('Datos inválidos', 'error')
