@@ -9,7 +9,7 @@ body {
   background-color: #f5f7fa;
   color: #333;
   line-height: 1.6;
-  overflow-x: hidden; /* evitar desbordes horizontales en mobile */
+  overflow-x: auto; /* permitir desplazamiento si es necesario en mobile */
 }
 
 /* Mensajes flash */
@@ -288,6 +288,16 @@ body {
 }
 
 @media (max-width: 480px) {
+  /* Compactar tablas sin ocultar columnas */
+  .table { font-size: 0.75rem; }
+  .table th, .table td { padding: 4px 6px; }
+  .table th, .table td { word-break: break-word; white-space: normal; }
+
+  /* Compactar gráfico de barras (Profit diario) sin cambiar tamaño de barra */
+  .bar-chart { --bar-w: 10px; --bar-gap: 1px; padding: 6px 6px 0 6px; }
+  .bar-chart-xlabels { font-size: 9px; gap: var(--bar-gap); }
+  .bar-chart .bar { flex: 0 0 var(--bar-w); margin: 0 var(--bar-gap); }
+  .bar-chart-xlabels > div { flex: 0 0 var(--bar-w); }
   .users-grid { gap: 8px; padding: 8px; }
   .user-card { padding: 8px; gap: 8px; }
   .user-name { font-size: 0.9rem; }
@@ -2387,33 +2397,41 @@ body {
   position: relative;
   width: 100%;
   height: 220px;
-  display: grid;
-  grid-auto-flow: column;
-  align-items: end;
-  gap: 6px;
+  display: flex; /* barras en fila */
+  align-items: flex-end;
+  /* variables para ancho de barra y separación */
+  --bar-w: 10px;
+  --bar-gap: 2px;
+  gap: var(--bar-gap);
   padding: 8px 8px 0 8px;
   background: linear-gradient(to bottom, transparent 24%, rgba(0,0,0,0.03) 25%, transparent 26%) repeat-y;
   background-size: 100% 40px; /* líneas horizontales estilo grid */
   border-radius: 8px;
+  overflow-x: auto; /* scroll horizontal en móvil */
 }
 .bar-chart .bar {
-  width: 10px;
-  min-width: 6px;
+  width: var(--bar-w);
+  min-width: var(--bar-w);
+  flex: 0 0 var(--bar-w); /* ancho fijo por barra para sincronizar con labels */
   background: #2ecc71;
-  opacity: 0.85;
-  border-radius: 6px 6px 0 0;
+  margin: 0 calc(var(--bar-gap)/2); /* simétrico con gap */
+  opacity: 0.9;
+  border-radius: 3px 3px 0 0;
   box-shadow: 0 0 0 1px rgba(46, 204, 113, 0.25) inset;
   transition: height 0.25s ease, opacity 0.2s ease;
 }
 .bar-chart .bar:hover { opacity: 1; }
 .bar-chart-xlabels {
-  display: grid;
-  grid-auto-flow: column;
-  gap: 6px;
-  padding: 4px 8px 0 8px;
-  color: #7a7a7a;
+  display: flex;
+  gap: var(--bar-gap);
+  margin-top: 6px;
   font-size: 12px;
+  color: #6c757d;
+  user-select: none;
+  text-align: center;
+  overflow-x: auto; /* scroll horizontal para labels */
 }
+.bar-chart-xlabels > div { flex: 0 0 var(--bar-w); }
 
 /* Toggle Mes actual / Mes anterior */
 .toggle-group {

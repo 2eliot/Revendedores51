@@ -104,8 +104,22 @@
       {% if transactions %}
         {% for transaction in transactions %}
         <div class="transaction-card-simple {% if transaction.get('is_bloodstriker') %}bloodstriker-transaction{% endif %}">
+          {% set juego = 'Otros' %}
+          {% if transaction.get('is_bloodstriker') %}
+            {% set juego = 'Blood Striker' %}
+          {% elif '💎' in transaction.paquete or 'Free Fire' in transaction.paquete or 'Tarjeta' in transaction.paquete %}
+            {% set juego = 'Free Fire' %}
+          {% endif %}
+          <div class="transaction-header">{{ juego }}</div>
           <div class="transaction-row">
             <div class="transaction-main">
+              <div class="user-simple" style="margin-bottom:4px;">
+                {% if session.get('is_admin') %}
+                  ID: {{ transaction.usuario_id }} - {{ transaction.nombre }} {{ transaction.apellido }}
+                {% else %}
+                  {{ transaction.nombre }} {{ transaction.apellido }}
+                {% endif %}
+              </div>
               <div class="control-status">
                 <span class="control-num">{{ transaction.numero_control }}</span>
                 {% if transaction.get('is_bloodstriker') %}
@@ -120,28 +134,9 @@
               </div>
             </div>
             
-            <!-- PIN/Player ID para todas las transacciones -->
+            <!-- En el panel derecho ahora va la FECHA/HORA -->
             <div class="transaction-pin">
-              {% if '\n' in transaction.pin %}
-                <!-- Múltiples pines -->
-                {% set pines_list = transaction.pin.split('\n') %}
-                <div class="multiple-pins">
-                  <span class="pins-count">{{ pines_list|length }} pines:</span>
-                  {% for pin in pines_list %}
-                    {% if pin.strip() %}
-                    <div class="pin-item-simple">
-                      <span class="pin-code-simple">{{ pin.strip() }}</span>
-                      <button class="copy-btn-simple" onclick="copyTransactionPin('{{ pin.strip() }}')">📋</button>
-                    </div>
-                    {% endif %}
-                  {% endfor %}
-                  <button class="copy-all-btn-simple" onclick="copyAllTransactionPins('{{ transaction.pin }}')">📋 Todos</button>
-                </div>
-              {% else %}
-                <!-- Pin único -->
-                <span class="pin-code-simple">{{ transaction.pin }}</span>
-                <button class="copy-btn-simple" onclick="copyTransactionPin('{{ transaction.pin }}')">📋</button>
-              {% endif %}
+              <span class="date-simple">{{ transaction.fecha.split(' ')[0] }} {{ transaction.fecha.split(' ')[1].split('.')[0] }}</span>
             </div>
             {% if transaction.get('is_bloodstriker') and session.get('is_admin') %}
             <!-- Botones para transacciones de Blood Striker (solo admin) -->
@@ -156,14 +151,22 @@
             {% endif %}
           </div>
           <div class="transaction-footer">
-            <span class="date-simple">{{ transaction.fecha.split(' ')[0] }} {{ transaction.fecha.split(' ')[1].split('.')[0] }}</span>
-            <span class="user-simple">
-              {% if session.get('is_admin') %}
-                ID: {{ transaction.usuario_id }} - {{ transaction.nombre }} {{ transaction.apellido }}
-              {% else %}
-                {{ transaction.nombre }} {{ transaction.apellido }}
+            <!-- En el footer ahora van los PINES (unificado para 1 o más) -->
+            {% set pines_list = transaction.pin.split('\n') if '\n' in transaction.pin else [transaction.pin] %}
+            <div class="multiple-pins">
+              <span class="pins-count">{{ pines_list|length }} pin{{ '' if pines_list|length == 1 else 'es' }}:</span>
+              {% for pin in pines_list %}
+                {% if pin.strip() %}
+                <div class="pin-item-simple">
+                  <span class="pin-code-simple">{{ pin.strip() }}</span>
+                  <button class="copy-btn-simple" onclick="copyTransactionPin('{{ pin.strip() }}')">📋</button>
+                </div>
+                {% endif %}
+              {% endfor %}
+              {% if pines_list|length > 1 %}
+              <button class="copy-all-btn-simple" onclick="copyAllTransactionPins('{{ transaction.pin }}')">📋 Todos</button>
               {% endif %}
-            </span>
+            </div>
           </div>
         </div>
         {% endfor %}

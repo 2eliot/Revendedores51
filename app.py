@@ -763,8 +763,9 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
             transactions = []
             total_count = 0
     
-    # Obtener precios dinámicos de la base de datos (Free Fire y Blood Striker)
+    # Obtener precios dinámicos de la base de datos (Free Fire LATAM, Free Fire Global y Blood Striker)
     packages_info = get_package_info_with_prices()
+    freefire_global_packages_info = get_freefire_global_prices()
     bloodstriker_packages_info = get_bloodstriker_prices()
     
     # Agregar información del paquete basado en el monto dinámico
@@ -775,18 +776,47 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
         
         # Buscar el paquete que coincida con el monto (con tolerancia para decimales)
         paquete_encontrado = False
+        tolerance = 0.05  # tolerancia para diferencias de redondeo/float
         
-        # Primero buscar en paquetes de Free Fire
+        # Primero buscar en paquetes de Free Fire LATAM (considerando múltiplos hasta 20)
         for package_id, package_info in packages_info.items():
-            if abs(monto - package_info['precio']) < 0.01:  # Tolerancia de 1 centavo
+            precio_unit = package_info['precio']
+            # Coincidencia directa
+            if abs(monto - precio_unit) <= tolerance:
                 transaction_dict['paquete'] = package_info['nombre']
                 paquete_encontrado = True
                 break
+            # Coincidencia por múltiplos
+            for n in range(2, 21):
+                if abs(monto - (precio_unit * n)) <= tolerance:
+                    transaction_dict['paquete'] = f"{package_info['nombre']} x{n}"
+                    paquete_encontrado = True
+                    break
+            if paquete_encontrado:
+                break
+        
+        # Si no se encuentra en Free Fire LATAM, buscar en Free Fire Global (múltiplos hasta 20)
+        if not paquete_encontrado:
+            for package_id, package_info in freefire_global_packages_info.items():
+                precio_unit = package_info['precio']
+                # Coincidencia directa
+                if abs(monto - precio_unit) <= tolerance:
+                    transaction_dict['paquete'] = package_info['nombre']
+                    paquete_encontrado = True
+                    break
+                # Coincidencia por múltiplos
+                for n in range(2, 21):
+                    if abs(monto - (precio_unit * n)) <= tolerance:
+                        transaction_dict['paquete'] = f"{package_info['nombre']} x{n}"
+                        paquete_encontrado = True
+                        break
+                if paquete_encontrado:
+                    break
         
         # Si no se encuentra en Free Fire, buscar en Blood Striker
         if not paquete_encontrado:
             for package_id, package_info in bloodstriker_packages_info.items():
-                if abs(monto - package_info['precio']) < 0.01:  # Tolerancia de 1 centavo
+                if abs(monto - package_info['precio']) <= tolerance:  # Tolerancia
                     transaction_dict['paquete'] = package_info['nombre']
                     paquete_encontrado = True
                     break
@@ -4434,20 +4464,41 @@ def dashboard():
         
         # Buscar el paquete que coincida con el monto
         paquete_encontrado = False
+        tolerance = 0.05  # tolerancia para diferencias de redondeo/float
         
-        # Buscar en Free Fire LATAM
+        # Buscar en Free Fire LATAM (considerando múltiplos hasta 20)
         for package_id, package_info in packages_info.items():
-            if abs(monto - package_info['precio']) < 0.01:
+            precio_unit = package_info['precio']
+            # Intentar coincidencia directa primero
+            if abs(monto - precio_unit) <= tolerance:
                 transaction_dict['paquete'] = package_info['nombre']
                 paquete_encontrado = True
                 break
+            # Intentar por múltiplos
+            for n in range(2, 21):
+                if abs(monto - (precio_unit * n)) <= tolerance:
+                    transaction_dict['paquete'] = f"{package_info['nombre']} x{n}"
+                    paquete_encontrado = True
+                    break
+            if paquete_encontrado:
+                break
         
-        # Si no se encuentra en Free Fire LATAM, buscar en Free Fire Global
+        # Si no se encuentra en Free Fire LATAM, buscar en Free Fire Global (múltiplos hasta 20)
         if not paquete_encontrado:
             for package_id, package_info in freefire_global_packages_info.items():
-                if abs(monto - package_info['precio']) < 0.01:
+                precio_unit = package_info['precio']
+                # Coincidencia directa
+                if abs(monto - precio_unit) <= tolerance:
                     transaction_dict['paquete'] = package_info['nombre']
                     paquete_encontrado = True
+                    break
+                # Coincidencia por múltiplos
+                for n in range(2, 21):
+                    if abs(monto - (precio_unit * n)) <= tolerance:
+                        transaction_dict['paquete'] = f"{package_info['nombre']} x{n}"
+                        paquete_encontrado = True
+                        break
+                if paquete_encontrado:
                     break
         
         # Si no se encuentra en Free Fire Global, buscar en Blood Striker

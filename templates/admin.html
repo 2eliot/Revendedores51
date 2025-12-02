@@ -139,12 +139,14 @@
           <div class="card" style="margin-top:16px;">
             <div class="card-header"><h3>Top clientes del mes</h3></div>
             <div class="card-body">
-              <table class="table" style="width:100%;">
-                <thead>
-                  <tr><th>#</th><th>Cliente</th><th>Total gastado</th><th>Compras</th><th>% del top</th></tr>
-                </thead>
-                <tbody id="top-clients-body"></tbody>
-              </table>
+              <div class="table-responsive">
+                <table class="table" style="width:100%; min-width: 480px;">
+                  <thead>
+                    <tr><th>#</th><th>Cliente</th><th>Total gastado</th><th>Compras</th><th>% del top</th></tr>
+                  </thead>
+                  <tbody id="top-clients-body"></tbody>
+                </table>
+              </div>
             </div>
           </div>
 
@@ -161,7 +163,10 @@
                 </div>
               </div>
               <div class="card-body">
-                <div id="profit-chart" class="bar-chart"></div>
+                <div class="bar-chart-wrap">
+                  <div id="profit-yaxis" class="bar-chart-yaxis"></div>
+                  <div id="profit-chart" class="bar-chart"></div>
+                </div>
                 <div class="bar-chart-xlabels" id="profit-chart-xlabels"></div>
               </div>
             </div>
@@ -640,29 +645,90 @@
         const btnCurr = document.getElementById('btn-month-current');
         const btnPrev = document.getElementById('btn-month-prev');
 
+        function daysInMonth(year, monthIndex) {
+          return new Date(year, monthIndex + 1, 0).getDate();
+        }
+
+        function normalizeToMonthDataset(dataset) {
+          if (!dataset || dataset.length === 0) {
+            const today = new Date();
+            const y = today.getFullYear();
+            const m = today.getMonth();
+            const dim = daysInMonth(y, m);
+            const ym = `${y}-${String(m+1).padStart(2,'0')}`;
+            return Array.from({length: dim}, (_,i)=>({ day: `${ym}-${String(i+1).padStart(2,'0')}`, value: 0 }));
+          }
+          // Inferir año/mes desde el primer elemento (formato YYYY-MM-DD)
+          const [yy, mm] = String(dataset[0].day||'').split('-');
+          const y = parseInt(yy||`${new Date().getFullYear()}`,10);
+          const m = parseInt(mm||`${new Date().getMonth()+1}`,10) - 1;
+          const dim = isNaN(y) || isNaN(m) ? daysInMonth(new Date().getFullYear(), new Date().getMonth()) : daysInMonth(y, m);
+          const ym = `${isNaN(y)?new Date().getFullYear():y}-${String((isNaN(m)?new Date().getMonth():m)+1).padStart(2,'0')}`;
+          const map = new Map(dataset.map(d => [String(d.day), Number(d.value||0)]));
+          return Array.from({length: dim}, (_,i)=>{
+            const dstr = `${ym}-${String(i+1).padStart(2,'0')}`;
+            return { day: dstr, value: map.get(dstr) || 0 };
+          });
+        }
+
         function renderBars(dataset) {
           if (!chart || !xlabels) return;
           chart.innerHTML = '';
           xlabels.innerHTML = '';
-          const max = Math.max(1, ...dataset.map(d => d.value));
-          dataset.forEach((d, idx) => {
+          const monthData = normalizeToMonthDataset(dataset);
+          // Recorte inteligente del final: usar el día de hoy si es el mes actual, o el último día con datos > 0.
+          let visibleData = monthData;
+          try {
+            const first = monthData[0]?.day || '';
+            const [yy, mm] = String(first).split('-');
+            const today = new Date();
+            const sameMonth = today.getFullYear() === Number(yy) && (today.getMonth() + 1) === Number(mm);
+            // Encontrar último índice con valor > 0
+            let lastIdx = -1;
+            for (let i = monthData.length - 1; i >= 0; i--) {
+              if (Number(monthData[i].value || 0) > 0) { lastIdx = i; break; }
+            }
+            let cut = monthData.length;
+            if (sameMonth) {
+              cut = Math.min(monthData.length, Math.max(today.getDate(), 1));
+            }
+            if (lastIdx >= 0) {
+              cut = Math.max(Math.min(cut, lastIdx + 1), 7); // al menos 7 días visibles
+            } else if (sameMonth) {
+              cut = Math.max(Math.min(cut, today.getDate()), 7);
+            }
+            visibleData = monthData.slice(0, cut);
+          } catch (e) {
+            // fallback: dejar monthData completo
+            visibleData = monthData;
+          }
+          const narrow = window.innerWidth < 520;
+          const max = Math.max(1, ...visibleData.map(d => d.value));
+          // Pintar barras SOLO para los datos visibles recortados
+          visibleData.forEach((d, idx) => {
             const bar = document.createElement('div');
             bar.className = 'bar';
-            const h = (d.value / max) * 100;
+            // Escala suavizada: raíz cuadrada para que no crezcan tan rápido con pocas compras
+            const h = Math.sqrt(d.value / max) * 100;
             bar.style.height = `${h}%`;
             bar.title = `${d.day}: $${d.value.toFixed(2)}`;
             chart.appendChild(bar);
+          });
+          // Etiquetas: mostrar marcas cada 3 días (1,4,7,10,...) manteniendo una celda por día para alinear
+          const labelsData = monthData; // usar mes completo
+          labelsData.forEach((d, idx) => {
             const xl = document.createElement('div');
-            // Evitar desfase por timezone al usar Date("YYYY-MM-DD"). Usar la parte del string.
             try {
               const parts = String(d.day).split('-');
-              xl.textContent = parts.length === 3 ? String(parseInt(parts[2], 10)) : String(idx+1);
+              const dayNum = parts.length === 3 ? parseInt(parts[2], 10) : (idx + 1);
+              xl.textContent = ((dayNum - 1) % 3 === 0) ? String(dayNum) : '';
             } catch (e) {
-              xl.textContent = String(idx+1);
+              const dayNum = idx + 1;
+              xl.textContent = ((dayNum - 1) % 3 === 0) ? String(dayNum) : '';
             }
             xlabels.appendChild(xl);
           });
-          const total = dataset.reduce((a,b)=>a+b.value,0);
+          const total = visibleData.reduce((a,b)=>a+b.value,0);
           totalEl.textContent = `$${total.toFixed(2)}`;
         }
 
@@ -677,6 +743,18 @@
             renderBars(dataPrev);
           }
         }
+
+        // Sincronizar scroll horizontal entre barras y etiquetas
+        function syncScrollContainers() {
+          if (!chart || !xlabels) return;
+          // Mantener sincronía al desplazar cualquiera de los dos contenedores
+          chart.addEventListener('scroll', () => { xlabels.scrollLeft = chart.scrollLeft; });
+          xlabels.addEventListener('scroll', () => { chart.scrollLeft = xlabels.scrollLeft; });
+        }
+
+        // Inicializar
+        syncScrollContainers();
+        setActive('curr');
 
         // Inicial por defecto: mes actual
         setActive('curr');

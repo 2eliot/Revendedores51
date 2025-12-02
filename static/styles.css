@@ -337,6 +337,18 @@ body {
   box-shadow: 0 0 4px rgba(0,0,0,0.3);
 }
 
+/* Encabezado dentro de cada tarjeta */
+.transaction-header {
+  width: 100%;
+  background-color: rgba(0,0,0,0.06); /* gris transparente */
+  color: #000; /* texto oscuro para contraste */
+  font-weight: 700;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  margin-bottom: 0.5rem;
+  border-bottom: 2px solid rgba(0,0,0,0.15); /* línea que delimita */
+}
+
 /* Contenedor de transacciones simplificado */
 .transaction-container {
   max-width: 500px;
@@ -354,6 +366,7 @@ body {
   border: 1px solid #e9ecef;
   padding: 0.75rem;
   transition: box-shadow 0.2s ease;
+  text-align: center;
 }
 
 .transaction-card-simple:hover {
@@ -363,8 +376,10 @@ body {
 /* Fila principal de la transacción */
 .transaction-row {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  justify-content: center;
   align-items: center;
+  gap: 0.5rem;
   margin-bottom: 0.5rem;
 }
 
@@ -373,6 +388,7 @@ body {
   flex-direction: column;
   gap: 0.25rem;
   flex: 1;
+  align-items: center;
 }
 
 .control-status {
@@ -395,6 +411,7 @@ body {
 .package-cost {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.75rem;
 }
 
@@ -407,7 +424,7 @@ body {
 .cost {
   font-size: 0.9rem;
   font-weight: 700;
-  color: #dc3545;
+  color: #28a745;
 }
 
 /* PIN de la transacción */
@@ -419,6 +436,7 @@ body {
   padding: 0.4rem 0.6rem;
   border-radius: 6px;
   border: 1px solid #dee2e6;
+  align-self: center;
 }
 
 .pin-code-simple {
@@ -457,6 +475,7 @@ body {
   flex-direction: column;
   gap: 0.5rem;
   width: 100%;
+  align-items: center;
 }
 
 .pins-count {
@@ -487,7 +506,7 @@ body {
   font-weight: 600;
   transition: all 0.2s ease;
   margin-top: 0.25rem;
-  align-self: flex-start;
+  align-self: center;
 }
 
 .copy-all-btn-simple:hover {
@@ -502,8 +521,10 @@ body {
 /* Footer de la transacción */
 .transaction-footer {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  justify-content: center;
   align-items: center;
+  gap: 0.5rem;
   padding-top: 0.5rem;
   border-top: 1px solid #f1f3f4;
   font-size: 0.8rem;
@@ -1049,7 +1070,7 @@ body {
 }
 
 .bloodstriker-transaction .cost {
-  color: #dc3545;
+  color: #28a745;
   font-weight: 700;
 }
 
