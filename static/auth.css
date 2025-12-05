@@ -1,0 +1,191 @@
+body {
+  font-family: 'Inter', sans-serif;
+  background: linear-gradient(135deg, #0a0a0a 0%, #000000 100%);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 1rem;
+}
+
+.auth-panel {
+  max-width: 420px;
+  width: 100%;
+  background: rgba(0, 0, 0, 0.95);
+  backdrop-filter: blur(10px);
+  padding: 2.5rem;
+  border-radius: 20px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.3), 0 0 0 1px rgba(34, 197, 94, 0.25);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.auth-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.auth-header h1 {
+  color: #fff;
+  font-size: 2rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem 0;
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.auth-header p {
+  color: #a3a3a3;
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.tab-buttons {
+  display: flex;
+  background: #111111;
+  border-radius: 12px;
+  padding: 4px;
+  margin-bottom: 2rem;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.tab-buttons button {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border: none;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 600;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  font-size: 0.95rem;
+}
+
+.tab-buttons button:hover {
+  color: #fff;
+  background: rgba(34, 197, 94, 0.2);
+}
+
+.active-tab {
+  background: linear-gradient(135deg, #16a34a, #22c55e) !important;
+  color: #fff !important;
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.4);
+  transform: translateY(-1px);
+}
+
+.tab-content form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.input-group {
+  position: relative;
+}
+
+.input-group label {
+  display: block;
+  color: #fff;
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.tab-content input {
+  width: 100%;
+  padding: 0.875rem 1rem;
+  border: 2px solid #262626;
+  border-radius: 12px;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+  background: #0f0f0f;
+  color: #fff;
+  box-sizing: border-box;
+}
+
+.tab-content input:focus {
+  outline: none;
+  border-color: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25);
+  transform: translateY(-1px);
+}
+
+.tab-content input::placeholder {
+  color: #a3a3a3;
+}
+
+.submit-btn {
+  padding: 1rem;
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+  margin-top: 0.5rem;
+  box-shadow: 0 4px 15px rgba(34, 197, 94, 0.4);
+}
+
+.submit-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(34, 197, 94, 0.6);
+}
+
+.submit-btn:active {
+  transform: translateY(0);
+}
+
+/* Mensajes flash */
+.flash-messages {
+  margin-bottom: 1.5rem;
+}
+
+.flash-message {
+  padding: 1rem 1.25rem;
+  border-radius: 12px;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border: none;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  transition: all 0.3s ease;
+}
+
+.flash-error {
+  background: linear-gradient(135deg, #ff6b6b, #ee5a52);
+  color: #fff;
+}
+
+.flash-success {
+  background: linear-gradient(135deg, #51cf66, #40c057);
+  color: #fff;
+}
+
+/* Responsive design */
+@media (max-width: 480px) {
+  body {
+    padding: 0.5rem;
+  }
+  
+  .auth-panel {
+    padding: 2rem 1.5rem;
+    border-radius: 16px;
+  }
+  
+  .auth-header h1 {
+    font-size: 1.75rem;
+  }
+  
+  .tab-content input {
+    padding: 0.75rem;
+  }
+  
+  .submit-btn {
+    padding: 0.875rem;
+  }
+}

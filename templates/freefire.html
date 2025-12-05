@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Free Fire</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='freefire.css') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <!-- Mensajes flash -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-messages">
+        {% for category, message in messages %}
+          <div class="flash-message flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <!-- Header con navegación -->
+  <header class="header">
+    <div class="hamburger" onclick="toggleMenu()">
+      <svg class="icon" viewBox="0 0 24 24">
+        <path d="M3 6h18M3 12h18M3 18h18" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <div id="menu-juegos" class="menu-juegos">
+        <p class="menu-title">🎮 Juegos</p>
+        <ul>
+          {% if games_active.freefire %}
+          <li><a href="/juego/freefire_latam">Free Fire Latam</a></li>
+          {% endif %}
+          {% if games_active.freefire_global %}
+          <li><a href="/juego/freefire">Free Fire</a></li>
+          {% endif %}
+          {% if games_active.bloodstriker %}
+          <li><a href="/juego/bloodstriker">Blood Striker</a></li>
+          {% endif %}
+        </ul>
+      </div>
+    </div>
+
+    <div class="icon-container">
+      <svg class="icon" onclick="window.location.href='/'" viewBox="0 0 24 24"><path d="M3 10L12 2l9 8v10a1 1 0 01-1 1h-6v-6H10v6H4a1 1 0 01-1-1V10z"/></svg>
+      <div class="dashboard-icon-container" onclick="window.location.href='/dashboard'" title="Mi Dashboard">
+        <svg class="icon" viewBox="0 0 200 200" fill="none" aria-hidden="true" style="color:#ffffff">
+          <line x1="30" y1="10" x2="30" y2="170" stroke="currentColor" stroke-width="12" stroke-linecap="round"/>
+          <line x1="30" y1="170" x2="190" y2="170" stroke="currentColor" stroke-width="12" stroke-linecap="round"/>
+          <rect x="45" y="110" width="20" height="60" fill="currentColor" rx="4"/>
+          <rect x="75" y="80" width="20" height="90" fill="currentColor" rx="4"/>
+          <rect x="105" y="110" width="20" height="60" fill="currentColor" rx="4"/>
+          <rect x="135" y="90" width="20" height="80" fill="currentColor" rx="4"/>
+          <polyline points="55,110 85,80 115,110 145,90" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <svg class="icon" onclick="window.location.href='/billetera'" viewBox="0 0 24 24"><path d="M18 4H6C4.9 4 4 4.9 4 6v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM6 6h12v2H6V6zm0 4h12v8H6v-8zm2 2h8v1H8v-1zm0 2h6v1H8v-1z"/></svg>
+
+      <div class="user-icon" onclick="toggleUserBox()">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M12 12a5 5 0 100-10 5 5 0 000 10zm0 2c-4.418 0-8 2.239-8 5v1h16v-1c0-2.761-3.582-5-8-5z"/></svg>
+        <div id="user-box" class="user-box">
+          <p><strong>Nombre:</strong> {{ session.get('nombre', '---') }}</p>
+          <p><strong>Apellido:</strong> {{ session.get('apellido', '---') }}</p>
+          <p><strong>Correo:</strong> {{ session.get('usuario', '---') }}</p>
+          <p><strong>ID:</strong> {{ user_id }}</p>
+          {% if session.get('is_admin') %}
+          <a href="/admin" class="admin-btn">Panel Admin</a>
+          {% endif %}
+          <a href="/logout" class="logout-btn">Cerrar sesión</a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Panel del usuario -->
+  <section class="user-panel">
+    <p>Mi ID <span style="color: #28a745; font-weight: 600;">{{ user_id }}</span> &nbsp; | &nbsp; Saldo <span style="color: #28a745; font-weight: 600;">${{ "%.2f"|format(balance) }}</span></p>
+  </section>
+
+  <section class="juego-container">
+    <h1 class="juego-titulo">Free Fire</h1>
+
+    <form method="POST" action="/validar/freefire" class="juego-form">
+      <div class="form-row">
+        <div class="form-col">
+          <label for="monto">Selecciona tu paquete:</label>
+          <select id="monto" name="monto" class="form-control" style="background-color: #AAF0F4;" required>
+            <option value="">Seleccione paquete</option>
+            {% for package_id, package_info in prices.items() %}
+            {% set stock_pkg = (stock_freefire_global.get(package_id, 0) if stock_freefire_global else 0) %}
+            {% set has_stock = stock_pkg > 0 %}
+            <option value="{{ package_id }}" data-stock="{{ stock_pkg }}" {% if not has_stock %}disabled{% endif %}>
+              {{ package_info.nombre }} / ${{ "%.2f"|format(package_info.precio) }}
+              {% if has_stock %}✅{% else %}❌{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-col">
+          <label for="cantidad">Cantidad de pines:</label>
+          <select id="cantidad" name="cantidad" class="form-control" style="background-color: #AAF0F4;" required disabled>
+            {% for i in range(1, 21) %}
+            <option value="{{ i }}">{{ i }} {{ 'pin' if i == 1 else 'pines' }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div id="total-price" class="total-price" style="display: none;"></div>
+
+      <button type="submit" id="submit-btn">Validar compra</button>
+    </form>
+
+    {% if compra_exitosa %}
+    <div class="compra-exitosa">
+      <h3>🎉 ¡Compra Exitosa!</h3>
+      
+      {% if pines_list %}
+        <!-- Múltiples pines -->
+        <div class="pin-container">
+          <h4>📋 Tus {{ cantidad_comprada }} Pines:</h4>
+          {% for pin_code in pines_list %}
+          <div class="pin-info">
+            <p class="pin-label">PIN {{ loop.index }}:</p>
+            <p class="pin-code" id="pinCode{{ loop.index }}">{{ pin_code }}</p>
+            <button class="copy-btn" onclick="copyPin('pinCode{{ loop.index }}')">📋</button>
+          </div>
+          {% endfor %}
+          <div class="copy-all-container">
+            <button class="copy-all-btn" onclick="copyAllPins()">📋 Copiar Todos los Pines</button>
+          </div>
+        </div>
+      {% else %}
+        <!-- Un solo pin -->
+        <div class="pin-container">
+          <div class="pin-info">
+            <p class="pin-label">PIN:</p>
+            <p class="pin-code" id="pinCode">{{ pin }}</p>
+            <button class="copy-btn" onclick="copyPin('pinCode')">📋</button>
+          </div>
+        </div>
+      {% endif %}
+      
+      <div class="monto-info">
+        <p><strong>Monto Total:</strong> ${{ "%.2f"|format(monto_compra) }}</p>
+      </div>
+      <div class="entrega-info">
+        <p>✅ Compra exitosa.</p>
+      </div>
+    </div>
+    {% else %}
+    <div class="informacion">
+      <p><strong>Importante:</strong> Los pines adquiridos no tienen reembolso una vez realizada la compra.</p>
+      <p style="color: red; font-weight: bold; font-style: italic;">¡Aprovecha esta oferta por tiempo limitado!</p>
+      <br><br>
+      <p>¿Cómo redimir?</p>
+      <br>
+      <li>Ingresa a <a href="https://redeempins.com/">https://redeempins.com/</a></li><br>
+      <li>Ingresa el pin adquirido</li><br>
+      <li>Ingresa tu ID</li><br>
+      <li>Acepta los Términos y Condiciones y luego canjear</li>
+    </div>
+    {% endif %}
+
+    <div class="volver-container">
+      <a href="/" class="volver-btn">← Volver al inicio</a>
+    </div>
+  </section>
+
+  <script>
+    function toggleUserBox() {
+      document.getElementById("user-box").classList.toggle("visible");
+    }
+    function toggleMenu() {
+      document.getElementById("menu-juegos").classList.toggle("visible");
+    }
+    
+    // Cerrar menús al hacer clic fuera de ellos
+    document.addEventListener('click', function(event) {
+      const userBox = document.getElementById('user-box');
+      const userIcon = document.querySelector('.user-icon');
+      const menuJuegos = document.getElementById('menu-juegos');
+      const hamburger = document.querySelector('.hamburger');
+      
+      // Cerrar user-box si se hace clic fuera
+      if (userBox && userIcon && !userIcon.contains(event.target)) {
+        userBox.classList.remove('visible');
+      }
+      
+      // Cerrar menu-juegos si se hace clic fuera
+      if (menuJuegos && hamburger && !hamburger.contains(event.target)) {
+        menuJuegos.classList.remove('visible');
+      }
+    });
+    
+    function updateTotalPrice() {
+      const montoSelect = document.getElementById('monto');
+      const cantidadSelect = document.getElementById('cantidad');
+      const totalPriceDiv = document.getElementById('total-price');
+      
+      if (montoSelect.value && cantidadSelect.value) {
+        const selectedOption = montoSelect.options[montoSelect.selectedIndex];
+        const priceText = selectedOption.textContent;
+        const priceMatch = priceText.match(/\$(\d+\.\d+)/);
+        
+        if (priceMatch) {
+          const unitPrice = parseFloat(priceMatch[1]);
+          const quantity = parseInt(cantidadSelect.value);
+          const totalPrice = unitPrice * quantity;
+          
+          totalPriceDiv.innerHTML = `<strong>Total: $${totalPrice.toFixed(2)} (${quantity} ${quantity === 1 ? 'pin' : 'pines'})</strong>`;
+          totalPriceDiv.style.display = 'block';
+        }
+      } else {
+        totalPriceDiv.style.display = 'none';
+      }
+    }
+    
+    // Actualizar precio total cuando cambie la selección
+    document.addEventListener('DOMContentLoaded', function() {
+      const montoSelect = document.getElementById('monto');
+      const cantidadSelect = document.getElementById('cantidad');
+      
+      if (montoSelect) {
+        montoSelect.addEventListener('change', function() {
+          // Limitar cantidad según stock del paquete seleccionado (máx 20)
+          const selected = montoSelect.options[montoSelect.selectedIndex];
+          const stock = parseInt(selected.getAttribute('data-stock') || '0');
+          const maxQty = Math.min(20, isNaN(stock) ? 0 : stock);
+          
+          // Reconstruir opciones de cantidad
+          if (cantidadSelect) {
+            const currentValue = parseInt(cantidadSelect.value || '1');
+            cantidadSelect.innerHTML = '';
+            const limit = Math.max(0, maxQty);
+            for (let i = 1; i <= limit; i++) {
+              const opt = document.createElement('option');
+              opt.value = i;
+              opt.textContent = `${i} ${i === 1 ? 'pin' : 'pines'}`;
+              cantidadSelect.appendChild(opt);
+            }
+            // Habilitar/deshabilitar según stock
+            if (limit > 0) {
+              cantidadSelect.disabled = false;
+              // Ajustar selección actual si excede el límite
+              if (currentValue >= 1 && currentValue <= limit) {
+                cantidadSelect.value = String(currentValue);
+              } else {
+                cantidadSelect.value = '1';
+              }
+              document.getElementById('submit-btn').disabled = false;
+            } else {
+              // Sin stock
+              const opt = document.createElement('option');
+              opt.value = '';
+              opt.textContent = '-';
+              cantidadSelect.appendChild(opt);
+              cantidadSelect.value = '';
+              cantidadSelect.disabled = true;
+              document.getElementById('submit-btn').disabled = true;
+            }
+          }
+          updateTotalPrice();
+        });
+      }
+      if (cantidadSelect) {
+        cantidadSelect.addEventListener('change', updateTotalPrice);
+      }
+      // Disparar una vez para inicializar el límite de cantidad si ya hay selección
+      if (montoSelect && montoSelect.value) {
+        const event = new Event('change');
+        montoSelect.dispatchEvent(event);
+      }
+    });
+    
+    function copyPin(elementId = 'pinCode') {
+      const pinCode = document.getElementById(elementId).textContent;
+      navigator.clipboard.writeText(pinCode).then(function() {
+        // Cambiar el botón temporalmente para mostrar confirmación
+        const copyBtn = document.querySelector(`#${elementId}`).nextElementSibling;
+        const originalText = copyBtn.textContent;
+        copyBtn.textContent = '✅';
+        copyBtn.style.background = '#28a745';
+        
+        setTimeout(function() {
+          copyBtn.textContent = originalText;
+          copyBtn.style.background = '';
+        }, 1500);
+      }).catch(function(err) {
+        console.error('Error al copiar: ', err);
+        // Fallback para navegadores más antiguos
+        const textArea = document.createElement('textarea');
+        textArea.value = pinCode;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        
+        const copyBtn = document.querySelector(`#${elementId}`).nextElementSibling;
+        const originalText = copyBtn.textContent;
+        copyBtn.textContent = '✅';
+        copyBtn.style.background = '#28a745';
+        
+        setTimeout(function() {
+          copyBtn.textContent = originalText;
+          copyBtn.style.background = '';
+        }, 1500);
+      });
+    }
+    
+    function copyAllPins() {
+      const pinElements = document.querySelectorAll('.pin-code');
+      const allPins = Array.from(pinElements).map(el => el.textContent).join('\n');
+      
+      navigator.clipboard.writeText(allPins).then(function() {
+        // Cambiar el botón temporalmente para mostrar confirmación
+        const copyAllBtn = document.querySelector('.copy-all-btn');
+        const originalText = copyAllBtn.textContent;
+        copyAllBtn.textContent = '✅ ¡Todos Copiados!';
+        copyAllBtn.style.background = '#28a745';
+        
+        setTimeout(function() {
+          copyAllBtn.textContent = originalText;
+          copyAllBtn.style.background = '';
+        }, 2000);
+      }).catch(function(err) {
+        console.error('Error al copiar todos los pines: ', err);
+        // Fallback para navegadores más antiguos
+        const textArea = document.createElement('textarea');
+        textArea.value = allPins;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        
+        const copyAllBtn = document.querySelector('.copy-all-btn');
+        const originalText = copyAllBtn.textContent;
+        copyAllBtn.textContent = '✅ ¡Todos Copiados!';
+        copyAllBtn.style.background = '#28a745';
+        
+        setTimeout(function() {
+          copyAllBtn.textContent = originalText;
+          copyAllBtn.style.background = '';
+        }, 2000);
+      });
+    }
+    
+    // Auto-ocultar mensajes flash después de 2 segundos
+    setTimeout(function() {
+      const flashMessages = document.querySelector('.flash-messages');
+      if (flashMessages) {
+        flashMessages.style.opacity = '0';
+        setTimeout(() => flashMessages.remove(), 300);
+      }
+    }, 2000);
+  </script>
+</body>
+</html>

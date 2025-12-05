@@ -1,0 +1,480 @@
+/* Estilos base similares a Free Fire pero con tema Blood Striker */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: linear-gradient(135deg, #2c1810 0%, #4a2c1a 50%, #6b3e2a 100%);
+  min-height: 100vh;
+  color: #333;
+}
+
+/* Header */
+.header {
+  background: linear-gradient(90deg, #8B0000, #A52A2A, #DC143C);
+  padding: 15px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 10px rgba(139, 0, 0, 0.3);
+  position: relative;
+}
+
+.hamburger {
+  position: relative;
+  cursor: pointer;
+  z-index: 1000;
+}
+
+.icon {
+  width: 24px;
+  height: 24px;
+  fill: white;
+  stroke: white;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.icon:hover {
+  transform: scale(1.1);
+  filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.5));
+}
+
+.icon-container {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+
+/* Menú de juegos */
+.menu-juegos {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background: linear-gradient(135deg, #8B0000, #A52A2A);
+  border-radius: 0 0 10px 10px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  min-width: 200px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-10px);
+  transition: all 0.3s ease;
+  z-index: 999;
+}
+
+.menu-juegos.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.menu-title {
+  color: white;
+  font-weight: 600;
+  padding: 15px 20px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  margin: 0;
+}
+
+.menu-juegos ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.menu-juegos li {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.menu-juegos li:last-child {
+  border-bottom: none;
+}
+
+.menu-juegos a {
+  display: block;
+  color: white;
+  text-decoration: none;
+  padding: 12px 20px;
+  transition: all 0.3s ease;
+}
+
+.menu-juegos a:hover {
+  background: rgba(255, 255, 255, 0.1);
+  padding-left: 25px;
+}
+
+/* User box */
+.user-icon {
+  position: relative;
+}
+
+.user-box {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  min-width: 250px;
+  padding: 20px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-10px);
+  transition: all 0.3s ease;
+  z-index: 999;
+  margin-top: 10px;
+}
+
+.user-box.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.user-box p {
+  margin: 8px 0;
+  color: #333;
+  font-size: 14px;
+}
+
+.logout-btn {
+  display: inline-block;
+  background: #DC143C;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 5px;
+  text-decoration: none;
+  font-size: 12px;
+  margin-top: 10px;
+  transition: background 0.3s ease;
+}
+
+.logout-btn:hover {
+  background: #B22222;
+}
+
+/* Panel del usuario */
+.user-panel {
+  background: rgba(255, 255, 255, 0.95);
+  padding: 15px 20px;
+  text-align: center;
+  font-weight: 500;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+/* Contenedor del juego */
+.juego-container {
+  max-width: 600px;
+  margin: 30px auto;
+  background: white;
+  border-radius: 15px;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+}
+
+.juego-titulo {
+  background: linear-gradient(90deg, #8B0000, #DC143C);
+  color: white;
+  text-align: center;
+  padding: 25px;
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Formulario */
+.juego-form {
+  padding: 30px;
+}
+
+.juego-form label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: #8B0000;
+  font-size: 16px;
+}
+
+.form-control {
+  width: 100%;
+  padding: 12px 15px;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+  font-size: 16px;
+  margin-bottom: 20px;
+  transition: all 0.3s ease;
+  font-family: 'Inter', sans-serif;
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: #DC143C;
+  box-shadow: 0 0 0 3px rgba(220, 20, 60, 0.1);
+}
+
+.form-control::placeholder {
+  color: #999;
+}
+
+.juego-form button {
+  width: 100%;
+  background: linear-gradient(90deg, #8B0000, #DC143C);
+  color: white;
+  border: none;
+  padding: 15px;
+  border-radius: 8px;
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.juego-form button:hover {
+  background: linear-gradient(90deg, #A52A2A, #FF1493);
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(220, 20, 60, 0.3);
+}
+
+/* Compra exitosa */
+.compra-exitosa {
+  background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+  margin: 20px 30px;
+  padding: 25px;
+  border-radius: 12px;
+  border-left: 5px solid #DC143C;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.compra-exitosa h3 {
+  color: #8B0000;
+  margin-bottom: 20px;
+  font-size: 22px;
+  text-align: center;
+}
+
+.solicitud-container {
+  background: white;
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 15px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.solicitud-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 15px;
+  padding: 10px;
+  background: #fff5f5;
+  border-radius: 8px;
+}
+
+.solicitud-label {
+  font-weight: 600;
+  color: #8B0000;
+  margin-right: 10px;
+  margin-bottom: 0;
+}
+
+.solicitud-estado {
+  background: #FFA500;
+  color: white;
+  padding: 5px 15px;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 0;
+}
+
+.detalles-info {
+  border-top: 1px solid #eee;
+  padding-top: 15px;
+}
+
+.detalles-info p {
+  margin: 8px 0;
+  color: #555;
+}
+
+.entrega-info {
+  text-align: center;
+  color: #666;
+}
+
+.entrega-info p {
+  margin: 5px 0;
+  font-size: 14px;
+}
+
+/* Descripción del juego */
+.juego-descripcion {
+  padding: 30px;
+  background: #f8f9fa;
+  border-top: 1px solid #eee;
+}
+
+.juego-descripcion p {
+  margin-bottom: 15px;
+  font-size: 16px;
+  color: #8B0000;
+}
+
+.juego-descripcion ul {
+  margin-bottom: 20px;
+}
+
+.juego-descripcion li {
+  margin-bottom: 8px;
+  color: #555;
+}
+
+.nota-importante {
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 8px;
+  padding: 15px;
+  margin-top: 20px;
+}
+
+.nota-importante p {
+  color: #856404;
+  margin: 0;
+  font-size: 14px;
+}
+
+/* Botón volver */
+.volver-container {
+  padding: 20px 30px;
+  text-align: center;
+  background: #f8f9fa;
+  border-top: 1px solid #eee;
+}
+
+.volver-btn {
+  display: inline-block;
+  background: #6c757d;
+  color: white;
+  padding: 12px 25px;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.volver-btn:hover {
+  background: #5a6268;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+}
+
+/* Mensajes flash */
+.flash-messages {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1000;
+  max-width: 400px;
+}
+
+.flash-message {
+  padding: 15px 20px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  font-weight: 500;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  animation: slideIn 0.3s ease;
+}
+
+.flash-success {
+  background: #d4edda;
+  color: #155724;
+  border-left: 4px solid #28a745;
+}
+
+.flash-error {
+  background: #f8d7da;
+  color: #721c24;
+  border-left: 4px solid #dc3545;
+}
+
+.flash-warning {
+  background: #fff3cd;
+  color: #856404;
+  border-left: 4px solid #ffc107;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .juego-container {
+    margin: 20px 15px;
+    border-radius: 10px;
+  }
+  
+  .juego-titulo {
+    font-size: 24px;
+    padding: 20px;
+  }
+  
+  .juego-form {
+    padding: 20px;
+  }
+  
+  .compra-exitosa {
+    margin: 15px 20px;
+    padding: 20px;
+  }
+  
+  .juego-descripcion {
+    padding: 20px;
+  }
+  
+  .flash-messages {
+    right: 10px;
+    left: 10px;
+    max-width: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .header {
+    padding: 12px 15px;
+  }
+  
+  .user-panel {
+    padding: 12px 15px;
+    font-size: 14px;
+  }
+  
+  .juego-titulo {
+    font-size: 20px;
+    padding: 15px;
+  }
+  
+  .form-control {
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+  
+  .juego-form button {
+    padding: 12px;
+    font-size: 16px;
+  }
+}

@@ -1,0 +1,18 @@
+# Dependencias principales
+Flask==2.3.3
+Werkzeug==2.3.7
+pytz==2023.3
+
+# Para notificaciones por correo
+Flask-Mail==0.9.1
+
+# Para conexiones HTTP con API externa
+requests==2.31.0
+
+# Utilidades (opcional)
+python-dotenv==1.0.0
+
+# Para producción (opcional)
+gunicorn==21.2.0
+
+# Nota: sqlite3, secrets, hashlib y os son módulos integrados de Python

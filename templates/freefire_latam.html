@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Free Fire Latam</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='freefire_latam.css') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <!-- Mensajes flash -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-messages">
+        {% for category, message in messages %}
+          <div class="flash-message flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <!-- Header con navegación -->
+  <header class="header">
+    <div class="hamburger" onclick="toggleMenu()">
+      <svg class="icon" viewBox="0 0 24 24">
+        <path d="M3 6h18M3 12h18M3 18h18" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <div id="menu-juegos" class="menu-juegos">
+        <p class="menu-title">🎮 Juegos</p>
+        <ul>
+          {% if games_active.freefire %}
+          <li><a href="/juego/freefire_latam">Free Fire Latam</a></li>
+          {% endif %}
+          {% if games_active.freefire_global %}
+          <li><a href="/juego/freefire">Free Fire</a></li>
+          {% endif %}
+          {% if games_active.bloodstriker %}
+          <li><a href="/juego/bloodstriker">Blood Striker</a></li>
+          {% endif %}
+        </ul>
+      </div>
+    </div>
+
+    <div class="icon-container">
+      <svg class="icon" onclick="window.location.href='/'" viewBox="0 0 24 24"><path d="M3 10L12 2l9 8v10a1 1 0 01-1 1h-6v-6H10v6H4a1 1 0 01-1-1V10z"/></svg>
+      <div class="dashboard-icon-container" onclick="window.location.href='/dashboard'" title="Mi Dashboard">
+        <svg class="icon" viewBox="0 0 200 200" fill="none" aria-hidden="true" style="color:#ffffff">
+          <line x1="30" y1="10" x2="30" y2="170" stroke="currentColor" stroke-width="12" stroke-linecap="round"/>
+          <line x1="30" y1="170" x2="190" y2="170" stroke="currentColor" stroke-width="12" stroke-linecap="round"/>
+          <rect x="45" y="110" width="20" height="60" fill="currentColor" rx="4"/>
+          <rect x="75" y="80" width="20" height="90" fill="currentColor" rx="4"/>
+          <rect x="105" y="110" width="20" height="60" fill="currentColor" rx="4"/>
+          <rect x="135" y="90" width="20" height="80" fill="currentColor" rx="4"/>
+          <polyline points="55,110 85,80 115,110 145,90" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <svg class="icon" onclick="window.location.href='/billetera'" viewBox="0 0 24 24"><path d="M18 4H6C4.9 4 4 4.9 4 6v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM6 6h12v2H6V6zm0 4h12v8H6v-8zm2 2h8v1H8v-1zm0 2h6v1H8v-1z"/></svg>
+
+      <div class="user-icon" onclick="toggleUserBox()">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M12 12a5 5 0 100-10 5 5 0 000 10zm0 2c-4.418 0-8 2.239-8 5v1h16v-1c0-2.761-3.582-5-8-5z"/></svg>
+        <div id="user-box" class="user-box">
+          <p><strong>Nombre:</strong> {{ session.get('nombre', '---') }}</p>
+          <p><strong>Apellido:</strong> {{ session.get('apellido', '---') }}</p>
+          <p><strong>Correo:</strong> {{ session.get('usuario', '---') }}</p>
+          <p><strong>ID:</strong> {{ user_id }}</p>
+          {% if session.get('is_admin') %}
+          <a href="/admin" class="admin-btn">Panel Admin</a>
+          {% endif %}
+          <a href="/logout" class="logout-btn">Cerrar sesión</a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Panel del usuario -->
+  <section class="user-panel">
+    <p>Mi ID <span style="color: #28a745; font-weight: 600;">{{ user_id }}</span> &nbsp; | &nbsp; Saldo <span style="color: #28a745; font-weight: 600;">${{ "%.2f"|format(balance) }}</span></p>
+  </section>
+
+  <section class="juego-container">
+    <h1 class="juego-titulo">Free Fire Latam</h1>
+
+    <form method="POST" action="/validar/freefire_latam" class="juego-form">
+      <div class="form-row">
+        <div class="form-col">
+          <label for="monto">Selecciona tu paquete:</label>
+          <select id="monto" name="monto" class="form-control" style="background-color: #AAF0F4;" required onchange="updateQuantityOptions()">
+            <option value="">Seleccione paquete</option>
+            {% for package_id in range(1, 10) %}
+              {% set package = prices.get(package_id, {}) %}
+              {% set stock_info = stock.get(package_id, {}) %}
+              {% if package %}
+                {% set is_available = stock_info.get('total_available', false) %}
+                {% set local_stock = stock_info.get('local', 0) %}
+                {% set external_available = stock_info.get('external_available', false) %}
+                
+                <option id="monto_{{ package_id }}" value="{{ package_id }}" 
+                        data-stock="{{ local_stock }}" 
+                        data-external="{{ external_available|lower }}"
+                        data-available="{{ is_available|lower }}"
+                        data-price="{{ package.precio }}"
+                        {% if not is_available %}disabled{% endif %}>
+                  {{ package.nombre }} / ${{ "%.2f"|format(package.precio) }}
+                  {% if is_available %}✅{% else %}❌{% endif %}
+                </option>
+              {% endif %}
+            {% endfor %}
+          </select>
+        </div>
+        
+        <div class="form-col">
+          <label for="cantidad">Cantidad:</label>
+          <select id="cantidad" name="cantidad" class="form-control" style="background-color: #AAF0F4;" required disabled>
+            <option value="">-</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+            <option value="9">9</option>
+            <option value="10">10</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="total-price" class="total-price" style="display: none;"></div>
+
+      <button type="submit" id="submit-btn">Validar compra</button>
+    </form>
+
+    {% if compra_exitosa %}
+    <div class="compra-exitosa">
+      <h3>🎉 ¡Compra Exitosa!</h3>
+      {% if pines_list %}
+        <div class="pines-container">
+          <p class="pines-label">PINES ({{ pines_list|length }}):</p>
+          {% for pin in pines_list %}
+          <div class="pin-item">
+            <div class="pin-info">
+              <p class="pin-code" id="pinCode{{ loop.index }}">{{ pin }}</p>
+              <button class="copy-btn" onclick="copyPin('pinCode{{ loop.index }}')">📋</button>
+            </div>
+          </div>
+          {% endfor %}
+          <button class="copy-all-btn" onclick="copyAllPins()">📋 Copiar todos</button>
+        </div>
+      {% else %}
+        <div class="pin-container">
+          <div class="pin-info">
+            <p class="pin-label">PIN:</p>
+            <p class="pin-code" id="pinCode">{{ pin }}</p>
+            <button class="copy-btn" onclick="copyPin('pinCode')">📋</button>
+          </div>
+        </div>
+      {% endif %}
+      <div class="monto-info">
+        <p><strong>Cantidad:</strong> {{ cantidad_comprada or 1 }}</p>
+        <p><strong>Monto Total:</strong> ${{ "%.2f"|format(monto_compra) }}</p>
+      </div>
+      <div class="entrega-info">
+        <p>✅ Compra exitosa.</p>
+      </div>
+    </div>
+    {% else %}
+    <div class="juego-descripcion">
+      <p>💡 Instrucciones para canjear tu código PIN:</p>
+      <ul style="list-style-type: square; padding-left: 1.5rem; line-height: 1.6; color: #444;">
+        <li>Dirígete al sitio oficial de <a href="https://pagostore.garena.com/" target="_blank">https://pagostore.garena.com/</a></li>
+        <li>Accede con tu cuenta usando tu <strong>ID de jugador</strong></li>
+        <li>Verifica que la región seleccionada sea <strong>Bolivia</strong></li>
+        <li>Selecciona un paquete con el mismo valor de tu código PIN</li>
+        <li>Elige el método de pago <strong>Gamefan</strong></li>
+        <li>En la sección <strong>Gamecenter Gamefan</strong>, ingresa tu código</li>
+        <li>¡Hecho! Tus diamantes estarán disponibles al instante</li>
+      </ul>
+    </div>
+    {% endif %}
+
+    <div class="volver-container">
+      <a href="/" class="volver-btn">← Volver al inicio</a>
+    </div>
+  </section>
+
+  <script>
+    function toggleUserBox() {
+      document.getElementById("user-box").classList.toggle("visible");
+    }
+    function toggleMenu() {
+      document.getElementById("menu-juegos").classList.toggle("visible");
+    }
+    
+    // Cerrar menús al hacer clic fuera de ellos
+    document.addEventListener('click', function(event) {
+      const userBox = document.getElementById('user-box');
+      const userIcon = document.querySelector('.user-icon');
+      const menuJuegos = document.getElementById('menu-juegos');
+      const hamburger = document.querySelector('.hamburger');
+      
+      // Cerrar user-box si se hace clic fuera
+      if (userBox && userIcon && !userIcon.contains(event.target)) {
+        userBox.classList.remove('visible');
+      }
+      
+      // Cerrar menu-juegos si se hace clic fuera
+      if (menuJuegos && hamburger && !hamburger.contains(event.target)) {
+        menuJuegos.classList.remove('visible');
+      }
+    });
+    
+    function updateQuantityOptions() {
+      const montoSelect = document.getElementById('monto');
+      const cantidadSelect = document.getElementById('cantidad');
+      const totalPriceDiv = document.getElementById('total-price');
+      const submitBtn = document.getElementById('submit-btn');
+      
+      if (montoSelect.value) {
+        // Siempre habilitar el selector de cantidad (tenemos API externa como respaldo)
+        cantidadSelect.disabled = false;
+        cantidadSelect.style.backgroundColor = '#AAF0F4';
+        cantidadSelect.value = '1';
+        submitBtn.textContent = 'Validar compra';
+      } else {
+        // Deshabilitar el selector de cantidad solo si no hay paquete seleccionado
+        cantidadSelect.disabled = true;
+        cantidadSelect.style.backgroundColor = '#f8f9fa';
+        cantidadSelect.value = '';
+        submitBtn.textContent = 'Validar compra';
+      }
+      
+      updateTotalPrice();
+    }
+    
+    function updateTotalPrice() {
+      const montoSelect = document.getElementById('monto');
+      const cantidadSelect = document.getElementById('cantidad');
+      const totalPriceDiv = document.getElementById('total-price');
+      
+      if (montoSelect.value && cantidadSelect.value) {
+        const selectedOption = montoSelect.options[montoSelect.selectedIndex];
+        const price = parseFloat(selectedOption.getAttribute('data-price')) || 0;
+        const quantity = parseInt(cantidadSelect.value) || 0;
+        const total = price * quantity;
+        
+        totalPriceDiv.innerHTML = `<strong>Total: $${total.toFixed(2)}</strong>`;
+        totalPriceDiv.style.display = 'block';
+      } else {
+        totalPriceDiv.style.display = 'none';
+      }
+    }
+    
+    // Actualizar precio total cuando cambie la cantidad
+    document.addEventListener('DOMContentLoaded', function() {
+      const cantidadSelect = document.getElementById('cantidad');
+      if (cantidadSelect) {
+        cantidadSelect.addEventListener('change', updateTotalPrice);
+      }
+    });
+    
+    function copyPin(elementId = 'pinCode') {
+      const pinCode = document.getElementById(elementId).textContent;
+      navigator.clipboard.writeText(pinCode).then(function() {
+        // Cambiar el botón temporalmente para mostrar confirmación
+        const copyBtn = document.querySelector(`#${elementId}`).nextElementSibling;
+        const originalText = copyBtn.textContent;
+        copyBtn.textContent = '✅';
+        copyBtn.style.background = '#28a745';
+        
+        setTimeout(function() {
+          copyBtn.textContent = originalText;
+          copyBtn.style.background = '';
+        }, 1500);
+      }).catch(function(err) {
+        console.error('Error al copiar: ', err);
+        // Fallback para navegadores más antiguos
+        const textArea = document.createElement('textarea');
+        textArea.value = pinCode;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        
+        const copyBtn = document.querySelector(`#${elementId}`).nextElementSibling;
+        const originalText = copyBtn.textContent;
+        copyBtn.textContent = '✅';
+        copyBtn.style.background = '#28a745';
+        
+        setTimeout(function() {
+          copyBtn.textContent = originalText;
+          copyBtn.style.background = '';
+        }, 1500);
+      });
+    }
+    
+    function copyAllPins() {
+      const pinElements = document.querySelectorAll('.pin-code');
+      let allPins = [];
+      
+      pinElements.forEach(function(element) {
+        allPins.push(element.textContent);
+      });
+      
+      const allPinsText = allPins.join('\n');
+      
+      navigator.clipboard.writeText(allPinsText).then(function() {
+        const copyAllBtn = document.querySelector('.copy-all-btn');
+        const originalText = copyAllBtn.textContent;
+        copyAllBtn.textContent = '✅ Copiados';
+        copyAllBtn.style.background = '#28a745';
+        
+        setTimeout(function() {
+          copyAllBtn.textContent = originalText;
+          copyAllBtn.style.background = '';
+        }, 2000);
+      }).catch(function(err) {
+        console.error('Error al copiar todos: ', err);
+        // Fallback
+        const textArea = document.createElement('textarea');
+        textArea.value = allPinsText;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        
+        const copyAllBtn = document.querySelector('.copy-all-btn');
+        const originalText = copyAllBtn.textContent;
+        copyAllBtn.textContent = '✅ Copiados';
+        copyAllBtn.style.background = '#28a745';
+        
+        setTimeout(function() {
+          copyAllBtn.textContent = originalText;
+          copyAllBtn.style.background = '';
+        }, 2000);
+      });
+    }
+    
+    // Auto-ocultar mensajes flash después de 2 segundos
+    setTimeout(function() {
+      const flashMessages = document.querySelector('.flash-messages');
+      if (flashMessages) {
+        flashMessages.style.opacity = '0';
+        setTimeout(() => flashMessages.remove(), 300);
+      }
+    }, 2000);
+  </script>
+</body>
+</html>

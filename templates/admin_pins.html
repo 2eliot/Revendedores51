@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gestión de Pines</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet">
+</head>
+<body>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-messages-main">
+        {% for category, message in messages %}
+          <div class="flash-message-main flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <header class="admin-header">
+    <div class="admin-title">
+      <h1>📌 Pines de Free Fire</h1>
+    </div>
+    <div class="admin-info">
+      <a href="/admin" class="btn" style="background:#007bff;color:#fff;padding:8px 16px;text-decoration:none;border-radius:4px;margin-right:10px;">🏠 Volver al Panel</a>
+      <a href="/logout" class="logout-btn">Cerrar Sesión</a>
+    </div>
+  </header>
+
+  <main class="admin-main">
+    <section class="pins-section">
+      <div class="filters" style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+        <form method="GET" action="/admin/pins" style="display:flex;gap:8px;align-items:center;">
+          <label>Juego:</label>
+          <select name="game">
+            <option value="freefire_latam" {% if game=='freefire_latam' %}selected{% endif %}>Free Fire Latam</option>
+            <option value="freefire_global" {% if game=='freefire_global' %}selected{% endif %}>Free Fire</option>
+          </select>
+          <label>Estado:</label>
+          <select name="estado">
+            <option value="unused" {% if only_unused %}selected{% endif %}>Sin usar</option>
+            <option value="all" {% if not only_unused %}selected{% endif %}>Todos</option>
+          </select>
+          <button type="submit" class="btn btn-primary">Filtrar</button>
+        </form>
+      </div>
+
+      <form method="POST" action="/admin/delete_pins" onsubmit="return confirm('¿Eliminar los pines seleccionados? Esta acción no se puede deshacer.');">
+        <input type="hidden" name="game" value="{{ game }}">
+        <div class="users-table-container">
+          <table class="users-table">
+            <thead>
+              <tr>
+                <th style="width:32px;"><input type="checkbox" id="select-all" /></th>
+                <th>ID</th>
+                <th>Paquete</th>
+                <th>Monto ID</th>
+                <th>Pin</th>
+                <th>Usado</th>
+                <th>Fecha agregado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for pin in pins %}
+              <tr>
+                <td><input type="checkbox" name="pin_ids" value="{{ pin.id }}" class="row-check" /></td>
+                <td>{{ pin.id }}</td>
+                <td>{{ pin.paquete }}</td>
+                <td>{{ pin.monto_id }}</td>
+                <td><code>{{ pin.pin_codigo }}</code></td>
+                <td>{% if pin.usado %}Sí{% else %}No{% endif %}</td>
+                <td>{{ pin.fecha_agregado }}</td>
+              </tr>
+              {% endfor %}
+              {% if pins|length == 0 %}
+              <tr>
+                <td colspan="7" style="text-align:center;">No hay pines para mostrar</td>
+              </tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px;">
+          <button type="submit" class="btn btn-danger">🗑️ Eliminar seleccionados</button>
+          <a class="btn" href="/admin/pins?game={{ game }}&estado={% if only_unused %}unused{% else %}all{% endif %}">↻ Actualizar</a>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <script>
+    // Auto-ocultar mensajes flash
+    setTimeout(function() {
+      const flashMessages = document.querySelector('.flash-messages-main');
+      if (flashMessages) {
+        flashMessages.style.opacity = '0';
+        setTimeout(() => flashMessages.remove(), 300);
+      }
+    }, 2000);
+
+    // Seleccionar/Deseleccionar todos
+    const selectAll = document.getElementById('select-all');
+    if (selectAll) {
+      selectAll.addEventListener('change', function() {
+        document.querySelectorAll('.row-check').forEach(cb => cb.checked = selectAll.checked);
+      });
+    }
+  </script>
+</body>
+</html>

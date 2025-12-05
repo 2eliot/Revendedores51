@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Panel de Administrador</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Mensajes flash -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-messages-main">
+        {% for category, message in messages %}
+          <div class="flash-message-main flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  
+
+  <!-- Panel principal -->
+  <main class="admin-main">
+    <!-- Estadísticas generales -->
+    <div class="stats-section" style="display:none;">
+      <div class="stat-card">
+        <h3>Total de Usuarios</h3>
+        <div class="stat-number">{{ users|length }}</div>
+      </div>
+      <div class="stat-card">
+        <h3>Saldo Total del Sistema</h3>
+        <div class="stat-number">${{ "%.2f"|format(users|sum(attribute='saldo')) }}</div>
+      </div>
+    </div>
+
+    <!-- Layout con sidebar lateral -->
+    <div class="admin-shell">
+      <aside class="admin-sidebar">
+        <button class="side-tab-button active" onclick="showTab('usuarios')" aria-label="Usuarios">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="label">Usuarios</span>
+        </button>
+        <button class="side-tab-button" onclick="showTab('pines')" aria-label="Pines">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3l5 5-7 7-4 1 1-4 7-7z"/><path d="M2 22l6-6"/></svg></span><span class="label">Pines</span>
+        </button>
+        <button class="side-tab-button" onclick="showTab('precios')" aria-label="Precios">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><span class="label">Precios</span>
+        </button>
+        <button class="side-tab-button" onclick="showTab('noticias')" aria-label="Noticias">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19h16a2 2 0 0 0 2-2V5H6a2 2 0 0 0-2 2z"/><path d="M16 3v4a2 2 0 0 0 2 2h4"/><path d="M8 11h8"/><path d="M8 15h8"/></svg></span><span class="label">Noticias</span>
+        </button>
+        <button class="side-tab-button" onclick="showTab('estadisticas')" aria-label="Estadísticas">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg></span><span class="label">Estadísticas</span>
+        </button>
+        <a class="side-tab-button" href="/" aria-label="Volver al Inicio" style="text-decoration:none;">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7"/><path d="M9 22V12h6v10"/></svg></span><span class="label">Inicio</span>
+        </a>
+      </aside>
+
+      <!-- Contenido de pestañas -->
+      <div class="tabs-container">
+
+      <!-- Pestaña de Usuarios -->
+      <div id="tab-usuarios" class="tab-content active">
+        <section class="users-section">
+      <div class="section-header">
+        <h2>Gestión de Usuarios</h2>
+        <div class="search-inline">
+          <input type="number" id="user-id-search" placeholder="id">
+          <button type="button" id="user-id-clear" class="btn btn-clear-id" aria-label="Limpiar">×</button>
+        </div>
+      </div>
+      
+      {% if users %}
+        <div class="users-grid">
+          {% for user in users %}
+          <div class="user-card">
+            <div class="user-card-header">
+              <div class="user-name">{{ user.nombre }} {{ user.apellido }}</div>
+              <div class="user-id">ID: {{ user.id }}</div>
+            </div>
+            <div class="user-card-body">
+              <div class="user-row">
+                <div class="user-label">Email</div>
+                <div class="user-value">{{ user.correo }}</div>
+              </div>
+              <div class="user-row">
+                <div class="user-label">Teléfono</div>
+                <div class="user-value">{{ user.telefono }}</div>
+              </div>
+              <div class="user-row">
+                <div class="user-label">Saldo</div>
+                <div class="user-value balance">${{ "%.2f"|format(user.saldo) }}</div>
+              </div>
+              <div class="user-row">
+                <div class="user-label">Fecha</div>
+                <div class="user-value">{{ user.fecha_registro[:10] }}</div>
+              </div>
+            </div>
+            <div class="user-card-actions">
+              <form method="POST" action="/admin/add_credit" class="inline-form">
+                <input type="hidden" name="user_id" value="{{ user.id }}">
+                <input type="number" name="amount" placeholder="Monto" step="0.01" min="0.01" required class="small-input">
+                <button type="submit" class="btn btn-success">+ Crédito</button>
+              </form>
+              <form method="POST" action="/admin/update_balance" class="inline-form">
+                <input type="hidden" name="user_id" value="{{ user.id }}">
+                <input type="number" name="new_balance" placeholder="Nuevo saldo" step="0.01" min="0" required class="small-input">
+                <button type="submit" class="btn btn-warning">Modificar</button>
+              </form>
+              <form method="POST" action="/admin/delete_user" class="inline-form" onsubmit="return confirm('¿Estás seguro de eliminar este usuario? Esta acción no se puede deshacer.')">
+                <input type="hidden" name="user_id" value="{{ user.id }}">
+                <button type="submit" class="btn btn-danger">Eliminar</button>
+              </form>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="no-users">
+          <p>No hay usuarios registrados en el sistema.</p>
+        </div>
+      {% endif %}
+        </section>
+      </div>
+      
+      <!-- Pestaña de Estadísticas -->
+      <div id="tab-estadisticas" class="tab-content">
+        <section class="stats-admin-section">
+          <h2>📊 Estadísticas</h2>
+          <div class="stats-section" id="stats-summary-cards">
+            <div class="stat-card"><h3>Total gastado (histórico)</h3><div class="stat-number" id="stat-total-spent">$0.00</div></div>
+            <div class="stat-card"><h3>Saldo activo total</h3><div class="stat-number" id="stat-active-balance">$0.00</div></div>
+            <div class="stat-card"><h3>Pines disponibles</h3><div class="stat-number" id="stat-pins-available">0</div></div>
+            <div class="stat-card"><h3>Saldo en pines</h3><div class="stat-number" id="stat-pins-balance">$0.00</div></div>
+            <div class="stat-card"><h3>Usuarios registrados</h3><div class="stat-number" id="stat-users-total">0</div></div>
+          </div>
+
+          <div class="card" style="margin-top:16px;">
+            <div class="card-header"><h3>Top clientes del mes</h3></div>
+            <div class="card-body">
+              <div class="table-responsive">
+                <table class="table" style="width:100%; min-width: 480px;">
+                  <thead>
+                    <tr><th>#</th><th>Cliente</th><th>Total gastado</th><th>Compras</th><th>% del top</th></tr>
+                  </thead>
+                  <tbody id="top-clients-body"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid-2" style="margin-top:16px; display:grid; grid-template-columns: 1fr; gap:16px;">
+            <div class="card">
+              <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+                <h3 style="margin:0;">Profit diario</h3>
+                <div style="display:flex;align-items:center;gap:12px;">
+                  <div style="font-weight:600;">Total: <span id="profit-total-display">$0.00</span></div>
+                  <div class="toggle-group">
+                    <button type="button" id="btn-month-current" class="toggle active">Mes actual</button>
+                    <button type="button" id="btn-month-prev" class="toggle">Mes anterior</button>
+                  </div>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="bar-chart-wrap">
+                  <div id="profit-yaxis" class="bar-chart-yaxis"></div>
+                  <div id="profit-chart" class="bar-chart"></div>
+                </div>
+                <div class="bar-chart-xlabels" id="profit-chart-xlabels"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:16px;">
+            <div class="card-header">
+              <h3>Costos por juego (para calcular ganancia)</h3>
+            </div>
+            <div class="card-body" id="profit-config-games">
+              <!-- Secciones por juego se inyectan aquí -->
+              <small>Nota: el costo se usa para calcular la ganancia. En esquema legacy se guarda en <code>precios_compra</code>; en canónico en <code>package_cost_config</code>.</small>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Pestaña de Gestor de Pines -->
+      <div id="tab-pines" class="tab-content">
+        <section class="pins-section">
+      <h2>📌 Gestión de Pines Free Fire</h2>
+      
+      <div class="pin-management">
+        <div class="pin-selector-row">
+          <label for="pin_game_selector" class="pin-selector-label">🎮 Juego:</label>
+          <select id="pin_game_selector" class="pin-selector">
+            {% if games_active.freefire %}
+            <option value="freefire_latam" selected>Free Fire Latam</option>
+            {% endif %}
+            {% if games_active.freefire_global %}
+            <option value="freefire_global">Free Fire</option>
+            {% endif %}
+          </select>
+        </div>
+
+        <div id="package-list" class="package-list"></div>
+      </div>
+      
+        
+        </section>
+      </div>
+
+      <!-- Pestaña de Precios -->
+      <div id="tab-precios" class="tab-content">
+        <section class="prices-section">
+          <div class="price-selector-container">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="price_game_select">🎮 Juego:</label>
+                <select id="price_game_select">
+                  <option value="freefire">Free Fire Latam</option>
+                  <option value="freefire_global">Free Fire</option>
+                  <option value="bloodstriker">Blood Striker</option>
+                </select>
+              </div>
+              <div class="form-group" style="display:flex;align-items:flex-end;gap:8px;">
+                <form method="POST" action="/admin/toggle_game" onsubmit="document.getElementById('tg_game').value = document.getElementById('price_game_select').value; document.getElementById('tg_active').value = '1';">
+                  <input type="hidden" name="game" id="tg_game" value="freefire">
+                  <input type="hidden" name="active" id="tg_active" value="1">
+                  <button type="submit" class="btn btn-success">Activar</button>
+                </form>
+                <form method="POST" action="/admin/toggle_game" onsubmit="document.getElementById('tg_game2').value = document.getElementById('price_game_select').value; document.getElementById('tg_active2').value = '0';">
+                  <input type="hidden" name="game" id="tg_game2" value="freefire">
+                  <input type="hidden" name="active" id="tg_active2" value="0">
+                  <button type="submit" class="btn btn-danger">Desactivar</button>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          <form id="batch-price-form" method="POST" action="/admin/save_prices_batch">
+            <input type="hidden" name="game" id="batch_game" value="freefire">
+            <input type="hidden" name="payload" id="batch_payload" value="[]">
+
+            <div id="price-package-list" class="package-list"></div>
+
+            <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
+              <button type="button" class="btn btn-update-price" onclick="saveAllPrices()">Guardar Cambios</button>
+            </div>
+          </form>
+        </section>
+      </div>
+
+
+
+      <!-- Pestaña de Noticias -->
+      <div id="tab-noticias" class="tab-content">
+        <section class="news-section">
+          <h2>📰 Gestión de Noticias</h2>
+          
+          <div class="news-management">
+            <!-- Crear nueva noticia -->
+            <div class="create-news-container">
+              <h3>✍️ Crear Nueva Noticia</h3>
+              <form method="POST" action="/admin/create_news" class="news-form">
+                <div class="form-group">
+                  <label for="news_title">📝 Título de la Noticia:</label>
+                  <input type="text" id="news_title" name="titulo" placeholder="Ingrese el título de la noticia" required maxlength="200">
+                </div>
+                
+                <div class="form-group">
+                  <label for="news_content">📄 Contenido:</label>
+                  <textarea id="news_content" name="contenido" rows="6" placeholder="Escriba el contenido de la noticia aquí..." required maxlength="2000"></textarea>
+                  <small class="form-help">Máximo 2000 caracteres. Puede usar saltos de línea para organizar el texto.</small>
+                </div>
+                
+                <div class="form-group">
+                  <label class="checkbox-label">
+                    <input type="checkbox" name="importante" value="1">
+                    <span class="checkbox-custom"></span>
+                    📢 Marcar como noticia importante
+                  </label>
+                  <small class="form-help">Las noticias importantes aparecen con un badge especial y generan notificación.</small>
+                </div>
+                
+                <button type="submit" class="btn btn-create-news">📰 Publicar Noticia</button>
+              </form>
+            </div>
+            
+            <!-- Lista de noticias existentes -->
+            <div class="existing-news-container">
+              <h3>📋 Noticias Publicadas</h3>
+              {% if noticias %}
+                <div class="admin-news-list">
+                  {% for noticia in noticias %}
+                  <div class="admin-news-card">
+                    <div class="admin-news-header">
+                      <h4 class="admin-news-title">{{ noticia.titulo }}</h4>
+                      <div class="admin-news-meta">
+                        <span class="admin-news-date">{{ noticia.fecha.split(' ')[0] }} {{ noticia.fecha.split(' ')[1].split('.')[0] }}</span>
+                        {% if noticia.importante %}
+                        <span class="admin-news-important">📢 Importante</span>
+                        {% endif %}
+                      </div>
+                    </div>
+                    <div class="admin-news-content">
+                      <p>{{ noticia.contenido[:150] }}{% if noticia.contenido|length > 150 %}...{% endif %}</p>
+                    </div>
+                    <div class="admin-news-actions">
+                      <form method="POST" action="/admin/delete_news" class="inline-form" onsubmit="return confirm('¿Estás seguro de eliminar esta noticia?')">
+                        <input type="hidden" name="news_id" value="{{ noticia.id }}">
+                        <button type="submit" class="btn btn-delete-news">🗑️ Eliminar</button>
+                      </form>
+                    </div>
+                  </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="no-news-admin">
+                  <p>📰 No hay noticias publicadas. Crea la primera noticia usando el formulario de arriba.</p>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <!-- Datos embebidos para JavaScript -->
+  <script type="application/json" id="freefire-latam-data">
+    [
+      {% for price in prices %}
+      {
+        "id": {{ price.id }},
+        "nombre": "{{ price.nombre }}",
+        "precio": {{ price.precio }}
+      }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ]
+  </script>
+
+  <script type="application/json" id="freefire-global-data">
+    [
+      {% for price in freefire_global_prices %}
+      {
+        "id": {{ price.id }},
+        "nombre": "{{ price.nombre }}",
+        "precio": {{ price.precio }}
+      }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ]
+  </script>
+
+  <!-- Stock por paquete (LATAM y Global) -->
+  <script type="application/json" id="freefire-latam-stock">
+    {
+      {% for price in prices %}
+        "{{ price.id }}": {{ pin_stock.get(price.id, 0) }}{% if not loop.last %},{% endif %}
+      {% endfor %}
+    }
+  </script>
+
+  <script type="application/json" id="freefire-global-stock">
+    {
+      {% for price in freefire_global_prices %}
+        "{{ price.id }}": {{ pin_stock_freefire_global.get(price.id, 0) }}{% if not loop.last %},{% endif %}
+      {% endfor %}
+    }
+  </script>
+
+  <script type="application/json" id="bloodstriker-data">
+    [
+      {% for price in bloodstriker_prices %}
+      {
+        "id": {{ price.id }},
+        "nombre": "{{ price.nombre }}",
+        "precio": {{ price.precio }}
+      }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ]
+  </script>
+
+  <script>
+    // Auto-ocultar mensajes flash después de 2 segundos
+    setTimeout(function() {
+      const flashMessages = document.querySelector('.flash-messages-main');
+      if (flashMessages) {
+        flashMessages.style.opacity = '0';
+        setTimeout(() => flashMessages.remove(), 300);
+      }
+
+    // Renderizador de lista de paquetes para Pines
+    function renderPackageList(game) {
+      const container = document.getElementById('package-list');
+      if (!container) return;
+      const data = game === 'freefire_global' ? freefireGlobalPackages : freefireLatamPackages;
+      const stockMap = game === 'freefire_global' ? freefireGlobalStock : freefireLatamStock;
+      container.innerHTML = '';
+      data.forEach(pkg => {
+        const card = document.createElement('div');
+        card.className = 'package-card';
+        card.innerHTML = `
+          <div class="package-card-header">
+            <div class="package-left">
+              <span class="package-stock">${(stockMap[String(pkg.id)]||0)} pines</span>
+              <div class="package-title">${pkg.nombre}</div>
+              <div class="package-price">$${pkg.precio.toFixed(2)}</div>
+            </div>
+            <div class="package-right">
+              <div class="package-actions">
+                <a href="/admin/pins?game=${game}&estado=unused&monto=${pkg.id}" class="btn btn-outline btn-small btn-compact">Ver/Eliminar</a>
+                <button type="button" class="btn btn-primary btn-small btn-compact btn-toggle-ind" data-id="${pkg.id}">Agregar pin</button>
+                <button type="button" class="btn btn-success btn-small btn-compact btn-toggle-batch" data-id="${pkg.id}">Agregar lote</button>
+              </div>
+            </div>
+          </div>
+          <div class="package-forms">
+            <form method="POST" action="/admin/add_pin" class="package-form collapse" id="ind-form-${pkg.id}">
+              <input type="hidden" name="game_type" value="${game}">
+              <input type="hidden" name="monto_id" value="${pkg.id}">
+              <label>Código individual</label>
+              <input type="text" name="pin_codigo" placeholder="PIN123456" required>
+              <button type="submit" class="btn btn-primary btn-small">Agregar</button>
+            </form>
+            <form method="POST" action="/admin/add_pins_batch" class="package-form collapse" id="batch-form-${pkg.id}">
+              <input type="hidden" name="game_type" value="${game}">
+              <input type="hidden" name="batch_monto_id" value="${pkg.id}">
+              <label>Lote (máx 10)</label>
+              <textarea name="pins_batch" rows="2" placeholder="PIN1, PIN2, PIN3" required></textarea>
+              <button type="submit" class="btn btn-success btn-small">Agregar Lote</button>
+            </form>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+
+      // Wire up toggle buttons
+      container.querySelectorAll('.btn-toggle-ind').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-id');
+          const f = document.getElementById(`ind-form-${id}`);
+          if (f) f.classList.toggle('show');
+        });
+      });
+      container.querySelectorAll('.btn-toggle-batch').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-id');
+          const f = document.getElementById(`batch-form-${id}`);
+          if (f) f.classList.toggle('show');
+        });
+      });
+    }
+
+    // Inicializar selector de juego para pines
+    const pinGameSelector = document.getElementById('pin_game_selector');
+    if (pinGameSelector) {
+      renderPackageList(pinGameSelector.value);
+      pinGameSelector.addEventListener('change', function() {
+        renderPackageList(this.value);
+      });
+    }
+
+    // ======= Gestión de Precios (lista editable) =======
+    function renderPricePackageList(game) {
+      const container = document.getElementById('price-package-list');
+      const batchGame = document.getElementById('batch_game');
+      if (!container || !batchGame) return;
+      batchGame.value = game;
+
+      let data = [];
+      if (game === 'freefire') data = freefireLatamPackages;
+      else if (game === 'freefire_global') data = freefireGlobalPackages;
+      else if (game === 'bloodstriker') data = bloodstrikerPackages;
+
+      container.innerHTML = '';
+      data.forEach(pkg => {
+        const card = document.createElement('div');
+        card.className = 'package-card';
+        card.innerHTML = `
+          <div class="package-card-header">
+            <div class="package-left">
+              <div class="package-title">ID ${pkg.id}</div>
+            </div>
+          </div>
+          <div class="package-forms">
+            <div class="package-form">
+              <label>Nombre</label>
+              <input type="text" class="pkg-name" data-id="${pkg.id}" value="${pkg.nombre}" maxlength="50">
+            </div>
+            <div class="package-form">
+              <label>Precio</label>
+              <input type="number" class="pkg-price" data-id="${pkg.id}" value="${Number(pkg.precio).toFixed(2)}" step="0.01" min="0">
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    window.saveAllPrices = function() {
+      const list = [];
+      const container = document.getElementById('price-package-list');
+      if (!container) return;
+      const names = container.querySelectorAll('.pkg-name');
+      names.forEach(nameEl => {
+        const id = nameEl.getAttribute('data-id');
+        const priceEl = container.querySelector(`.pkg-price[data-id="${id}"]`);
+        if (!priceEl) return;
+        const nombre = nameEl.value.trim();
+        const precio = parseFloat(priceEl.value || '0');
+        if (!isFinite(precio)) return;
+        list.push({ id: Number(id), nombre, precio });
+      });
+      const payloadInput = document.getElementById('batch_payload');
+      if (payloadInput) payloadInput.value = JSON.stringify(list);
+      const form = document.getElementById('batch-price-form');
+      if (form) form.submit();
+    }
+
+    // Inicializar precios
+    const priceGameSelect = document.getElementById('price_game_select');
+    if (priceGameSelect) {
+      renderPricePackageList(priceGameSelect.value);
+      priceGameSelect.addEventListener('change', function() {
+        renderPricePackageList(this.value);
+      });
+    }
+
+    // Buscador por ID de usuario
+    window.filterUsersById = function() {
+      const q = (document.getElementById('user-id-search')?.value || '').trim();
+      const cards = document.querySelectorAll('.users-grid .user-card');
+      if (!q) {
+        cards.forEach(c => c.style.display = '');
+        return;
+      }
+      cards.forEach(card => {
+        const idEl = card.querySelector('.user-id');
+        const txt = idEl ? idEl.textContent : '';
+        const match = txt.replace(/[^0-9]/g, '') === q;
+        card.style.display = match ? '' : 'none';
+      });
+    }
+    const userSearch = document.getElementById('user-id-search');
+    if (userSearch) {
+      userSearch.addEventListener('keyup', function(e){ if (e.key === 'Enter') filterUsersById(); });
+      userSearch.addEventListener('input', function(){ filterUsersById(); });
+      userSearch.addEventListener('change', function(){ filterUsersById(); });
+    }
+    const clearBtn = document.getElementById('user-id-clear');
+    if (clearBtn && userSearch) {
+      clearBtn.addEventListener('click', function(){ userSearch.value = ''; filterUsersById(); userSearch.focus(); });
+    }
+
+    }, 2000);
+
+    // Sistema de pestañas
+    function showTab(tabName) {
+      // Ocultar todas las pestañas
+      const tabContents = document.querySelectorAll('.tab-content');
+      tabContents.forEach(tab => tab.classList.remove('active'));
+
+      // Desactivar todos los botones (top y sidebar)
+      document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('.side-tab-button').forEach(btn => btn.classList.remove('active'));
+
+      // Mostrar la pestaña seleccionada
+      const target = document.getElementById('tab-' + tabName);
+      if (target) target.classList.add('active');
+
+      // Activar el botón que llamó (si existe)
+      if (event && event.target) {
+        event.target.classList.add('active');
+      } else {
+        // Activar manualmente el botón de sidebar correspondiente
+        const sideBtn = Array.from(document.querySelectorAll('.side-tab-button'))
+          .find(b => b.textContent.trim().toLowerCase().includes(tabName));
+        if (sideBtn) sideBtn.classList.add('active');
+      }
+      // Cargar datos de estadísticas al abrir la pestaña
+      if (tabName === 'estadisticas') {
+        loadAdminStats();
+      }
+    }
+
+    
+
+    // Datos de paquetes desde elementos HTML
+    const freefireLatamPackages = JSON.parse(document.getElementById('freefire-latam-data').textContent);
+    const freefireGlobalPackages = JSON.parse(document.getElementById('freefire-global-data').textContent);
+    const bloodstrikerPackages = JSON.parse(document.getElementById('bloodstriker-data').textContent);
+    const freefireLatamStock = JSON.parse(document.getElementById('freefire-latam-stock').textContent);
+    const freefireGlobalStock = JSON.parse(document.getElementById('freefire-global-stock').textContent);
+
+    // Funciones para actualizar paquetes con datos dinámicos
+    
+
+    
+
+    
+
+    // ======= Estadísticas (consumo API) =======
+    async function loadAdminStats() {
+      const tz = 'America/Caracas';
+      try {
+        const [summaryRes, topRes, pinsRes, tsRes, confRes] = await Promise.all([
+          fetch(`/admin/stats/summary`),
+          fetch(`/admin/stats/top-clients?tz=${encodeURIComponent(tz)}`),
+          fetch(`/admin/stats/pins-daily?tz=${encodeURIComponent(tz)}`),
+          fetch(`/admin/stats/timeseries?tz=${encodeURIComponent(tz)}`),
+          fetch(`/admin/stats/profit-packages-config`)
+        ]);
+        const summary = await summaryRes.json();
+        const top = await topRes.json();
+        const pins = await pinsRes.json();
+        const ts = await tsRes.json();
+        
+        const conf = await confRes.json();
+
+        // Summary cards
+        document.getElementById('stat-total-spent').textContent = `$${Number(summary?.summary?.total_spent_all_time || 0).toFixed(2)}`;
+        document.getElementById('stat-active-balance').textContent = `$${Number(summary?.summary?.active_balance_total || 0).toFixed(2)}`;
+        document.getElementById('stat-pins-available').textContent = `${Number(summary?.summary?.pins_available_total || 0)}`;
+        document.getElementById('stat-pins-balance').textContent = `$${Number(summary?.summary?.pins_balance_total || 0).toFixed(2)}`;
+        const elUsers = document.getElementById('stat-users-total');
+        if (elUsers) elUsers.textContent = `${Number(summary?.summary?.users_total || 0)}`;
+
+        // Top clients
+        const topTbody = document.getElementById('top-clients-body');
+        topTbody.innerHTML = '';
+        (top?.top_clients_month || []).forEach((row, idx) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${idx+1}</td><td>${row.display_name||row.user_id}</td><td>$${Number(row.total_spent||0).toFixed(2)}</td><td>${row.purchases_count||0}</td><td>${Number(row.pct||0).toFixed(1)}%</td>`;
+          topTbody.appendChild(tr);
+        });
+
+        // Pins daily (removido de UI)
+
+        // Gasto diario (removido de UI)
+
+        // Timeseries: Profit diario como barras con toggle
+        const dataCurr = (ts?.timeseries?.profit_daily_month||[]).map(x => ({ day: x.day, value: Number(x.profit||0) }));
+        const dataPrev = (ts?.timeseries?.profit_daily_prev_month||[]).map(x => ({ day: x.day, value: Number(x.profit||0) }));
+        const chart = document.getElementById('profit-chart');
+        const xlabels = document.getElementById('profit-chart-xlabels');
+        const totalEl = document.getElementById('profit-total-display');
+        const btnCurr = document.getElementById('btn-month-current');
+        const btnPrev = document.getElementById('btn-month-prev');
+
+        function daysInMonth(year, monthIndex) {
+          return new Date(year, monthIndex + 1, 0).getDate();
+        }
+
+        function normalizeToMonthDataset(dataset) {
+          if (!dataset || dataset.length === 0) {
+            const today = new Date();
+            const y = today.getFullYear();
+            const m = today.getMonth();
+            const dim = daysInMonth(y, m);
+            const ym = `${y}-${String(m+1).padStart(2,'0')}`;
+            return Array.from({length: dim}, (_,i)=>({ day: `${ym}-${String(i+1).padStart(2,'0')}`, value: 0 }));
+          }
+          // Inferir año/mes desde el primer elemento (formato YYYY-MM-DD)
+          const [yy, mm] = String(dataset[0].day||'').split('-');
+          const y = parseInt(yy||`${new Date().getFullYear()}`,10);
+          const m = parseInt(mm||`${new Date().getMonth()+1}`,10) - 1;
+          const dim = isNaN(y) || isNaN(m) ? daysInMonth(new Date().getFullYear(), new Date().getMonth()) : daysInMonth(y, m);
+          const ym = `${isNaN(y)?new Date().getFullYear():y}-${String((isNaN(m)?new Date().getMonth():m)+1).padStart(2,'0')}`;
+          const map = new Map(dataset.map(d => [String(d.day), Number(d.value||0)]));
+          return Array.from({length: dim}, (_,i)=>{
+            const dstr = `${ym}-${String(i+1).padStart(2,'0')}`;
+            return { day: dstr, value: map.get(dstr) || 0 };
+          });
+        }
+
+        function renderBars(dataset) {
+          if (!chart || !xlabels) return;
+          chart.innerHTML = '';
+          xlabels.innerHTML = '';
+          const monthData = normalizeToMonthDataset(dataset);
+          // Recorte inteligente del final: usar el día de hoy si es el mes actual, o el último día con datos > 0.
+          let visibleData = monthData;
+          try {
+            const first = monthData[0]?.day || '';
+            const [yy, mm] = String(first).split('-');
+            const today = new Date();
+            const sameMonth = today.getFullYear() === Number(yy) && (today.getMonth() + 1) === Number(mm);
+            // Encontrar último índice con valor > 0
+            let lastIdx = -1;
+            for (let i = monthData.length - 1; i >= 0; i--) {
+              if (Number(monthData[i].value || 0) > 0) { lastIdx = i; break; }
+            }
+            let cut = monthData.length;
+            if (sameMonth) {
+              cut = Math.min(monthData.length, Math.max(today.getDate(), 1));
+            }
+            if (lastIdx >= 0) {
+              cut = Math.max(Math.min(cut, lastIdx + 1), 7); // al menos 7 días visibles
+            } else if (sameMonth) {
+              cut = Math.max(Math.min(cut, today.getDate()), 7);
+            }
+            visibleData = monthData.slice(0, cut);
+          } catch (e) {
+            // fallback: dejar monthData completo
+            visibleData = monthData;
+          }
+          const narrow = window.innerWidth < 520;
+          const max = Math.max(1, ...visibleData.map(d => d.value));
+          // Pintar barras SOLO para los datos visibles recortados
+          visibleData.forEach((d, idx) => {
+            const bar = document.createElement('div');
+            bar.className = 'bar';
+            // Escala suavizada: raíz cuadrada para que no crezcan tan rápido con pocas compras
+            const h = Math.sqrt(d.value / max) * 100;
+            bar.style.height = `${h}%`;
+            bar.title = `${d.day}: $${d.value.toFixed(2)}`;
+            chart.appendChild(bar);
+          });
+          // Etiquetas: mostrar marcas cada 3 días (1,4,7,10,...) manteniendo una celda por día para alinear
+          const labelsData = monthData; // usar mes completo
+          labelsData.forEach((d, idx) => {
+            const xl = document.createElement('div');
+            try {
+              const parts = String(d.day).split('-');
+              const dayNum = parts.length === 3 ? parseInt(parts[2], 10) : (idx + 1);
+              xl.textContent = ((dayNum - 1) % 3 === 0) ? String(dayNum) : '';
+            } catch (e) {
+              const dayNum = idx + 1;
+              xl.textContent = ((dayNum - 1) % 3 === 0) ? String(dayNum) : '';
+            }
+            xlabels.appendChild(xl);
+          });
+          const total = visibleData.reduce((a,b)=>a+b.value,0);
+          totalEl.textContent = `$${total.toFixed(2)}`;
+        }
+
+        function setActive(which) {
+          if (which === 'curr') {
+            btnCurr.classList.add('active');
+            btnPrev.classList.remove('active');
+            renderBars(dataCurr);
+          } else {
+            btnPrev.classList.add('active');
+            btnCurr.classList.remove('active');
+            renderBars(dataPrev);
+          }
+        }
+
+        // Sincronizar scroll horizontal entre barras y etiquetas
+        function syncScrollContainers() {
+          if (!chart || !xlabels) return;
+          // Mantener sincronía al desplazar cualquiera de los dos contenedores
+          chart.addEventListener('scroll', () => { xlabels.scrollLeft = chart.scrollLeft; });
+          xlabels.addEventListener('scroll', () => { chart.scrollLeft = xlabels.scrollLeft; });
+        }
+
+        // Inicializar
+        syncScrollContainers();
+        setActive('curr');
+
+        // Inicial por defecto: mes actual
+        setActive('curr');
+        btnCurr?.addEventListener('click', ()=> setActive('curr'));
+        btnPrev?.addEventListener('click', ()=> setActive('prev'));
+
+        // Profit packages config agrupado por juego/source
+        const root = document.getElementById('profit-config-games');
+        root.innerHTML = '';
+        const itemsAll = conf?.profit_packages_config || [];
+        // Agrupar por source (juego)
+        const groups = {};
+        itemsAll.forEach(it => {
+          const src = it.source || 'canonical';
+          if (!groups[src]) groups[src] = [];
+          groups[src].push(it);
+        });
+        Object.entries(groups).forEach(([src, list]) => {
+          const section = document.createElement('div');
+          section.className = 'profit-game-section';
+          const secId = `pg-${src}`;
+          section.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0;">
+              <div>
+                <strong>Juego:</strong> ${src}
+              </div>
+              <div style="display:flex;gap:8px;">
+                <button type="button" class="btn btn-warning" data-toggle="${secId}">Editar costos</button>
+                <button type="button" class="btn btn-primary" data-save="${secId}">Guardar</button>
+              </div>
+            </div>
+            <div id="${secId}" class="profit-game-table" style="display:none;">
+              <table class="table" style="width:100%;">
+                <thead><tr><th>Paquete</th><th>Precio venta</th><th>Costo</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          `;
+          root.appendChild(section);
+          // Rellenar filas
+          const tbody = section.querySelector('tbody');
+          list.forEach(item => {
+            const pkgId = item.package_id ?? item.category_id;
+            const base = Number(item.base_price || 0);
+            const cost = item.cost != null ? Number(item.cost) : '';
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td>${item.package_name}</td>
+              <td>$${base.toFixed(2)}</td>
+              <td><input type="number" step="0.01" min="0" class="small-input" style="width:120px" data-package-id="${pkgId}" data-source="${src}" value="${cost === '' ? '' : cost.toFixed(2)}" placeholder="0.00"></td>
+            `;
+            tbody.appendChild(tr);
+          });
+        });
+
+        // Listeners de toggle y guardado por juego
+        root.querySelectorAll('button[data-toggle]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const id = btn.getAttribute('data-toggle');
+            const panel = document.getElementById(id);
+            if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+          });
+        });
+        root.querySelectorAll('button[data-save]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-save');
+            const panel = document.getElementById(id);
+            if (!panel) return;
+            const inputs = Array.from(panel.querySelectorAll('input[data-package-id]'));
+            const items = inputs
+              .map(inp => ({
+                package_id: Number(inp.getAttribute('data-package-id')),
+                source: inp.getAttribute('data-source'),
+                cost: inp.value ? Number(inp.value) : null
+              }))
+              .filter(x => x.cost !== null && isFinite(x.cost));
+            const res = await fetch('/admin/stats/profit-packages-config', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items })
+            });
+            const js = await res.json();
+            alert(js && js.ok ? 'Costos guardados.' : 'No se pudieron guardar los costos.');
+          });
+        });
+
+      } catch (e) {
+        console.error('Error cargando estadísticas', e);
+      }
+    }
+    
+  </script>
+</body>
+</html>
