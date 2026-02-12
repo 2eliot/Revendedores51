@@ -30,6 +30,10 @@ import random
 import string
 from admin_stats import bp as admin_stats_bp
 
+
+def _generate_batch_id():
+    return datetime.utcnow().strftime('%Y%m%d%H%M%S%f') + '-' + secrets.token_hex(4)
+
 app = Flask(__name__)
 
 # Configuración de seguridad
@@ -201,6 +205,7 @@ def init_db():
                 fecha_agregado DATETIME DEFAULT CURRENT_TIMESTAMP,
                 fecha_usado DATETIME NULL,
                 usuario_id INTEGER NULL,
+                batch_id TEXT NULL,
                 FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
             )
         ''')
@@ -215,9 +220,20 @@ def init_db():
                 fecha_agregado DATETIME DEFAULT CURRENT_TIMESTAMP,
                 fecha_usado DATETIME NULL,
                 usuario_id INTEGER NULL,
+                batch_id TEXT NULL,
                 FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
             )
         ''')
+
+        # Migración suave: agregar batch_id si la tabla existía antes
+        try:
+            cursor.execute("ALTER TABLE pines_freefire ADD COLUMN batch_id TEXT")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE pines_freefire_global ADD COLUMN batch_id TEXT")
+        except Exception:
+            pass
     
         # Tabla de precios de Free Fire (nuevo juego)
         cursor.execute('''
@@ -1596,8 +1612,8 @@ def add_pin_freefire(monto_id, pin_codigo):
     """Añade un pin de Free Fire al stock"""
     conn = get_db_connection()
     conn.execute('''
-        INSERT INTO pines_freefire (monto_id, pin_codigo)
-        VALUES (?, ?)
+        INSERT INTO pines_freefire (monto_id, pin_codigo, batch_id)
+        VALUES (?, ?, NULL)
     ''', (monto_id, pin_codigo))
     conn.commit()
     conn.close()
@@ -1606,13 +1622,14 @@ def add_pins_batch(monto_id, pins_list):
     """Añade múltiples pines de Free Fire al stock en lote"""
     conn = get_db_connection()
     try:
+        batch_id = _generate_batch_id()
         for pin_codigo in pins_list:
             pin_codigo = pin_codigo.strip()
             if pin_codigo:  # Solo agregar si el pin no está vacío
                 conn.execute('''
-                    INSERT INTO pines_freefire (monto_id, pin_codigo)
-                    VALUES (?, ?)
-                ''', (monto_id, pin_codigo))
+                    INSERT INTO pines_freefire (monto_id, pin_codigo, batch_id)
+                    VALUES (?, ?, ?)
+                ''', (monto_id, pin_codigo, batch_id))
         conn.commit()
         return len([p for p in pins_list if p.strip()])  # Retornar cantidad agregada
     except Exception as e:
@@ -1672,13 +1689,31 @@ def get_pins_by_game(game_type, only_unused=True, monto_id=None):
             params.append(monto_id)
         where_sql = ('WHERE ' + ' AND '.join(where_clauses)) if where_clauses else ''
         query = f'''
-            SELECT id, monto_id, pin_codigo, usado, fecha_agregado
+            SELECT id, monto_id, pin_codigo, usado, fecha_agregado, batch_id
             FROM {table}
             {where_sql}
             ORDER BY fecha_agregado DESC
         '''
         pins = conn.execute(query, tuple(params)).fetchall()
         return pins
+    finally:
+        conn.close()
+
+
+def delete_pins_by_batch_id(game_type, batch_id, only_unused=True):
+    """Elimina pines de un lote específico (batch_id) para el juego indicado."""
+    if not batch_id:
+        return 0
+    table = 'pines_freefire' if game_type == 'freefire_latam' else 'pines_freefire_global'
+    conn = get_db_connection()
+    try:
+        where_sql = "batch_id = ?"
+        params = [str(batch_id)]
+        if only_unused:
+            where_sql += " AND usado = FALSE"
+        cursor = conn.execute(f"DELETE FROM {table} WHERE {where_sql}", tuple(params))
+        conn.commit()
+        return cursor.rowcount
     finally:
         conn.close()
 
@@ -2270,15 +2305,62 @@ def admin_pins_list():
             'paquete': package_dict.get(p['monto_id'], {}).get('nombre', f'Paquete {p["monto_id"]}'),
             'pin_codigo': p['pin_codigo'],
             'usado': bool(p['usado']),
-            'fecha_agregado': p['fecha_agregado']
+            'fecha_agregado': p['fecha_agregado'],
+            'batch_id': p['batch_id']
         })
+
+    # Agrupar por lote (batch_id). Pines individuales (batch_id NULL) van en su propio grupo.
+    pin_groups = []
+    groups_map = {}
+    for pin in pins_view:
+        bid = pin.get('batch_id')
+        key = str(bid) if bid else f"single-{pin['id']}"
+        if key not in groups_map:
+            groups_map[key] = {
+                'key': key,
+                'batch_id': bid,
+                'fecha_agregado': pin.get('fecha_agregado'),
+                'monto_id': pin.get('monto_id'),
+                'paquete': pin.get('paquete'),
+                'pins': []
+            }
+        groups_map[key]['pins'].append(pin)
+
+    # Mantener orden: ya vienen ordenados por fecha_agregado desc, respetar primer aparición
+    seen = set()
+    for pin in pins_view:
+        bid = pin.get('batch_id')
+        key = str(bid) if bid else f"single-{pin['id']}"
+        if key in seen:
+            continue
+        seen.add(key)
+        grp = groups_map.get(key)
+        if grp:
+            pin_groups.append(grp)
 
     # Nombre del paquete seleccionado (si aplica)
     selected_package_name = None
     if 'monto_filter' in locals() and monto_filter:
         selected_package_name = package_dict.get(monto_filter, {}).get('nombre')
 
-    return render_template('admin_pins.html', pins=pins_view, game=game, only_unused=only_unused, monto=monto_filter, selected_package_name=selected_package_name)
+    return render_template('admin_pins.html', pins=pins_view, pin_groups=pin_groups, game=game, only_unused=only_unused, monto=monto_filter, selected_package_name=selected_package_name)
+
+
+@app.route('/admin/delete_pins_batch', methods=['POST'])
+def admin_delete_pins_batch():
+    if not session.get('is_admin'):
+        flash('Acceso denegado. Solo administradores.', 'error')
+        return redirect('/auth')
+    game = request.form.get('game')
+    batch_id = request.form.get('batch_id')
+    estado = request.form.get('estado', 'unused')
+    only_unused = estado == 'unused'
+    deleted = delete_pins_by_batch_id(game, batch_id, only_unused=only_unused)
+    if deleted > 0:
+        flash(f'Se eliminó el lote ({batch_id}) con {deleted} pines', 'success')
+    else:
+        flash('No se eliminaron pines del lote (puede que no existan o estén usados)', 'warning')
+    return redirect(f'/admin/pins?game={game}&estado={"unused" if only_unused else "all"}')
 
 @app.route('/admin/delete_pins', methods=['POST'])
 def admin_delete_pins():
@@ -4019,8 +4101,8 @@ def add_pin_freefire_global(monto_id, pin_codigo):
     """Añade un pin de Free Fire Global al stock"""
     conn = get_db_connection()
     conn.execute('''
-        INSERT INTO pines_freefire_global (monto_id, pin_codigo)
-        VALUES (?, ?)
+        INSERT INTO pines_freefire_global (monto_id, pin_codigo, batch_id)
+        VALUES (?, ?, NULL)
     ''', (monto_id, pin_codigo))
     conn.commit()
     conn.close()
@@ -4029,13 +4111,14 @@ def add_pins_batch_freefire_global(monto_id, pins_list):
     """Añade múltiples pines de Free Fire Global al stock en lote"""
     conn = get_db_connection()
     try:
+        batch_id = _generate_batch_id()
         for pin_codigo in pins_list:
             pin_codigo = pin_codigo.strip()
             if pin_codigo:  # Solo agregar si el pin no está vacío
                 conn.execute('''
-                    INSERT INTO pines_freefire_global (monto_id, pin_codigo)
-                    VALUES (?, ?)
-                ''', (monto_id, pin_codigo))
+                    INSERT INTO pines_freefire_global (monto_id, pin_codigo, batch_id)
+                    VALUES (?, ?, ?)
+                ''', (monto_id, pin_codigo, batch_id))
         conn.commit()
         return len([p for p in pins_list if p.strip()])  # Retornar cantidad agregada
     except Exception as e:

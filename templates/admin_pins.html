@@ -46,6 +46,23 @@
         </form>
       </div>
 
+      <div style="display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap;">
+        <form method="POST" action="/admin/delete_pins_batch" onsubmit="return confirm('¿Eliminar el lote seleccionado? Esta acción no se puede deshacer.');" style="display:flex; gap:8px; align-items:center;">
+          <input type="hidden" name="game" value="{{ game }}">
+          <input type="hidden" name="estado" value="{% if only_unused %}unused{% else %}all{% endif %}">
+          <select name="batch_id" required>
+            <option value="" disabled selected>Selecciona un lote…</option>
+            {% for grp in pin_groups %}
+              {% if grp.batch_id %}
+                <option value="{{ grp.batch_id }}">{{ grp.fecha_agregado }} | {{ grp.paquete }} | {{ grp.pins|length }} pines | {{ grp.batch_id }}</option>
+              {% endif %}
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn btn-danger">🗑️ Eliminar lote</button>
+        </form>
+        <a class="btn" href="/admin/pins?game={{ game }}&estado={% if only_unused %}unused{% else %}all{% endif %}{% if monto %}&monto={{ monto }}{% endif %}">↻ Actualizar</a>
+      </div>
+
       <form method="POST" action="/admin/delete_pins" onsubmit="return confirm('¿Eliminar los pines seleccionados? Esta acción no se puede deshacer.');">
         <input type="hidden" name="game" value="{{ game }}">
         <div class="users-table-container">
@@ -59,23 +76,39 @@
                 <th>Pin</th>
                 <th>Usado</th>
                 <th>Fecha agregado</th>
+                <th>Lote</th>
               </tr>
             </thead>
             <tbody>
-              {% for pin in pins %}
-              <tr>
-                <td><input type="checkbox" name="pin_ids" value="{{ pin.id }}" class="row-check" /></td>
-                <td>{{ pin.id }}</td>
-                <td>{{ pin.paquete }}</td>
-                <td>{{ pin.monto_id }}</td>
-                <td><code>{{ pin.pin_codigo }}</code></td>
-                <td>{% if pin.usado %}Sí{% else %}No{% endif %}</td>
-                <td>{{ pin.fecha_agregado }}</td>
-              </tr>
+              {% for grp in pin_groups %}
+                <tr>
+                  <td colspan="8" style="background:#f6f7f9;font-weight:600;">
+                    {{ grp.fecha_agregado }}
+                    {% if grp.batch_id %}
+                      | Lote: <code>{{ grp.batch_id }}</code>
+                      | Cantidad: {{ grp.pins|length }}
+                    {% else %}
+                      | Pin individual
+                    {% endif %}
+                    | {{ grp.paquete }}
+                  </td>
+                </tr>
+                {% for pin in grp.pins %}
+                <tr>
+                  <td><input type="checkbox" name="pin_ids" value="{{ pin.id }}" class="row-check" /></td>
+                  <td>{{ pin.id }}</td>
+                  <td>{{ pin.paquete }}</td>
+                  <td>{{ pin.monto_id }}</td>
+                  <td><code>{{ pin.pin_codigo }}</code></td>
+                  <td>{% if pin.usado %}Sí{% else %}No{% endif %}</td>
+                  <td>{{ pin.fecha_agregado }}</td>
+                  <td>{% if pin.batch_id %}<code>{{ pin.batch_id }}</code>{% else %}-{% endif %}</td>
+                </tr>
+                {% endfor %}
               {% endfor %}
-              {% if pins|length == 0 %}
+              {% if pin_groups is not defined or pin_groups|length == 0 %}
               <tr>
-                <td colspan="7" style="text-align:center;">No hay pines para mostrar</td>
+                <td colspan="8" style="text-align:center;">No hay pines para mostrar</td>
               </tr>
               {% endif %}
             </tbody>
@@ -83,7 +116,6 @@
         </div>
         <div style="margin-top:12px;display:flex;gap:8px;">
           <button type="submit" class="btn btn-danger">🗑️ Eliminar seleccionados</button>
-          <a class="btn" href="/admin/pins?game={{ game }}&estado={% if only_unused %}unused{% else %}all{% endif %}">↻ Actualizar</a>
         </div>
       </form>
     </section>
