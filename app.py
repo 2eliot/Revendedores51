@@ -13,6 +13,8 @@ def get_games_active():
 
 from flask import Flask, render_template, request, redirect, session, flash, jsonify
 import json
+import csv
+import re
 import sqlite3
 import pytz
 from datetime import datetime
@@ -33,6 +35,64 @@ from admin_stats import bp as admin_stats_bp
 
 def _generate_batch_id():
     return datetime.utcnow().strftime('%Y%m%d%H%M%S%f') + '-' + secrets.token_hex(4)
+
+
+def _extract_pin_codes_from_csv_bytes(content: bytes):
+    """Extrae códigos de PIN desde un CSV, ignorando texto/columnas sobrantes."""
+    if not content:
+        return []
+    text = content.decode('utf-8', errors='ignore')
+    pins = []
+    uuid_re = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+    try:
+        # Intentar primero como CSV con encabezados (p.ej. Id,Serial,Clave)
+        dict_reader = csv.DictReader(text.splitlines())
+        fieldnames = [str(f or '').strip().lstrip('\ufeff') for f in (dict_reader.fieldnames or [])]
+        key_field = None
+        for f in fieldnames:
+            if f.lower() == 'clave':
+                key_field = f
+                break
+        if key_field:
+            for row in dict_reader:
+                raw_val = (row or {}).get(key_field)
+                if not raw_val:
+                    continue
+                m = uuid_re.search(str(raw_val))
+                if m:
+                    pins.append(m.group(0))
+                else:
+                    # Fallback por si la clave no es UUID
+                    m2 = re.search(r"[A-Za-z0-9]{6,}", str(raw_val))
+                    if m2:
+                        pins.append(m2.group(0))
+        else:
+            # Sin encabezados reconocibles: buscar UUID por fila; si no hay, tomar token largo
+            reader = csv.reader(text.splitlines())
+            for row in reader:
+                if not row:
+                    continue
+                joined = ' '.join(str(c) for c in row if c is not None)
+                m = uuid_re.search(joined)
+                if m:
+                    pins.append(m.group(0))
+                    continue
+                # Si no hay UUID, intentar con la última columna (frecuente que el PIN esté al final)
+                last = str(row[-1]) if row else ''
+                m2 = re.search(r"[A-Za-z0-9]{6,}", last)
+                if m2:
+                    pins.append(m2.group(0))
+    except Exception:
+        # Fallback: extraer tokens en bruto por líneas
+        for line in text.splitlines():
+            m = uuid_re.search(line)
+            if m:
+                pins.append(m.group(0))
+                continue
+            m = re.search(r"[A-Za-z0-9]{6,}", line)
+            if m:
+                pins.append(m.group(0))
+    return [p.strip() for p in pins if p and str(p).strip()]
 
 app = Flask(__name__)
 
@@ -323,6 +383,15 @@ def init_db():
                 contenido TEXT NOT NULL,
                 importante BOOLEAN DEFAULT FALSE,
                 fecha DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Tabla para evitar re-importar el mismo archivo CSV por nombre
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS admin_imported_files (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT NOT NULL UNIQUE,
+                imported_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
@@ -2191,6 +2260,81 @@ def admin_add_credit():
     else:
         flash('Datos inválidos para agregar crédito', 'error')
     
+    return redirect('/admin')
+
+
+@app.route('/admin/import_pins_csv', methods=['POST'])
+def admin_import_pins_csv():
+    if not session.get('is_admin'):
+        flash('Acceso denegado. Solo administradores.', 'error')
+        return redirect('/auth')
+
+    monto_id = request.form.get('batch_monto_id')
+    game_type = request.form.get('game_type')
+    f = request.files.get('csv_file')
+
+    if not monto_id or not game_type or not f:
+        flash('Datos inválidos para importar CSV', 'error')
+        return redirect('/admin')
+
+    # Bloquear re-import por nombre (global, sin importar monto/juego)
+    original_name = (getattr(f, 'filename', None) or '').strip()
+    if not original_name:
+        flash('El archivo CSV debe tener un nombre válido', 'error')
+        return redirect('/admin')
+    normalized_name = original_name.lower()
+
+    try:
+        # Verificar si ya se importó este nombre
+        conn = get_db_connection_optimized()
+        try:
+            ex = conn.execute("SELECT 1 FROM admin_imported_files WHERE filename = ?", (normalized_name,)).fetchone()
+            if ex:
+                flash(f'Este archivo ya fue importado antes: {original_name}', 'warning')
+                return redirect('/admin')
+        finally:
+            return_db_connection(conn)
+
+        raw = f.read()
+        pins_list = _extract_pin_codes_from_csv_bytes(raw)
+        if not pins_list:
+            flash('No se encontraron códigos de pin válidos en el CSV', 'warning')
+            return redirect('/admin')
+
+        if game_type == 'freefire_latam':
+            added_count = add_pins_batch(int(monto_id), pins_list)
+            packages_info = get_package_info_with_prices()
+            package_info = packages_info.get(int(monto_id), {})
+            juego_nombre = "Free Fire Latam"
+        elif game_type == 'freefire_global':
+            added_count = add_pins_batch_freefire_global(int(monto_id), pins_list)
+            packages_info = get_freefire_global_prices()
+            package_info = packages_info.get(int(monto_id), {})
+            juego_nombre = "Free Fire"
+        else:
+            flash('Tipo de juego inválido', 'error')
+            return redirect('/admin')
+
+        if package_info:
+            paquete_nombre = f"{package_info['nombre']} / ${package_info['precio']:.2f}"
+        else:
+            paquete_nombre = "Paquete desconocido"
+
+        # Registrar nombre de archivo como importado (evita duplicados futuros)
+        conn2 = get_db_connection_optimized()
+        try:
+            conn2.execute("INSERT INTO admin_imported_files (filename) VALUES (?)", (normalized_name,))
+            conn2.commit()
+        finally:
+            return_db_connection(conn2)
+
+        flash(f'Se importaron {added_count} pines desde CSV para {juego_nombre} - {paquete_nombre}', 'success')
+    except sqlite3.IntegrityError:
+        # Unique constraint: ya existe
+        flash(f'Este archivo ya fue importado antes: {original_name}', 'warning')
+    except Exception as e:
+        flash(f'Error al importar CSV: {str(e)}', 'error')
+
     return redirect('/admin')
 
 # ======= Batch update de nombres y precios =======

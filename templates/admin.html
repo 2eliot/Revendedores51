@@ -390,6 +390,8 @@
         setTimeout(() => flashMessages.remove(), 300);
       }
 
+    }, 2000);
+
     // Renderizador de lista de paquetes para Pines
     function renderPackageList(game) {
       const container = document.getElementById('package-list');
@@ -412,6 +414,7 @@
                 <a href="/admin/pins?game=${game}&estado=unused&monto=${pkg.id}" class="btn btn-outline btn-small btn-compact">Ver/Eliminar</a>
                 <button type="button" class="btn btn-primary btn-small btn-compact btn-toggle-ind" data-id="${pkg.id}">Agregar pin</button>
                 <button type="button" class="btn btn-success btn-small btn-compact btn-toggle-batch" data-id="${pkg.id}">Agregar lote</button>
+                <button type="button" class="btn btn-warning btn-small btn-compact btn-toggle-csv" data-id="${pkg.id}">Importar CSV</button>
               </div>
             </div>
           </div>
@@ -430,8 +433,16 @@
               <textarea name="pins_batch" rows="2" placeholder="PIN1, PIN2, PIN3" required></textarea>
               <button type="submit" class="btn btn-success btn-small">Agregar Lote</button>
             </form>
+            <form method="POST" action="/admin/import_pins_csv" enctype="multipart/form-data" class="package-form collapse" id="csv-form-${pkg.id}">
+              <input type="hidden" name="game_type" value="${game}">
+              <input type="hidden" name="batch_monto_id" value="${pkg.id}">
+              <label>CSV (solo se extrae el código del pin)</label>
+              <input type="file" name="csv_file" accept=".csv" required>
+              <button type="submit" class="btn btn-warning btn-small">Importar CSV</button>
+            </form>
           </div>
         `;
+
         container.appendChild(card);
       });
 
@@ -450,15 +461,15 @@
           if (f) f.classList.toggle('show');
         });
       });
-    }
 
-    // Inicializar selector de juego para pines
-    const pinGameSelector = document.getElementById('pin_game_selector');
-    if (pinGameSelector) {
-      renderPackageList(pinGameSelector.value);
-      pinGameSelector.addEventListener('change', function() {
-        renderPackageList(this.value);
+      container.querySelectorAll('.btn-toggle-csv').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-id');
+          const f = document.getElementById(`csv-form-${id}`);
+          if (f) f.classList.toggle('show');
+        });
       });
+
     }
 
     // ======= Gestión de Precios (lista editable) =======
@@ -518,15 +529,6 @@
       if (form) form.submit();
     }
 
-    // Inicializar precios
-    const priceGameSelect = document.getElementById('price_game_select');
-    if (priceGameSelect) {
-      renderPricePackageList(priceGameSelect.value);
-      priceGameSelect.addEventListener('change', function() {
-        renderPricePackageList(this.value);
-      });
-    }
-
     // Buscador por ID de usuario
     window.filterUsersById = function() {
       const q = (document.getElementById('user-id-search')?.value || '').trim();
@@ -552,8 +554,6 @@
     if (clearBtn && userSearch) {
       clearBtn.addEventListener('click', function(){ userSearch.value = ''; filterUsersById(); userSearch.focus(); });
     }
-
-    }, 2000);
 
     // Sistema de pestañas
     function showTab(tabName) {
@@ -592,6 +592,24 @@
     const bloodstrikerPackages = JSON.parse(document.getElementById('bloodstriker-data').textContent);
     const freefireLatamStock = JSON.parse(document.getElementById('freefire-latam-stock').textContent);
     const freefireGlobalStock = JSON.parse(document.getElementById('freefire-global-stock').textContent);
+
+    // Inicializar selector de juego para pines (después de cargar datasets)
+    const pinGameSelector = document.getElementById('pin_game_selector');
+    if (pinGameSelector) {
+      renderPackageList(pinGameSelector.value);
+      pinGameSelector.addEventListener('change', function() {
+        renderPackageList(this.value);
+      });
+    }
+
+    // Inicializar precios (después de cargar datasets)
+    const priceGameSelect = document.getElementById('price_game_select');
+    if (priceGameSelect) {
+      renderPricePackageList(priceGameSelect.value);
+      priceGameSelect.addEventListener('change', function() {
+        renderPricePackageList(this.value);
+      });
+    }
 
     // Funciones para actualizar paquetes con datos dinámicos
     
