@@ -86,6 +86,9 @@
           {% if session.get('is_admin') %}
           <a href="/admin" class="admin-btn">🛠️ Panel Admin</a>
           {% endif %}
+          {% if not session.get('is_admin') %}
+          <a href="https://wa.me/584125712917?text=Hola%2C%20quiero%20recargar%20saldo.%20Mi%20ID%20es%20{{ user_id }}" target="_blank" rel="noopener noreferrer" class="admin-btn">💳 Recargar saldo</a>
+          {% endif %}
           <a href="/logout" class="logout-btn">Cerrar sesión</a>
         </div>
       </div>
@@ -96,6 +99,8 @@
   <section class="user-panel">
     <p>Mi ID <span style="color: #28a745; font-weight: 600;">{{ user_id }}</span> &nbsp; | &nbsp; Saldo <span style="color: #28a745; font-weight: 600;">${{ "%.2f"|format(balance) }}</span></p>
   </section>
+
+  <div id="bs-toast-container" style="position: fixed; right: 16px; top: 84px; z-index: 9999; display: flex; flex-direction: column; gap: 10px;"></div>
 
   <!-- Historial -->
   <section class="transactions">
@@ -369,6 +374,108 @@
         setTimeout(() => flashMessages.remove(), 300);
       }
     }, 2000);
+
+    async function fetchBloodStrikerReloadNotifications() {
+      try {
+        const res = await fetch('/api/notifications/bloodstriker_reload', {
+          method: 'GET',
+          headers: { 'Accept': 'application/json' }
+        });
+        if (!res.ok) return [];
+        const data = await res.json();
+        return (data && data.notifications) ? data.notifications : [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    async function dismissBloodStrikerReloadNotification(notificationId) {
+      try {
+        const res = await fetch(`/api/notifications/dismiss/${notificationId}`, {
+          method: 'POST',
+          headers: { 'Accept': 'application/json' }
+        });
+        return res.ok;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function renderBloodStrikerToasts(notifications) {
+      const container = document.getElementById('bs-toast-container');
+      if (!container) return;
+
+      const existingIds = new Set(Array.from(container.querySelectorAll('[data-notification-id]')).map(n => n.getAttribute('data-notification-id')));
+      (notifications || []).forEach(n => {
+        const idStr = String(n.id);
+        if (existingIds.has(idStr)) return;
+
+        const toast = document.createElement('div');
+        toast.setAttribute('data-notification-id', idStr);
+        toast.style.background = '#0f172a';
+        toast.style.color = '#ffffff';
+        toast.style.borderRadius = '12px';
+        toast.style.boxShadow = '0 8px 24px rgba(0,0,0,0.22)';
+        toast.style.padding = '12px 12px 12px 14px';
+        toast.style.width = '320px';
+        toast.style.maxWidth = 'calc(100vw - 32px)';
+        toast.style.border = '1px solid rgba(255,255,255,0.10)';
+        toast.style.display = 'flex';
+        toast.style.gap = '10px';
+
+        const left = document.createElement('div');
+        left.style.flex = '1';
+
+        const title = document.createElement('div');
+        title.style.fontWeight = '700';
+        title.style.marginBottom = '4px';
+        title.textContent = n.titulo || 'Recarga realizada con éxito';
+
+        const msg = document.createElement('div');
+        msg.style.fontSize = '13px';
+        msg.style.lineHeight = '1.35';
+        msg.style.opacity = '0.92';
+        msg.textContent = n.mensaje || '';
+
+        left.appendChild(title);
+        left.appendChild(msg);
+
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.textContent = 'X';
+        close.setAttribute('aria-label', 'Cerrar notificación');
+        close.style.background = 'transparent';
+        close.style.color = '#ffffff';
+        close.style.border = 'none';
+        close.style.cursor = 'pointer';
+        close.style.fontWeight = '700';
+        close.style.fontSize = '14px';
+        close.style.width = '24px';
+        close.style.height = '24px';
+        close.style.opacity = '0.85';
+        close.onclick = async function() {
+          close.disabled = true;
+          await dismissBloodStrikerReloadNotification(n.id);
+          toast.remove();
+        };
+
+        toast.appendChild(left);
+        toast.appendChild(close);
+
+        container.appendChild(toast);
+      });
+    }
+
+    async function initBloodStrikerReloadToasts() {
+      const notifications = await fetchBloodStrikerReloadNotifications();
+      renderBloodStrikerToasts(notifications);
+      setInterval(async function() {
+        const notifs = await fetchBloodStrikerReloadNotifications();
+        renderBloodStrikerToasts(notifs);
+      }, 15000);
+    }
+
+    initBloodStrikerReloadToasts();
   </script>
 </body>
 </html>

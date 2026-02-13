@@ -1258,16 +1258,23 @@ def create_personal_notification(user_id, titulo, mensaje, tipo='success'):
             titulo TEXT NOT NULL,
             mensaje TEXT NOT NULL,
             tipo TEXT DEFAULT 'info',
+            tag TEXT,
             visto BOOLEAN DEFAULT FALSE,
             fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
         )
     ''')
+
+    # Migración suave: agregar columna tag si la tabla ya existía
+    try:
+        conn.execute("ALTER TABLE notificaciones_personalizadas ADD COLUMN tag TEXT")
+    except Exception:
+        pass
     
     cursor = conn.execute('''
-        INSERT INTO notificaciones_personalizadas (usuario_id, titulo, mensaje, tipo)
-        VALUES (?, ?, ?, ?)
-    ''', (user_id, titulo, mensaje, tipo))
+        INSERT INTO notificaciones_personalizadas (usuario_id, titulo, mensaje, tipo, tag)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (user_id, titulo, mensaje, tipo, None))
     
     notification_id = cursor.lastrowid
     conn.commit()
@@ -1285,15 +1292,24 @@ def get_user_personal_notifications(user_id):
             titulo TEXT NOT NULL,
             mensaje TEXT NOT NULL,
             tipo TEXT DEFAULT 'info',
+            tag TEXT,
             visto BOOLEAN DEFAULT FALSE,
             fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
         )
     ''')
+
+    # Migración suave: agregar columna tag si la tabla ya existía
+    try:
+        conn.execute("ALTER TABLE notificaciones_personalizadas ADD COLUMN tag TEXT")
+    except Exception:
+        pass
     
     notifications = conn.execute('''
-        SELECT * FROM notificaciones_personalizadas 
-        WHERE usuario_id = ? AND visto = FALSE
+        SELECT * FROM notificaciones_personalizadas
+        WHERE usuario_id = ?
+          AND visto = FALSE
+          AND (tag IS NULL OR tag != 'bloodstriker_reload')
         ORDER BY fecha DESC
         LIMIT 10
     ''', (user_id,)).fetchall()
@@ -1311,15 +1327,24 @@ def get_unread_personal_notifications_count(user_id):
             titulo TEXT NOT NULL,
             mensaje TEXT NOT NULL,
             tipo TEXT DEFAULT 'info',
+            tag TEXT,
             visto BOOLEAN DEFAULT FALSE,
             fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
         )
     ''')
+
+    # Migración suave: agregar columna tag si la tabla ya existía
+    try:
+        conn.execute("ALTER TABLE notificaciones_personalizadas ADD COLUMN tag TEXT")
+    except Exception:
+        pass
     
     count = conn.execute('''
-        SELECT COUNT(*) FROM notificaciones_personalizadas 
-        WHERE usuario_id = ? AND visto = FALSE
+        SELECT COUNT(*) FROM notificaciones_personalizadas
+        WHERE usuario_id = ?
+          AND visto = FALSE
+          AND (tag IS NULL OR tag != 'bloodstriker_reload')
     ''', (user_id,)).fetchone()[0]
     conn.close()
     
@@ -1336,16 +1361,24 @@ def mark_personal_notifications_as_read(user_id):
             titulo TEXT NOT NULL,
             mensaje TEXT NOT NULL,
             tipo TEXT DEFAULT 'info',
+            tag TEXT,
             visto BOOLEAN DEFAULT FALSE,
             fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
         )
     ''')
+
+    # Migración suave: agregar columna tag si la tabla ya existía
+    try:
+        conn.execute("ALTER TABLE notificaciones_personalizadas ADD COLUMN tag TEXT")
+    except Exception:
+        pass
     
-    # Eliminar todas las notificaciones del usuario (para que desaparezcan después de verlas)
+    # Eliminar todas las notificaciones del usuario EXCEPTO las de recarga Blood Striker
     conn.execute('''
-        DELETE FROM notificaciones_personalizadas 
+        DELETE FROM notificaciones_personalizadas
         WHERE usuario_id = ?
+          AND (tag IS NULL OR tag != 'bloodstriker_reload')
     ''', (user_id,))
     conn.commit()
     conn.close()
@@ -1561,6 +1594,69 @@ def login():
     else:
         flash('Credenciales incorrectas', 'error')
         return redirect('/auth')
+
+
+@app.route('/api/notifications/bloodstriker_reload', methods=['GET'])
+def api_bloodstriker_reload_notifications():
+    if 'usuario' not in session or session.get('is_admin'):
+        return jsonify({'notifications': []})
+
+    user_id = session.get('user_db_id')
+    if not user_id:
+        return jsonify({'notifications': []})
+
+    conn = get_db_connection()
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS notificaciones_personalizadas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER,
+            titulo TEXT NOT NULL,
+            mensaje TEXT NOT NULL,
+            tipo TEXT DEFAULT 'info',
+            tag TEXT,
+            visto BOOLEAN DEFAULT FALSE,
+            fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+        )
+    ''')
+    try:
+        conn.execute("ALTER TABLE notificaciones_personalizadas ADD COLUMN tag TEXT")
+    except Exception:
+        pass
+
+    rows = conn.execute('''
+        SELECT id, titulo, mensaje, tipo, fecha
+        FROM notificaciones_personalizadas
+        WHERE usuario_id = ? AND visto = FALSE AND tag = 'bloodstriker_reload'
+        ORDER BY fecha DESC
+        LIMIT 5
+    ''', (user_id,)).fetchall()
+    conn.close()
+
+    notifications = [dict(r) for r in rows]
+    return jsonify({'notifications': notifications})
+
+
+@app.route('/api/notifications/dismiss/<int:notification_id>', methods=['POST'])
+def api_dismiss_notification(notification_id):
+    if 'usuario' not in session or session.get('is_admin'):
+        return jsonify({'status': 'error'}), 401
+
+    user_id = session.get('user_db_id')
+    if not user_id:
+        return jsonify({'status': 'error'}), 400
+
+    conn = get_db_connection()
+    try:
+        conn.execute('''
+            DELETE FROM notificaciones_personalizadas
+            WHERE id = ? AND usuario_id = ? AND tag = 'bloodstriker_reload'
+        ''', (notification_id, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({'status': 'ok'})
 
 @app.route('/register', methods=['POST'])
 def register():
@@ -3451,9 +3547,37 @@ def approve_bloodstriker_transaction(transaction_id):
             )
             
             # Crear notificación personalizada para el usuario
-            titulo = "🎯 Recarga Blood Striker Aprobada"
-            mensaje = f"Tu recarga de {bs_transaction['paquete_nombre']} por ${bs_transaction['precio']:.2f} ha sido aprobada exitosamente. ID: {bs_transaction['player_id']}"
-            create_personal_notification(bs_transaction['usuario_id'], titulo, mensaje, 'success')
+            titulo = "🎯 Blood Striker - Recarga realizada con éxito"
+            mensaje = f"Blood Striker: Recarga realizada con éxito. {bs_transaction['paquete_nombre']} por ${bs_transaction['precio']:.2f}. ID: {bs_transaction['player_id']}"
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS notificaciones_personalizadas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    usuario_id INTEGER,
+                    titulo TEXT NOT NULL,
+                    mensaje TEXT NOT NULL,
+                    tipo TEXT DEFAULT 'info',
+                    tag TEXT,
+                    visto BOOLEAN DEFAULT FALSE,
+                    fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+                )
+            ''')
+            try:
+                conn.execute("ALTER TABLE notificaciones_personalizadas ADD COLUMN tag TEXT")
+            except Exception:
+                pass
+            try:
+                conn.execute('''
+                    INSERT INTO notificaciones_personalizadas (usuario_id, titulo, mensaje, tipo, tag)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (bs_transaction['usuario_id'], titulo, mensaje, 'success', 'bloodstriker_reload'))
+                conn.commit()
+            except Exception:
+                conn.execute('''
+                    INSERT INTO notificaciones_personalizadas (usuario_id, titulo, mensaje, tipo)
+                    VALUES (?, ?, ?, ?)
+                ''', (bs_transaction['usuario_id'], titulo, mensaje, 'success'))
+                conn.commit()
         
         conn.close()
         

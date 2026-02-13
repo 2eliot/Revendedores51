@@ -1076,6 +1076,9 @@
           {% if session.get('is_admin') %}
           <a href="/admin" class="admin-btn">🛠️ Panel Admin</a>
           {% endif %}
+          {% if not session.get('is_admin') %}
+          <a href="https://wa.me/584125712917?text=Hola%2C%20quiero%20recargar%20saldo.%20Mi%20ID%20es%20{{ user_id }}" target="_blank" rel="noopener noreferrer" class="admin-btn">💳 Recargar saldo</a>
+          {% endif %}
           <a href="/logout" class="logout-btn">Cerrar sesión</a>
         </div>
       </div>
