@@ -10,7 +10,8 @@ Flask-Mail==0.9.1
 requests==2.31.0
 
 # Para redención automática de pines (Free Fire ID)
-playwright==1.41.0
+greenlet>=3.1.0
+playwright>=1.49.0
 
 # Utilidades (opcional)
 python-dotenv==1.0.0
