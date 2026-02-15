@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Blood Striker</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <title>Free Fire ID</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='freefire.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='freefire_id_extra.css') }}">
   <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -81,16 +82,16 @@
   </section>
 
   <section class="juego-container">
-    <h1 class="juego-titulo">Blood Striker</h1>
+    <h1 class="juego-titulo">🔥 Free Fire ID</h1>
 
-    <form method="POST" action="/validar/bloodstriker" class="juego-form">
-      <label for="player_id">ID de Jugador:</label>
-      <input type="text" id="player_id" name="player_id" class="form-control" placeholder="Ingresa tu ID de jugador" required>
+    <form method="POST" action="/validar/freefire_id" class="juego-form" id="ffid-form">
+      <label for="player_id">ID de Jugador Free Fire:</label>
+      <input type="text" id="player_id" name="player_id" class="form-control" placeholder="Ingresa tu ID de Free Fire" required>
 
       <label for="monto">Selecciona tu paquete:</label>
-      <select id="monto" name="monto" class="form-control" style="background-color: #AAF0F4;" required>
+      <select id="monto" name="monto" class="form-control" style="background-color: #FFF3E0;" required>
         <option value="">Seleccione paquete</option>
-        {% for package_id in range(1, 11) %}
+        {% for package_id in range(1, 21) %}
           {% set package = prices.get(package_id, {}) %}
           {% if package %}
             <option id="monto_{{ package_id }}" value="{{ package_id }}">
@@ -100,12 +101,33 @@
         {% endfor %}
       </select>
 
-      <button type="submit">Solicitar Recarga</button>
+      <button type="submit">Recargar Ahora</button>
     </form>
 
     {% if compra_exitosa %}
     <div class="compra-exitosa" id="compra-exitosa">
-      <h3>🎯 ¡Solicitud Enviada!</h3>
+      {% if estado == 'completado' %}
+      <h3>🔥 ¡Recarga Realizada con Éxito!</h3>
+      <div class="solicitud-container">
+        <div class="solicitud-info">
+          <p class="solicitud-label">Estado:</p>
+          <p class="solicitud-estado" id="estadoSolicitud" style="color: #28a745;">✅ COMPLETADO</p>
+        </div>
+        <div class="detalles-info">
+          <p><strong>Paquete:</strong> {{ paquete_nombre }}</p>
+          {% if player_name %}
+          <p><strong>Jugador:</strong> <span style="color: #28a745; font-weight: 700; font-size: 1.1em;">{{ player_name }}</span></p>
+          {% endif %}
+          <p><strong>ID de Jugador:</strong> {{ player_id }}</p>
+          <p><strong>Monto:</strong> ${{ "%.2f"|format(monto_compra) }}</p>
+          <p><strong>Número de Control:</strong> {{ numero_control }}</p>
+        </div>
+      </div>
+      <div class="entrega-info" style="background: #d4edda; border: 1px solid #28a745; border-radius: 8px; padding: 12px; margin-top: 10px;">
+        <p style="color: #155724; margin: 0;">✅ Los diamantes han sido agregados a tu cuenta de Free Fire.</p>
+      </div>
+      {% else %}
+      <h3>🔥 ¡Solicitud Enviada!</h3>
       <div class="solicitud-container">
         <div class="solicitud-info">
           <p class="solicitud-label">Estado:</p>
@@ -122,20 +144,20 @@
         <p>⏳ Tu solicitud está pendiente de aprobación.</p>
         <p>📧 Recibirás una notificación cuando sea procesada.</p>
       </div>
+      {% endif %}
     </div>
     {% else %}
     <div class="juego-descripcion">
-      <p>🎯 <strong>¿Cómo funciona Blood Striker?</strong></p>
+      <p>🔥 <strong>¿Cómo funciona Free Fire ID?</strong></p>
       <ul style="list-style-type: square; padding-left: 1.5rem; line-height: 1.6; color: #444;">
-        <li>Ingresa tu <strong>ID de jugador</strong> de Blood Striker</li>
-        <li>Selecciona el paquete de monedas que deseas</li>
-        <li>Tu solicitud quedará <strong>pendiente de aprobación</strong></li>
-        <li>Un administrador procesará tu recarga manualmente</li>
-        <li>Las monedas se agregarán directamente a tu cuenta</li>
-        <li>Recibirás confirmación una vez completada la recarga</li>
+        <li>Ingresa tu <strong>ID de jugador</strong> de Free Fire</li>
+        <li>Selecciona el paquete de diamantes que deseas</li>
+        <li>La recarga se procesa <strong>automáticamente</strong></li>
+        <li>Los diamantes se agregarán directamente a tu cuenta</li>
+        <li>Recibirás confirmación inmediata con el nombre de tu jugador</li>
       </ul>
       <div class="nota-importante">
-        <p><strong>📌 Nota:</strong> Este es un servicio de recarga manual. El tiempo de procesamiento puede variar entre 1-24 horas dependiendo de la disponibilidad del administrador.</p>
+        <p><strong>📌 Nota:</strong> La recarga es automática e instantánea. Asegúrate de ingresar correctamente tu ID de jugador. El proceso puede tardar unos segundos.</p>
       </div>
     </div>
     {% endif %}
@@ -145,111 +167,6 @@
     </div>
   </section>
 
-  <div id="bs-toast-container" style="position: fixed; right: 16px; top: 84px; z-index: 9999; display: flex; flex-direction: column; gap: 10px;"></div>
-
-  <script>
-    async function fetchBloodStrikerReloadNotifications() {
-      try {
-        const res = await fetch('/api/notifications/bloodstriker_reload', {
-          method: 'GET',
-          headers: { 'Accept': 'application/json' }
-        });
-        if (!res.ok) return [];
-        const data = await res.json();
-        return (data && data.notifications) ? data.notifications : [];
-      } catch (e) {
-        return [];
-      }
-    }
-
-    async function dismissBloodStrikerReloadNotification(notificationId) {
-      try {
-        const res = await fetch(`/api/notifications/dismiss/${notificationId}`, {
-          method: 'POST',
-          headers: { 'Accept': 'application/json' }
-        });
-        return res.ok;
-      } catch (e) {
-        return false;
-      }
-    }
-
-    function renderBloodStrikerToasts(notifications) {
-      const container = document.getElementById('bs-toast-container');
-      if (!container) return;
-
-      const existingIds = new Set(Array.from(container.querySelectorAll('[data-notification-id]')).map(n => n.getAttribute('data-notification-id')));
-      (notifications || []).forEach(n => {
-        const idStr = String(n.id);
-        if (existingIds.has(idStr)) return;
-
-        const toast = document.createElement('div');
-        toast.setAttribute('data-notification-id', idStr);
-        toast.style.background = '#0f172a';
-        toast.style.color = '#ffffff';
-        toast.style.borderRadius = '12px';
-        toast.style.boxShadow = '0 8px 24px rgba(0,0,0,0.22)';
-        toast.style.padding = '12px 12px 12px 14px';
-        toast.style.width = '320px';
-        toast.style.maxWidth = 'calc(100vw - 32px)';
-        toast.style.border = '1px solid rgba(255,255,255,0.10)';
-        toast.style.display = 'flex';
-        toast.style.gap = '10px';
-
-        const left = document.createElement('div');
-        left.style.flex = '1';
-
-        const title = document.createElement('div');
-        title.style.fontWeight = '700';
-        title.style.marginBottom = '4px';
-        title.textContent = n.titulo || 'Recarga realizada con éxito';
-
-        const msg = document.createElement('div');
-        msg.style.fontSize = '13px';
-        msg.style.lineHeight = '1.35';
-        msg.style.opacity = '0.92';
-        msg.textContent = n.mensaje || '';
-
-        left.appendChild(title);
-        left.appendChild(msg);
-
-        const close = document.createElement('button');
-        close.type = 'button';
-        close.textContent = 'X';
-        close.setAttribute('aria-label', 'Cerrar notificación');
-        close.style.background = 'transparent';
-        close.style.color = '#ffffff';
-        close.style.border = 'none';
-        close.style.cursor = 'pointer';
-        close.style.fontWeight = '700';
-        close.style.fontSize = '14px';
-        close.style.width = '24px';
-        close.style.height = '24px';
-        close.style.opacity = '0.85';
-        close.onclick = async function() {
-          close.disabled = true;
-          await dismissBloodStrikerReloadNotification(n.id);
-          toast.remove();
-        };
-
-        toast.appendChild(left);
-        toast.appendChild(close);
-
-        container.appendChild(toast);
-      });
-    }
-
-    async function initBloodStrikerReloadToasts() {
-      const notifications = await fetchBloodStrikerReloadNotifications();
-      renderBloodStrikerToasts(notifications);
-      setInterval(async function() {
-        const notifs = await fetchBloodStrikerReloadNotifications();
-        renderBloodStrikerToasts(notifs);
-      }, 15000);
-    }
-
-    initBloodStrikerReloadToasts();
-  </script>
 
   <script>
     function toggleUserBox() {
@@ -304,12 +221,10 @@
       const menuJuegos = document.getElementById('menu-juegos');
       const hamburger = document.querySelector('.hamburger');
       
-      // Cerrar user-box si se hace clic fuera
       if (userBox && userIcon && !userIcon.contains(event.target)) {
         userBox.classList.remove('visible');
       }
       
-      // Cerrar menu-juegos si se hace clic fuera
       if (menuJuegos && hamburger && !hamburger.contains(event.target)) {
         menuJuegos.classList.remove('visible');
       }

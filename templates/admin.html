@@ -53,6 +53,9 @@
         <button class="side-tab-button" onclick="showTab('estadisticas')" aria-label="Estadísticas">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg></span><span class="label">Estadísticas</span>
         </button>
+        <button class="side-tab-button" onclick="showTab('redeemer')" aria-label="Redeemer">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></span><span class="label">Redeemer</span>
+        </button>
         <a class="side-tab-button" href="/" aria-label="Volver al Inicio" style="text-decoration:none;">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7"/><path d="M9 22V12h6v10"/></svg></span><span class="label">Inicio</span>
         </a>
@@ -221,6 +224,7 @@
                   <option value="freefire">Free Fire Latam</option>
                   <option value="freefire_global">Free Fire</option>
                   <option value="bloodstriker">Blood Striker</option>
+                  <option value="freefire_id">Free Fire ID</option>
                 </select>
               </div>
               <div class="form-group" style="display:flex;align-items:flex-end;gap:8px;">
@@ -324,6 +328,99 @@
           </div>
         </section>
       </div>
+
+      <!-- Pestaña de Redeemer Automático -->
+      <div id="tab-redeemer" class="tab-content">
+        <section class="redeemer-section">
+          <h2>&#9889; Redeemer Automatico - Free Fire ID</h2>
+          <p style="color:#888;margin-bottom:16px;">Configura la redencion automatica de pines en redeempins.com. Cuando apruebes una transaccion de Free Fire ID, el sistema tomara un pin del inventario FF Global y lo redimira automaticamente.</p>
+
+          <div class="redeemer-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+            <!-- Configuración -->
+            <div class="redeemer-config-card" style="background:#1a1a2e;border-radius:12px;padding:20px;border:1px solid #333;">
+              <h3 style="color:#00d4aa;margin-bottom:16px;">Configuracion</h3>
+              <form method="POST" action="/admin/redeemer_config" id="redeemer-config-form">
+                <div style="margin-bottom:12px;">
+                  <label style="display:block;color:#ccc;margin-bottom:4px;font-size:13px;">Nombre Completo:</label>
+                  <input type="text" name="nombre_completo" id="rc_nombre" value="{{ redeemer_config.nombre_completo }}" style="width:100%;padding:8px;border-radius:6px;border:1px solid #444;background:#0d0d1a;color:#fff;" required>
+                </div>
+                <div style="margin-bottom:12px;">
+                  <label style="display:block;color:#ccc;margin-bottom:4px;font-size:13px;">Fecha de Nacimiento (DD/MM/YYYY):</label>
+                  <input type="text" name="fecha_nacimiento" id="rc_fecha" value="{{ redeemer_config.fecha_nacimiento }}" placeholder="01/01/1995" style="width:100%;padding:8px;border-radius:6px;border:1px solid #444;background:#0d0d1a;color:#fff;" required>
+                </div>
+                <div style="margin-bottom:12px;">
+                  <label style="display:block;color:#ccc;margin-bottom:4px;font-size:13px;">Nacionalidad:</label>
+                  <select name="nacionalidad" id="rc_nacionalidad" style="width:100%;padding:8px;border-radius:6px;border:1px solid #444;background:#0d0d1a;color:#fff;">
+                    <option value="Chile" {% if redeemer_config.nacionalidad == 'Chile' %}selected{% endif %}>Chile</option>
+                    <option value="Argentina" {% if redeemer_config.nacionalidad == 'Argentina' %}selected{% endif %}>Argentina</option>
+                    <option value="Colombia" {% if redeemer_config.nacionalidad == 'Colombia' %}selected{% endif %}>Colombia</option>
+                    <option value="Mexico" {% if redeemer_config.nacionalidad == 'Mexico' or redeemer_config.nacionalidad == 'México' %}selected{% endif %}>Mexico</option>
+                    <option value="Peru" {% if redeemer_config.nacionalidad == 'Peru' or redeemer_config.nacionalidad == 'Perú' %}selected{% endif %}>Peru</option>
+                    <option value="Venezuela" {% if redeemer_config.nacionalidad == 'Venezuela' %}selected{% endif %}>Venezuela</option>
+                    <option value="Ecuador" {% if redeemer_config.nacionalidad == 'Ecuador' %}selected{% endif %}>Ecuador</option>
+                    <option value="Bolivia" {% if redeemer_config.nacionalidad == 'Bolivia' %}selected{% endif %}>Bolivia</option>
+                    <option value="Uruguay" {% if redeemer_config.nacionalidad == 'Uruguay' %}selected{% endif %}>Uruguay</option>
+                    <option value="Paraguay" {% if redeemer_config.nacionalidad == 'Paraguay' %}selected{% endif %}>Paraguay</option>
+                    <option value="Brasil" {% if redeemer_config.nacionalidad == 'Brasil' %}selected{% endif %}>Brasil</option>
+                  </select>
+                </div>
+                <div style="margin-bottom:12px;">
+                  <label style="display:block;color:#ccc;margin-bottom:4px;font-size:13px;">URL Base:</label>
+                  <input type="text" name="url_base" id="rc_url" value="{{ redeemer_config.url_base }}" style="width:100%;padding:8px;border-radius:6px;border:1px solid #444;background:#0d0d1a;color:#fff;">
+                </div>
+                <div style="margin-bottom:12px;">
+                  <label style="display:block;color:#ccc;margin-bottom:4px;font-size:13px;">Timeout (ms):</label>
+                  <input type="number" name="timeout_ms" id="rc_timeout" value="{{ redeemer_config.timeout_ms }}" min="5000" max="120000" style="width:100%;padding:8px;border-radius:6px;border:1px solid #444;background:#0d0d1a;color:#fff;">
+                </div>
+                <div style="margin-bottom:12px;">
+                  <label style="display:block;color:#ccc;margin-bottom:4px;font-size:13px;">Modo headless (sin ventana):</label>
+                  <select name="headless" style="width:100%;padding:8px;border-radius:6px;border:1px solid #444;background:#0d0d1a;color:#fff;">
+                    <option value="true" {% if redeemer_config.headless == 'true' or redeemer_config.headless == True %}selected{% endif %}>Si (headless)</option>
+                    <option value="false" {% if redeemer_config.headless == 'false' or redeemer_config.headless == False %}selected{% endif %}>No (visible)</option>
+                  </select>
+                </div>
+                <div style="margin-bottom:16px;padding:12px;border-radius:8px;background:#1e3a2f;border:1px solid #2d5a3f;">
+                  <label style="display:flex;align-items:center;gap:8px;color:#00d4aa;font-weight:bold;cursor:pointer;">
+                    <input type="hidden" name="auto_redeem" value="false">
+                    <input type="checkbox" name="auto_redeem" value="true" {% if redeemer_config.auto_redeem == 'true' %}checked{% endif %} style="width:18px;height:18px;accent-color:#00d4aa;">
+                    Activar redencion automatica al aprobar
+                  </label>
+                  <p style="color:#888;font-size:12px;margin:4px 0 0 26px;">Al aprobar una transaccion de Free Fire ID, se tomara un pin FF Global y se redimira automaticamente en redeempins.com</p>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width:100%;">Guardar Configuracion</button>
+              </form>
+            </div>
+
+            <!-- Prueba manual -->
+            <div class="redeemer-test-card" style="background:#1a1a2e;border-radius:12px;padding:20px;border:1px solid #333;">
+              <h3 style="color:#ff9800;margin-bottom:16px;">Prueba Manual</h3>
+              <p style="color:#888;font-size:13px;margin-bottom:16px;">Prueba la redencion de un pin manualmente. El navegador se abrira visible para que puedas ver el proceso.</p>
+              <form method="POST" action="/admin/test_redeem">
+                <div style="margin-bottom:12px;">
+                  <label style="display:block;color:#ccc;margin-bottom:4px;font-size:13px;">Codigo PIN:</label>
+                  <input type="text" name="test_pin_code" placeholder="41D26298-7BF3-4308-A576-17CBEE8373BC" style="width:100%;padding:8px;border-radius:6px;border:1px solid #444;background:#0d0d1a;color:#fff;" required>
+                </div>
+                <div style="margin-bottom:12px;">
+                  <label style="display:block;color:#ccc;margin-bottom:4px;font-size:13px;">Player ID:</label>
+                  <input type="text" name="test_player_id" placeholder="123456789" style="width:100%;padding:8px;border-radius:6px;border:1px solid #444;background:#0d0d1a;color:#fff;" required>
+                </div>
+                <button type="submit" class="btn btn-warning" style="width:100%;">Ejecutar Prueba</button>
+              </form>
+
+              <div style="margin-top:20px;padding:12px;border-radius:8px;background:#0d0d1a;border:1px solid #333;">
+                <h4 style="color:#fff;margin-bottom:8px;font-size:14px;">Estado del sistema</h4>
+                <ul style="color:#888;font-size:12px;list-style:none;padding:0;margin:0;">
+                  <li style="margin-bottom:4px;">&#9679; Redeemer: <span style="color:#00d4aa;">Instalado</span></li>
+                  <li style="margin-bottom:4px;">&#9679; Auto-redeem: <span style="color:{% if redeemer_config.auto_redeem == 'true' %}#00d4aa{% else %}#ff5555{% endif %};">{% if redeemer_config.auto_redeem == 'true' %}Activado{% else %}Desactivado{% endif %}</span></li>
+                  <li style="margin-bottom:4px;">&#9679; Nacionalidad: <span style="color:#fff;">{{ redeemer_config.nacionalidad }}</span></li>
+                  <li>&#9679; URL: <span style="color:#fff;">{{ redeemer_config.url_base }}</span></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
     </div>
   </main>
 
@@ -372,6 +469,18 @@
   <script type="application/json" id="bloodstriker-data">
     [
       {% for price in bloodstriker_prices %}
+      {
+        "id": {{ price.id }},
+        "nombre": "{{ price.nombre }}",
+        "precio": {{ price.precio }}
+      }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ]
+  </script>
+
+  <script type="application/json" id="freefire-id-data">
+    [
+      {% for price in freefire_id_prices %}
       {
         "id": {{ price.id }},
         "nombre": "{{ price.nombre }}",
@@ -483,6 +592,7 @@
       if (game === 'freefire') data = freefireLatamPackages;
       else if (game === 'freefire_global') data = freefireGlobalPackages;
       else if (game === 'bloodstriker') data = bloodstrikerPackages;
+      else if (game === 'freefire_id') data = freefireIdPackages;
 
       container.innerHTML = '';
       data.forEach(pkg => {
@@ -590,6 +700,7 @@
     const freefireLatamPackages = JSON.parse(document.getElementById('freefire-latam-data').textContent);
     const freefireGlobalPackages = JSON.parse(document.getElementById('freefire-global-data').textContent);
     const bloodstrikerPackages = JSON.parse(document.getElementById('bloodstriker-data').textContent);
+    const freefireIdPackages = JSON.parse(document.getElementById('freefire-id-data').textContent);
     const freefireLatamStock = JSON.parse(document.getElementById('freefire-latam-stock').textContent);
     const freefireGlobalStock = JSON.parse(document.getElementById('freefire-global-stock').textContent);
 

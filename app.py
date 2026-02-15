@@ -1,15 +1,19 @@
 def get_games_active():
     """Devuelve dict con flags de juegos activos segun tablas de precios."""
-    flags = {'freefire': False, 'freefire_global': False, 'bloodstriker': False}
+    flags = {'freefire': False, 'freefire_global': False, 'bloodstriker': False, 'freefire_id': False}
     try:
         conn = get_db_connection()
         flags['freefire'] = conn.execute("SELECT COUNT(1) FROM precios_paquetes WHERE activo = 1").fetchone()[0] > 0
         flags['freefire_global'] = conn.execute("SELECT COUNT(1) FROM precios_freefire_global WHERE activo = 1").fetchone()[0] > 0
         flags['bloodstriker'] = conn.execute("SELECT COUNT(1) FROM precios_bloodstriker WHERE activo = 1").fetchone()[0] > 0
+        flags['freefire_id'] = conn.execute("SELECT COUNT(1) FROM precios_freefire_id WHERE activo = 1").fetchone()[0] > 0
         conn.close()
     except:
         pass
     return flags
+
+import logging
+logger = logging.getLogger(__name__)
 
 from flask import Flask, render_template, request, redirect, session, flash, jsonify
 import json
@@ -27,6 +31,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_mail import Mail, Message
 import threading
 from pin_manager import create_pin_manager
+from pin_redeemer import redeem_pin_threaded, redeem_pin, PinRedeemResult, get_redeemer_config_from_db
 from functools import lru_cache
 import random
 import string
@@ -352,6 +357,38 @@ def init_db():
             )
         ''')
         
+        # Tabla de precios de Free Fire ID
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS precios_freefire_id (
+                id INTEGER PRIMARY KEY,
+                nombre TEXT NOT NULL,
+                precio REAL NOT NULL,
+                descripcion TEXT NOT NULL,
+                activo BOOLEAN DEFAULT TRUE,
+                fecha_actualizacion DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Tabla de transacciones de Free Fire ID
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS transacciones_freefire_id (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                usuario_id INTEGER,
+                player_id TEXT NOT NULL,
+                paquete_id INTEGER NOT NULL,
+                numero_control TEXT NOT NULL,
+                transaccion_id TEXT NOT NULL,
+                monto REAL DEFAULT 0.0,
+                estado TEXT DEFAULT 'pendiente',
+                fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
+                fecha_procesado DATETIME NULL,
+                admin_id INTEGER NULL,
+                notas TEXT NULL,
+                FOREIGN KEY (usuario_id) REFERENCES usuarios (id),
+                FOREIGN KEY (admin_id) REFERENCES usuarios (id)
+            )
+        ''')
+        
         # Tabla de configuración de fuentes de pines por monto
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS configuracion_fuentes_pines (
@@ -486,6 +523,47 @@ def init_db():
                 INSERT INTO precios_freefire_global (id, nombre, precio, descripcion, activo)
                 VALUES (?, ?, ?, ?, ?)
             ''', precios_freefire_global)
+        
+        # Insertar precios de Free Fire ID por defecto si no existen
+        cursor.execute('SELECT COUNT(*) FROM precios_freefire_id')
+        if cursor.fetchone()[0] == 0:
+            precios_freefire_id = [
+                (1, '100+10 💎', 0.90, '100+10 Diamantes Free Fire ID', True),
+                (2, '310+31 💎', 2.95, '310+31 Diamantes Free Fire ID', True),
+                (3, '520+52 💎', 4.10, '520+52 Diamantes Free Fire ID', True),
+                (4, '1.060+106 💎', 7.90, '1.060+106 Diamantes Free Fire ID', True),
+                (5, '2.180+218 💎', 15.50, '2.180+218 Diamantes Free Fire ID', True),
+                (6, '5.600+560 💎', 38.50, '5.600+560 Diamantes Free Fire ID', True)
+            ]
+            cursor.executemany('''
+                INSERT INTO precios_freefire_id (id, nombre, precio, descripcion, activo)
+                VALUES (?, ?, ?, ?, ?)
+            ''', precios_freefire_id)
+        
+        # Tabla de configuración del redeemer automático
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS configuracion_redeemer (
+                clave TEXT PRIMARY KEY,
+                valor TEXT NOT NULL,
+                fecha_actualizacion TEXT DEFAULT (datetime('now'))
+            )
+        ''')
+        
+        # Insertar configuración por defecto del redeemer si no existe
+        cursor.execute('SELECT COUNT(*) FROM configuracion_redeemer')
+        if cursor.fetchone()[0] == 0:
+            redeemer_defaults = [
+                ('nombre_completo', 'Usuario Revendedor'),
+                ('fecha_nacimiento', '01/01/1995'),
+                ('nacionalidad', 'Chile'),
+                ('url_base', 'https://redeem.hype.games/'),
+                ('headless', 'true'),
+                ('timeout_ms', '30000'),
+                ('auto_redeem', 'false'),
+            ]
+            cursor.executemany('''
+                INSERT INTO configuracion_redeemer (clave, valor) VALUES (?, ?)
+            ''', redeemer_defaults)
         
         # Tabla de precios de compra (legacy)
         cursor.execute('''
@@ -708,6 +786,7 @@ def clear_price_cache():
     get_package_info_with_prices_cached.cache_clear()
     get_bloodstriker_prices_cached.cache_clear()
     get_freefire_global_prices_cached.cache_clear()
+    get_freefire_id_prices_cached.cache_clear()
 
 @lru_cache(maxsize=1000)
 def convert_to_venezuela_time_cached(utc_datetime_str):
@@ -1401,7 +1480,7 @@ def mark_personal_notifications_as_read(user_id):
 def debug_database_info():
     """Muestra información de debug sobre la base de datos"""
     print("=" * 50)
-    print("🔍 DEBUG: INFORMACIÓN DE BASE DE DATOS")
+    print("[DEBUG] INFORMACION DE BASE DE DATOS")
     print("=" * 50)
     
     # Variables de entorno
@@ -1414,7 +1493,7 @@ def debug_database_info():
     # Verificar si existe el archivo
     if os.path.exists(DATABASE):
         file_size = os.path.getsize(DATABASE)
-        print(f"✅ Base de datos existe: {file_size} bytes")
+        print(f"[OK] Base de datos existe: {file_size} bytes")
         
         # Verificar tablas
         try:
@@ -1424,7 +1503,7 @@ def debug_database_info():
             # Listar tablas
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
             tables = cursor.fetchall()
-            print(f"📊 Tablas encontradas ({len(tables)}):")
+            print(f"[INFO] Tablas encontradas ({len(tables)}):")
             for table in tables:
                 # Contar registros en cada tabla
                 try:
@@ -1436,14 +1515,14 @@ def debug_database_info():
             return_db_connection(conn)
             
         except Exception as e:
-            print(f"❌ Error conectando a BD: {e}")
+            print(f"[ERROR] Error conectando a BD: {e}")
     else:
-        print(f"❌ Base de datos NO existe en: {DATABASE}")
+        print(f"[ERROR] Base de datos NO existe en: {DATABASE}")
         
         # Verificar directorio padre
         db_dir = os.path.dirname(DATABASE)
         if db_dir:
-            print(f"📁 Directorio padre: {db_dir}")
+            print(f"[DIR] Directorio padre: {db_dir}")
             print(f"   Existe: {os.path.exists(db_dir)}")
             if os.path.exists(db_dir):
                 try:
@@ -1482,11 +1561,12 @@ def index():
         # Admin ve todas las transacciones de todos los usuarios con paginación
         transactions_data = get_user_transactions(None, is_admin=True, page=page, per_page=per_page)
         
-        # Para admin, también agregar transacciones pendientes de Blood Striker solo en la primera página
+        # Para admin, también agregar transacciones pendientes de Blood Striker y Free Fire ID solo en la primera página
         if page == 1:
             bloodstriker_transactions = get_pending_bloodstriker_transactions()
-            # Combinar transacciones normales con las de Blood Striker
-            all_transactions = list(transactions_data['transactions']) + list(bloodstriker_transactions)
+            freefire_id_transactions = get_pending_freefire_id_transactions()
+            # Combinar transacciones normales con las de Blood Striker y Free Fire ID
+            all_transactions = list(transactions_data['transactions']) + list(bloodstriker_transactions) + list(freefire_id_transactions)
             # Ordenar por fecha
             all_transactions.sort(key=lambda x: x.get('fecha', ''), reverse=True)
             # Tomar solo las primeras per_page transacciones
@@ -1509,11 +1589,12 @@ def index():
             # Obtener transacciones normales del usuario con paginación
             transactions_data = get_user_transactions(session['user_db_id'], is_admin=False, page=page, per_page=per_page)
             
-            # Para usuario normal, también agregar transacciones pendientes de Blood Striker solo en la primera página
+            # Para usuario normal, también agregar transacciones pendientes de Blood Striker y Free Fire ID solo en la primera página
             if page == 1:
                 user_bloodstriker_transactions = get_user_pending_bloodstriker_transactions(session['user_db_id'])
-                # Combinar transacciones normales con las de Blood Striker del usuario
-                all_user_transactions = list(transactions_data['transactions']) + list(user_bloodstriker_transactions)
+                user_freefire_id_transactions = get_user_pending_freefire_id_transactions(session['user_db_id'])
+                # Combinar transacciones normales con las de Blood Striker y Free Fire ID del usuario
+                all_user_transactions = list(transactions_data['transactions']) + list(user_bloodstriker_transactions) + list(user_freefire_id_transactions)
                 # Ordenar por fecha
                 all_user_transactions.sort(key=lambda x: x.get('fecha', ''), reverse=True)
                 # Tomar solo las primeras per_page transacciones
@@ -2218,6 +2299,247 @@ def get_all_bloodstriker_prices():
     conn.close()
     return prices
 
+# Funciones para Free Fire ID
+def get_freefire_id_prices():
+    """Obtiene información de paquetes de Free Fire ID con precios dinámicos"""
+    conn = get_db_connection()
+    packages = conn.execute('''
+        SELECT id, nombre, precio, descripcion 
+        FROM precios_freefire_id 
+        WHERE activo = TRUE 
+        ORDER BY id
+    ''').fetchall()
+    conn.close()
+    
+    package_dict = {}
+    for package in packages:
+        package_dict[package['id']] = {
+            'nombre': package['nombre'],
+            'precio': package['precio'],
+            'descripcion': package['descripcion']
+        }
+    
+    return package_dict
+
+def get_freefire_id_price_by_id(package_id):
+    """Obtiene el precio de un paquete específico de Free Fire ID"""
+    conn = get_db_connection()
+    price = conn.execute('''
+        SELECT precio FROM precios_freefire_id 
+        WHERE id = ? AND activo = TRUE
+    ''', (package_id,)).fetchone()
+    conn.close()
+    return price['precio'] if price else 0
+
+@lru_cache(maxsize=128)
+def get_freefire_id_prices_cached():
+    """Versión cacheada de precios de Free Fire ID"""
+    conn = get_db_connection_optimized()
+    try:
+        packages = conn.execute('''
+            SELECT id, nombre, precio, descripcion 
+            FROM precios_freefire_id 
+            WHERE activo = TRUE 
+            ORDER BY id
+        ''').fetchall()
+        
+        package_dict = {}
+        for package in packages:
+            package_dict[package['id']] = {
+                'nombre': package['nombre'],
+                'precio': package['precio'],
+                'descripcion': package['descripcion']
+            }
+        return package_dict
+    finally:
+        return_db_connection(conn)
+
+def create_freefire_id_transaction(user_id, player_id, package_id, precio):
+    """Crea una transacción pendiente de Free Fire ID"""
+    import random
+    import string
+    
+    numero_control = ''.join(random.choices(string.digits, k=10))
+    transaccion_id = 'FFID-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+    
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute('''
+            INSERT INTO transacciones_freefire_id 
+            (usuario_id, player_id, paquete_id, numero_control, transaccion_id, monto, estado)
+            VALUES (?, ?, ?, ?, ?, ?, 'pendiente')
+        ''', (user_id, player_id, package_id, numero_control, transaccion_id, -precio))
+        
+        transaction_id = cursor.lastrowid
+        conn.commit()
+        return {
+            'id': transaction_id,
+            'numero_control': numero_control,
+            'transaccion_id': transaccion_id
+        }
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+def get_pending_freefire_id_transactions():
+    """Obtiene todas las transacciones pendientes de Free Fire ID para el admin"""
+    conn = get_db_connection()
+    transactions = conn.execute('''
+        SELECT fi.*, u.nombre, u.apellido, u.correo, p.nombre as paquete_nombre
+        FROM transacciones_freefire_id fi
+        JOIN usuarios u ON fi.usuario_id = u.id
+        JOIN precios_freefire_id p ON fi.paquete_id = p.id
+        WHERE fi.estado = 'pendiente'
+        ORDER BY fi.fecha DESC
+    ''').fetchall()
+    
+    formatted_transactions = []
+    for transaction in transactions:
+        formatted_transaction = {
+            'id': transaction['id'],
+            'usuario_id': transaction['usuario_id'],
+            'numero_control': transaction['numero_control'],
+            'transaccion_id': transaction['transaccion_id'],
+            'monto': transaction['monto'],
+            'fecha': transaction['fecha'],
+            'nombre': transaction['nombre'],
+            'apellido': transaction['apellido'],
+            'correo': transaction['correo'],
+            'paquete_nombre': transaction['paquete_nombre'],
+            'paquete': transaction['paquete_nombre'],
+            'pin': f"ID: {transaction['player_id']}",
+            'player_id': transaction['player_id'],
+            'estado': transaction['estado'],
+            'is_freefire_id': True
+        }
+        formatted_transactions.append(formatted_transaction)
+    
+    conn.close()
+    return formatted_transactions
+
+def get_user_pending_freefire_id_transactions(user_id):
+    """Obtiene las transacciones pendientes de Free Fire ID de un usuario específico"""
+    conn = get_db_connection()
+    transactions = conn.execute('''
+        SELECT fi.*, u.nombre, u.apellido, p.nombre as paquete_nombre
+        FROM transacciones_freefire_id fi
+        JOIN usuarios u ON fi.usuario_id = u.id
+        JOIN precios_freefire_id p ON fi.paquete_id = p.id
+        WHERE fi.usuario_id = ? AND fi.estado = 'pendiente'
+        ORDER BY fi.fecha DESC
+    ''', (user_id,)).fetchall()
+    
+    formatted_transactions = []
+    for transaction in transactions:
+        formatted_transaction = {
+            'id': transaction['id'],
+            'usuario_id': transaction['usuario_id'],
+            'numero_control': transaction['numero_control'],
+            'transaccion_id': transaction['transaccion_id'],
+            'monto': transaction['monto'],
+            'fecha': convert_to_venezuela_time(transaction['fecha']),
+            'nombre': transaction['nombre'],
+            'apellido': transaction['apellido'],
+            'paquete': transaction['paquete_nombre'],
+            'pin': f"ID: {transaction['player_id']}",
+            'estado': transaction['estado'],
+            'is_freefire_id': True
+        }
+        formatted_transactions.append(formatted_transaction)
+    
+    conn.close()
+    return formatted_transactions
+
+def update_freefire_id_transaction_status(transaction_id, new_status, admin_id, notas=None):
+    """Actualiza el estado de una transacción de Free Fire ID"""
+    conn = get_db_connection()
+    conn.execute('''
+        UPDATE transacciones_freefire_id 
+        SET estado = ?, admin_id = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP
+        WHERE id = ?
+    ''', (new_status, admin_id, notas, transaction_id))
+    conn.commit()
+    conn.close()
+
+def update_freefire_id_price(package_id, new_price):
+    """Actualiza el precio de un paquete de Free Fire ID"""
+    conn = get_db_connection_optimized()
+    try:
+        conn.execute('''
+            UPDATE precios_freefire_id 
+            SET precio = ?, fecha_actualizacion = CURRENT_TIMESTAMP 
+            WHERE id = ?
+        ''', (new_price, package_id))
+        conn.commit()
+        clear_price_cache()
+    finally:
+        return_db_connection(conn)
+
+def update_freefire_id_name(package_id, new_name):
+    """Actualiza el nombre de un paquete de Free Fire ID"""
+    conn = get_db_connection_optimized()
+    try:
+        conn.execute('''
+            UPDATE precios_freefire_id 
+            SET nombre = ?, fecha_actualizacion = CURRENT_TIMESTAMP 
+            WHERE id = ?
+        ''', (new_name, package_id))
+        conn.commit()
+        clear_price_cache()
+    finally:
+        return_db_connection(conn)
+
+def get_all_freefire_id_prices():
+    """Obtiene todos los precios de paquetes de Free Fire ID"""
+    conn = get_db_connection()
+    prices = conn.execute('''
+        SELECT * FROM precios_freefire_id 
+        ORDER BY id
+    ''').fetchall()
+    conn.close()
+    return prices
+
+def send_freefire_id_notification(transaction_data):
+    """Envía notificación por correo cuando hay una nueva transacción de Free Fire ID"""
+    if not app.config['MAIL_USERNAME'] or not app.config['MAIL_PASSWORD']:
+        return
+    
+    try:
+        admin_email = os.environ.get('ADMIN_EMAIL', '')
+        if not admin_email:
+            return
+        
+        subject = f"🔥 Free Fire ID - Nueva solicitud de recarga"
+        body = f"""
+        <h2>🔥 Nueva solicitud de recarga de Free Fire ID</h2>
+        <p><strong>Usuario:</strong> {transaction_data['nombre']} {transaction_data['apellido']}</p>
+        <p><strong>Correo:</strong> {transaction_data['correo']}</p>
+        <p><strong>ID de Jugador:</strong> {transaction_data['player_id']}</p>
+        <p><strong>Paquete:</strong> {transaction_data['paquete_nombre']}</p>
+        <p><strong>Precio:</strong> ${transaction_data['precio']:.2f}</p>
+        <p><strong>Número de Control:</strong> {transaction_data['numero_control']}</p>
+        <p><strong>ID de Transacción:</strong> {transaction_data['transaccion_id']}</p>
+        <p><strong>Fecha:</strong> {transaction_data['fecha']}</p>
+        <br>
+        <p><a href="#">Ir al panel de administración para procesar</a></p>
+        """
+        
+        msg = Message(subject, recipients=[admin_email], html=body)
+        
+        def send_async():
+            with app.app_context():
+                try:
+                    mail.send(msg)
+                except Exception as e:
+                    print(f"Error al enviar correo: {str(e)}")
+        
+        thread = threading.Thread(target=send_async)
+        thread.start()
+    except Exception as e:
+        print(f"Error al enviar correo: {str(e)}")
+
 # Funciones para configuración de fuentes de pines
 def get_pin_source_config():
     """Obtiene la configuración de fuentes de pines por monto"""
@@ -2355,9 +2677,11 @@ def admin_panel():
     prices = get_all_prices()
     freefire_global_prices = get_all_freefire_global_prices()
     bloodstriker_prices = get_all_bloodstriker_prices()
+    freefire_id_prices = get_all_freefire_id_prices()
     pin_sources_config = get_pin_source_config()
     noticias = get_all_news()
     games_active = get_games_active()
+    redeemer_config = get_redeemer_config_from_db(get_db_connection)
     
     return render_template('admin.html', 
                          users=users, 
@@ -2366,9 +2690,11 @@ def admin_panel():
                          prices=prices, 
                          freefire_global_prices=freefire_global_prices,
                          bloodstriker_prices=bloodstriker_prices,
+                         freefire_id_prices=freefire_id_prices,
                          pin_sources_config=pin_sources_config,
                          noticias=noticias,
-                         games_active=games_active)
+                         games_active=games_active,
+                         redeemer_config=redeemer_config)
 
 @app.route('/admin/add_credit', methods=['POST'])
 def admin_add_credit():
@@ -2490,6 +2816,8 @@ def admin_save_prices_batch():
         table = 'precios_freefire_global'
     elif game == 'bloodstriker':
         table = 'precios_bloodstriker'
+    elif game == 'freefire_id':
+        table = 'precios_freefire_id'
     else:
         flash('Juego no soportado.', 'error')
         return redirect('/admin')
@@ -2526,13 +2854,14 @@ def admin_toggle_game():
         return redirect('/auth')
     game = request.form.get('game')
     active = request.form.get('active')
-    if game not in ['freefire', 'freefire_global', 'bloodstriker'] or active not in ['0','1']:
+    if game not in ['freefire', 'freefire_global', 'bloodstriker', 'freefire_id'] or active not in ['0','1']:
         flash('Parámetros inválidos.', 'error')
         return redirect('/admin')
     table = {
         'freefire': 'precios_paquetes',
         'freefire_global': 'precios_freefire_global',
-        'bloodstriker': 'precios_bloodstriker'
+        'bloodstriker': 'precios_bloodstriker',
+        'freefire_id': 'precios_freefire_id'
     }[game]
     try:
         conn = get_db_connection()
@@ -3662,6 +3991,594 @@ def reject_bloodstriker_transaction(transaction_id):
         flash(f'Error al rechazar transacción: {str(e)}', 'error')
     
     return redirect('/')
+
+# ===== Rutas para Free Fire ID =====
+@app.route('/juego/freefire_id')
+def freefire_id():
+    if 'usuario' not in session:
+        return redirect('/auth')
+    
+    user_id = session.get('user_db_id')
+    if user_id:
+        conn = get_db_connection()
+        user = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+        if user:
+            session['saldo'] = user['saldo']
+        conn.close()
+    
+    prices = get_freefire_id_prices()
+    
+    compra_exitosa = False
+    compra_data = {}
+    
+    if request.args.get('compra') == 'exitosa' and 'compra_freefire_id_exitosa' in session:
+        compra_exitosa = True
+        compra_data = session.pop('compra_freefire_id_exitosa')
+    
+    return render_template('freefire_id.html', 
+                         user_id=session.get('id', '00000'),
+                         balance=session.get('saldo', 0),
+                         prices=prices,
+                         compra_exitosa=compra_exitosa,
+                         games_active=get_games_active(),
+                         **compra_data)
+
+@app.route('/validar/freefire_id', methods=['POST'])
+def validar_freefire_id():
+    if 'usuario' not in session:
+        return redirect('/auth')
+    
+    package_id = request.form.get('monto')
+    player_id = request.form.get('player_id')
+    
+    if not package_id or not player_id:
+        flash('Por favor complete todos los campos', 'error')
+        return redirect('/juego/freefire_id')
+    
+    package_id = int(package_id)
+    user_id = session.get('user_db_id')
+    is_admin = session.get('is_admin', False)
+    
+    precio = get_freefire_id_price_by_id(package_id)
+    
+    packages_info = get_freefire_id_prices_cached()
+    package_info = packages_info.get(package_id, {})
+    
+    paquete_nombre = f"{package_info.get('nombre', 'Paquete')} / ${precio:.2f}"
+    
+    if precio == 0:
+        flash('Paquete no encontrado o inactivo', 'error')
+        return redirect('/juego/freefire_id')
+    
+    saldo_actual = session.get('saldo', 0)
+    
+    if not is_admin and saldo_actual < precio:
+        flash(f'Saldo insuficiente. Necesitas ${precio:.2f} pero tienes ${saldo_actual:.2f}', 'error')
+        return redirect('/juego/freefire_id')
+    
+    try:
+        # 1. Verificar si hay PIN disponible en stock de FF Global ANTES de cobrar
+        pin_disponible = get_available_pin_freefire_global(package_id)
+        if not pin_disponible:
+            flash(f'No hay stock disponible para este paquete en este momento. Intenta más tarde.', 'error')
+            return redirect('/juego/freefire_id')
+        
+        pin_codigo = pin_disponible['pin_codigo']
+        
+        # 2. Cobrar al usuario
+        if not is_admin:
+            conn = get_db_connection()
+            conn.execute('UPDATE usuarios SET saldo = saldo - ? WHERE id = ?', (precio, user_id))
+            conn.commit()
+            conn.close()
+            session['saldo'] = saldo_actual - precio
+        
+        # 3. Crear transacción
+        transaction_data = create_freefire_id_transaction(user_id, player_id, package_id, precio)
+        
+        # 4. Actualizar gastos mensuales
+        if not is_admin:
+            try:
+                conn = get_db_connection()
+                update_monthly_spending(conn, user_id, precio)
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass
+        
+        # 5. Ejecutar redención automática con Playwright
+        redeemer_config = get_redeemer_config_from_db(get_db_connection)
+        
+        redeem_result = None
+        try:
+            redeem_result = redeem_pin(pin_codigo, player_id, redeemer_config)
+        except Exception as e:
+            logger.error(f"[FreeFire ID] Error en redencion automatica: {str(e)}")
+            redeem_result = None
+        
+        # 6. Evaluar resultado
+        if redeem_result and redeem_result.success:
+            # === ÉXITO: Recarga completada ===
+            player_name = redeem_result.player_name or ''
+            
+            # Actualizar estado de transacción a aprobado
+            update_freefire_id_transaction_status(transaction_data['id'], 'aprobado', user_id)
+            
+            # Registrar en transacciones generales
+            conn = get_db_connection()
+            pin_info = f"ID: {player_id} - Jugador: {player_name}"
+            conn.execute('''
+                INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (user_id, transaction_data['numero_control'], pin_info, 
+                  transaction_data['transaccion_id'], package_info.get('nombre', 'FF ID'), -precio))
+            
+            # Registrar profit
+            try:
+                admin_ids_env = os.environ.get('ADMIN_USER_IDS', '').strip()
+                admin_ids = [int(x.strip()) for x in admin_ids_env.split(',') if x.strip().isdigit()]
+                is_admin_target = user_id in admin_ids
+                record_profit_for_transaction(conn, user_id, is_admin_target, 'freefire_id', package_id, 1, precio, transaction_data['transaccion_id'])
+            except Exception:
+                pass
+            
+            conn.commit()
+            
+            # Registrar venta semanal
+            if not is_admin:
+                register_weekly_sale('freefire_id', package_id, package_info.get('nombre', 'FF ID'), precio, 1)
+            
+            session['compra_freefire_id_exitosa'] = {
+                'paquete_nombre': paquete_nombre,
+                'monto_compra': precio,
+                'numero_control': transaction_data['numero_control'],
+                'transaccion_id': transaction_data['transaccion_id'],
+                'player_id': player_id,
+                'player_name': player_name,
+                'estado': 'completado'
+            }
+            
+            return redirect('/juego/freefire_id?compra=exitosa')
+        
+        else:
+            # === FALLO: Devolver PIN al stock y reembolsar saldo ===
+            error_msg = redeem_result.message if redeem_result else 'Error desconocido en la redención'
+            logger.error(f"[FreeFire ID] Redencion fallida: {error_msg}")
+            
+            # Devolver PIN al inventario
+            try:
+                conn = get_db_connection()
+                conn.execute('''
+                    INSERT INTO pines_freefire_global (monto_id, pin_codigo, usado)
+                    VALUES (?, ?, FALSE)
+                ''', (package_id, pin_codigo))
+                conn.commit()
+                conn.close()
+            except:
+                pass
+            
+            # Reembolsar saldo al usuario
+            if not is_admin:
+                conn = get_db_connection()
+                conn.execute('UPDATE usuarios SET saldo = saldo + ? WHERE id = ?', (precio, user_id))
+                conn.commit()
+                conn.close()
+                session['saldo'] = session.get('saldo', 0) + precio
+            
+            # Actualizar transacción como fallida
+            update_freefire_id_transaction_status(transaction_data['id'], 'rechazado', user_id, f'Auto-redención fallida: {error_msg}')
+            
+            flash(f'Error al procesar la recarga automática. Tu saldo ha sido devuelto. Detalle: {error_msg}', 'error')
+            return redirect('/juego/freefire_id')
+        
+    except Exception as e:
+        logger.error(f"[FreeFire ID] Error general: {str(e)}")
+        flash('Error al procesar la compra. Intente nuevamente.', 'error')
+        return redirect('/juego/freefire_id')
+
+# Rutas de administrador para Free Fire ID
+@app.route('/admin/freefire_id_transactions')
+def admin_freefire_id_transactions():
+    if not session.get('is_admin'):
+        flash('Acceso denegado. Solo administradores.', 'error')
+        return redirect('/auth')
+    
+    pending_transactions = get_pending_freefire_id_transactions()
+    return render_template('admin_freefire_id.html', transactions=pending_transactions)
+
+@app.route('/admin/freefire_id_approve', methods=['POST'])
+def admin_freefire_id_approve():
+    if not session.get('is_admin'):
+        flash('Acceso denegado. Solo administradores.', 'error')
+        return redirect('/auth')
+    
+    transaction_id = request.form.get('transaction_id')
+    notas = request.form.get('notas', '')
+    
+    if transaction_id:
+        update_freefire_id_transaction_status(int(transaction_id), 'aprobado', session.get('user_db_id'), notas)
+        flash('Transacción aprobada exitosamente', 'success')
+    else:
+        flash('ID de transacción inválido', 'error')
+    
+    return redirect('/admin/freefire_id_transactions')
+
+@app.route('/admin/freefire_id_reject', methods=['POST'])
+def admin_freefire_id_reject():
+    if not session.get('is_admin'):
+        flash('Acceso denegado. Solo administradores.', 'error')
+        return redirect('/auth')
+    
+    transaction_id = request.form.get('transaction_id')
+    notas = request.form.get('notas', '')
+    
+    if transaction_id:
+        conn = get_db_connection()
+        transaction = conn.execute('''
+            SELECT usuario_id, monto FROM transacciones_freefire_id 
+            WHERE id = ?
+        ''', (transaction_id,)).fetchone()
+        
+        if transaction:
+            conn.execute('UPDATE usuarios SET saldo = saldo + ? WHERE id = ?', 
+                        (abs(transaction['monto']), transaction['usuario_id']))
+            conn.commit()
+        conn.close()
+        
+        update_freefire_id_transaction_status(int(transaction_id), 'rechazado', session.get('user_db_id'), notas)
+        flash('Transacción rechazada y saldo devuelto al usuario', 'success')
+    else:
+        flash('ID de transacción inválido', 'error')
+    
+    return redirect('/admin/freefire_id_transactions')
+
+@app.route('/admin/update_freefire_id_price', methods=['POST'])
+def admin_update_freefire_id_price():
+    if not session.get('is_admin'):
+        flash('Acceso denegado. Solo administradores.', 'error')
+        return redirect('/auth')
+    
+    package_id = request.form.get('package_id')
+    new_price = request.form.get('new_price')
+    
+    if not package_id or not new_price:
+        flash('Datos inválidos para actualizar precio', 'error')
+        return redirect('/admin')
+    
+    try:
+        new_price = float(new_price)
+        if new_price < 0:
+            flash('El precio no puede ser negativo', 'error')
+            return redirect('/admin')
+        
+        conn = get_db_connection()
+        package = conn.execute('SELECT nombre FROM precios_freefire_id WHERE id = ?', (package_id,)).fetchone()
+        conn.close()
+        
+        if not package:
+            flash('Paquete no encontrado', 'error')
+            return redirect('/admin')
+        
+        update_freefire_id_price(int(package_id), new_price)
+        flash(f'Precio de Free Fire ID actualizado exitosamente para {package["nombre"]}: ${new_price:.2f}', 'success')
+        
+    except ValueError:
+        flash('Precio inválido. Debe ser un número válido.', 'error')
+    except Exception as e:
+        flash(f'Error al actualizar precio: {str(e)}', 'error')
+    
+    return redirect('/admin')
+
+@app.route('/admin/update_freefire_id_name', methods=['POST'])
+def admin_update_freefire_id_name():
+    if not session.get('is_admin'):
+        flash('Acceso denegado. Solo administradores.', 'error')
+        return redirect('/auth')
+    
+    package_id = request.form.get('package_id')
+    new_name = request.form.get('new_name')
+    
+    if not package_id or not new_name:
+        flash('Datos inválidos para actualizar nombre', 'error')
+        return redirect('/admin')
+    
+    try:
+        new_name = new_name.strip()
+        if len(new_name) < 1:
+            flash('El nombre no puede estar vacío', 'error')
+            return redirect('/admin')
+        
+        if len(new_name) > 50:
+            flash('El nombre no puede exceder 50 caracteres', 'error')
+            return redirect('/admin')
+        
+        conn = get_db_connection()
+        package = conn.execute('SELECT nombre FROM precios_freefire_id WHERE id = ?', (package_id,)).fetchone()
+        conn.close()
+        
+        if not package:
+            flash('Paquete no encontrado', 'error')
+            return redirect('/admin')
+        
+        old_name = package['nombre']
+        
+        update_freefire_id_name(int(package_id), new_name)
+        flash(f'Nombre de Free Fire ID actualizado exitosamente: "{old_name}" → "{new_name}"', 'success')
+        
+    except Exception as e:
+        flash(f'Error al actualizar nombre: {str(e)}', 'error')
+    
+    return redirect('/admin')
+
+@app.route('/admin/approve_freefire_id/<int:transaction_id>', methods=['POST'])
+def approve_freefire_id_transaction(transaction_id):
+    if not session.get('is_admin'):
+        flash('Acceso denegado. Solo administradores.', 'error')
+        return redirect('/auth')
+    
+    try:
+        conn = get_db_connection()
+        fi_transaction = conn.execute('''
+            SELECT fi.*, u.nombre, u.apellido, p.nombre as paquete_nombre, p.precio
+            FROM transacciones_freefire_id fi
+            JOIN usuarios u ON fi.usuario_id = u.id
+            JOIN precios_freefire_id p ON fi.paquete_id = p.id
+            WHERE fi.id = ?
+        ''', (transaction_id,)).fetchone()
+        
+        if not fi_transaction:
+            conn.close()
+            flash('Transaccion no encontrada', 'error')
+            return redirect('/')
+        
+        # Verificar si auto_redeem está habilitado
+        redeemer_config = get_redeemer_config_from_db(get_db_connection)
+        auto_redeem = redeemer_config.get('auto_redeem', 'false').lower() in ('true', '1', 'yes')
+        
+        redeem_result = None
+        pin_usado = None
+        
+        if auto_redeem:
+            # === REDENCIÓN AUTOMÁTICA ===
+            # 1. Obtener un pin de Free Fire Global del mismo paquete
+            paquete_id = fi_transaction['paquete_id']
+            pin_disponible = get_available_pin_freefire_global(paquete_id)
+            
+            if not pin_disponible:
+                conn.close()
+                flash(f'No hay pines de Free Fire Global disponibles para el paquete {fi_transaction["paquete_nombre"]}. Agrega pines al inventario primero.', 'error')
+                return redirect('/')
+            
+            pin_codigo = pin_disponible['pin_codigo']
+            player_id = fi_transaction['player_id']
+            
+            # 2. Ejecutar la redención automática en redeempins.com
+            try:
+                redeem_result = redeem_pin(pin_codigo, player_id, redeemer_config)
+            except Exception as e:
+                # Si falla la redención, devolver el pin al inventario
+                try:
+                    conn2 = get_db_connection()
+                    conn2.execute('''
+                        INSERT INTO pines_freefire_global (monto_id, pin_codigo, usado)
+                        VALUES (?, ?, FALSE)
+                    ''', (paquete_id, pin_codigo))
+                    conn2.commit()
+                    conn2.close()
+                except:
+                    pass
+                conn.close()
+                flash(f'Error al redimir pin automaticamente: {str(e)}. Pin devuelto al inventario.', 'error')
+                return redirect('/')
+            
+            if not redeem_result.success:
+                # Si la redención falló, devolver el pin al inventario
+                try:
+                    conn2 = get_db_connection()
+                    conn2.execute('''
+                        INSERT INTO pines_freefire_global (monto_id, pin_codigo, usado)
+                        VALUES (?, ?, FALSE)
+                    ''', (paquete_id, pin_codigo))
+                    conn2.commit()
+                    conn2.close()
+                except:
+                    pass
+                conn.close()
+                flash(f'Redencion automatica fallida: {redeem_result.message}. Pin devuelto al inventario.', 'error')
+                return redirect('/')
+            
+            pin_usado = pin_codigo
+        
+        # === APROBAR TRANSACCIÓN ===
+        admin_user_id = session.get('user_db_id')
+        
+        pin_info = f"ID: {fi_transaction['player_id']} - Usuario: {fi_transaction['nombre']} {fi_transaction['apellido']}"
+        if pin_usado:
+            pin_info += f" - PIN: {pin_usado[:8]}..."
+        if redeem_result and redeem_result.success:
+            pin_info += " [AUTO-REDIMIDO]"
+        
+        conn.execute('''
+            INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            admin_user_id,
+            fi_transaction['numero_control'],
+            pin_info,
+            fi_transaction['transaccion_id'],
+            fi_transaction['paquete_nombre'],
+            fi_transaction['monto']
+        ))
+        # Persistir profit (legacy)
+        try:
+            admin_ids_env = os.environ.get('ADMIN_USER_IDS', '').strip()
+            admin_ids = [int(x.strip()) for x in admin_ids_env.split(',') if x.strip().isdigit()]
+            is_admin_target = fi_transaction['usuario_id'] in admin_ids
+            record_profit_for_transaction(conn, fi_transaction['usuario_id'], is_admin_target, 'freefire_id', fi_transaction['paquete_id'], 1, fi_transaction['precio'], fi_transaction['transaccion_id'])
+        except Exception:
+            pass
+        
+        conn.execute('''
+            DELETE FROM transacciones 
+            WHERE usuario_id = ? AND id NOT IN (
+                SELECT id FROM transacciones 
+                WHERE usuario_id = ? 
+                ORDER BY fecha DESC 
+                LIMIT 100
+            )
+        ''', (fi_transaction['usuario_id'], fi_transaction['usuario_id']))
+        
+        conn.commit()
+        
+        # Registrar venta en estadísticas semanales (solo para usuarios normales)
+        admin_ids_env = os.environ.get('ADMIN_USER_IDS', '').strip()
+        admin_ids = [int(x.strip()) for x in admin_ids_env.split(',') if x.strip().isdigit()]
+        is_admin_user = fi_transaction['usuario_id'] in admin_ids
+        
+        if not is_admin_user:
+            register_weekly_sale(
+                'freefire_id', 
+                fi_transaction['paquete_id'], 
+                fi_transaction['paquete_nombre'], 
+                fi_transaction['precio'], 
+                1
+            )
+        
+        # Crear notificación personalizada para el usuario
+        titulo = "Free Fire ID - Recarga realizada"
+        mensaje = f"Free Fire ID: Recarga realizada con exito. {fi_transaction['paquete_nombre']} por ${fi_transaction['precio']:.2f}. ID: {fi_transaction['player_id']}"
+        if redeem_result and redeem_result.success:
+            mensaje += " (Automatica)"
+        try:
+            conn.execute('''
+                INSERT INTO notificaciones_personalizadas (usuario_id, titulo, mensaje, tipo, tag)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (fi_transaction['usuario_id'], titulo, mensaje, 'success', 'freefire_id_reload'))
+            conn.commit()
+        except Exception:
+            conn.execute('''
+                INSERT INTO notificaciones_personalizadas (usuario_id, titulo, mensaje, tipo)
+                VALUES (?, ?, ?, ?)
+            ''', (fi_transaction['usuario_id'], titulo, mensaje, 'success'))
+            conn.commit()
+        
+        conn.close()
+        
+        update_freefire_id_transaction_status(transaction_id, 'aprobado', session.get('user_db_id'))
+        
+        if redeem_result and redeem_result.success:
+            flash(f'Transaccion aprobada y pin redimido automaticamente para jugador {fi_transaction["player_id"]}', 'success')
+        else:
+            flash('Transaccion aprobada exitosamente', 'success')
+    except Exception as e:
+        flash(f'Error al aprobar transaccion: {str(e)}', 'error')
+    
+    return redirect('/')
+
+@app.route('/admin/reject_freefire_id/<int:transaction_id>', methods=['POST'])
+def reject_freefire_id_transaction(transaction_id):
+    if not session.get('is_admin'):
+        flash('Acceso denegado. Solo administradores.', 'error')
+        return redirect('/auth')
+    
+    try:
+        conn = get_db_connection()
+        transaction = conn.execute('''
+            SELECT usuario_id, monto FROM transacciones_freefire_id 
+            WHERE id = ?
+        ''', (transaction_id,)).fetchone()
+        
+        if transaction:
+            conn.execute('UPDATE usuarios SET saldo = saldo + ? WHERE id = ?', 
+                        (abs(transaction['monto']), transaction['usuario_id']))
+            conn.commit()
+        conn.close()
+        
+        update_freefire_id_transaction_status(transaction_id, 'rechazado', session.get('user_db_id'))
+        flash('Transacción rechazada y saldo devuelto al usuario', 'success')
+    except Exception as e:
+        flash(f'Error al rechazar transacción: {str(e)}', 'error')
+    
+    return redirect('/')
+
+@app.route('/admin/redeemer_config', methods=['GET', 'POST'])
+def admin_redeemer_config():
+    if not session.get('is_admin'):
+        flash('Acceso denegado. Solo administradores.', 'error')
+        return redirect('/auth')
+    
+    if request.method == 'POST':
+        campos = ['nombre_completo', 'fecha_nacimiento', 'nacionalidad', 'url_base', 'headless', 'timeout_ms', 'auto_redeem']
+        conn = get_db_connection()
+        for campo in campos:
+            valor = request.form.get(campo, '').strip()
+            if valor:
+                conn.execute('''
+                    INSERT OR REPLACE INTO configuracion_redeemer (clave, valor, fecha_actualizacion)
+                    VALUES (?, ?, datetime('now'))
+                ''', (campo, valor))
+        conn.commit()
+        conn.close()
+        flash('Configuracion del redeemer actualizada correctamente', 'success')
+        return redirect('/admin')
+    
+    # GET: devolver config actual como JSON
+    config = get_redeemer_config_from_db(get_db_connection)
+    return jsonify(config)
+
+@app.route('/admin/test_redeem', methods=['POST'])
+def admin_test_redeem():
+    """Prueba manual de redención de pin - solo para testing"""
+    if not session.get('is_admin'):
+        flash('Acceso denegado. Solo administradores.', 'error')
+        return redirect('/auth')
+    
+    pin_code = request.form.get('test_pin_code', '').strip()
+    player_id = request.form.get('test_player_id', '').strip()
+    
+    if not pin_code or not player_id:
+        flash('Debes ingresar un PIN y un Player ID para la prueba', 'error')
+        return redirect('/admin')
+    
+    config = get_redeemer_config_from_db(get_db_connection)
+    # Para pruebas, mostrar el navegador
+    config['headless'] = False
+    
+    try:
+        result = redeem_pin(pin_code, player_id, config)
+        if result.success:
+            flash(f'Prueba exitosa: {result.message}', 'success')
+        else:
+            flash(f'Prueba fallida: {result.message}', 'error')
+    except Exception as e:
+        flash(f'Error en prueba: {str(e)}', 'error')
+    
+    return redirect('/admin')
+
+@app.route('/api/notifications/freefire_id_reload', methods=['GET'])
+def api_freefire_id_reload_notifications():
+    if 'usuario' not in session or session.get('is_admin'):
+        return jsonify({'notifications': []})
+    
+    user_id = session.get('user_db_id')
+    if not user_id:
+        return jsonify({'notifications': []})
+    
+    try:
+        conn = get_db_connection()
+        notifications = conn.execute('''
+            SELECT id, titulo, mensaje, tipo, fecha 
+            FROM notificaciones_personalizadas 
+            WHERE usuario_id = ? AND visto = FALSE AND tag = 'freefire_id_reload'
+            ORDER BY fecha DESC
+            LIMIT 5
+        ''', (user_id,)).fetchall()
+        conn.close()
+        
+        result = [{'id': n['id'], 'titulo': n['titulo'], 'mensaje': n['mensaje'], 'tipo': n['tipo']} for n in notifications]
+        return jsonify({'notifications': result})
+    except Exception:
+        return jsonify({'notifications': []})
 
 # Rutas de administración para API externa
 @app.route('/admin/test_external_api', methods=['POST'])

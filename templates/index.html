@@ -37,6 +37,9 @@
           {% if games_active.bloodstriker %}
           <li><a href="/juego/bloodstriker">Blood Striker</a></li>
           {% endif %}
+          {% if games_active.freefire_id %}
+          <li><a href="/juego/freefire_id">Free Fire ID</a></li>
+          {% endif %}
         </ul>
       </div>
     </div>
@@ -105,10 +108,12 @@
     <div class="transaction-container">
       {% if transactions %}
         {% for transaction in transactions %}
-        <div class="transaction-card-simple {% if transaction.get('is_bloodstriker') %}bloodstriker-transaction{% endif %}">
+        <div class="transaction-card-simple {% if transaction.get('is_bloodstriker') %}bloodstriker-transaction{% endif %}{% if transaction.get('is_freefire_id') %} freefire-id-transaction{% endif %}">
           {% set juego = 'Otros' %}
           {% if transaction.get('is_bloodstriker') %}
             {% set juego = 'Blood Striker' %}
+          {% elif transaction.get('is_freefire_id') %}
+            {% set juego = 'Free Fire ID' %}
           {% elif '💎' in transaction.paquete or 'Free Fire' in transaction.paquete or 'Tarjeta' in transaction.paquete %}
             {% set juego = 'Free Fire' %}
           {% endif %}
@@ -124,7 +129,7 @@
               </div>
               <div class="control-status">
                 <span class="control-num">{{ transaction.numero_control }}</span>
-                {% if transaction.get('is_bloodstriker') %}
+                {% if transaction.get('is_bloodstriker') or transaction.get('is_freefire_id') %}
                 <span class="status-simple">⏳</span>
                 {% else %}
                 <span class="status-simple">✅</span>
@@ -147,6 +152,17 @@
                 <button type="submit" class="block-btn approve">✅ Aprobar</button>
               </form>
               <form method="POST" action="/admin/reject_bloodstriker/{{ transaction.id }}" style="display: inline;">
+                <button type="submit" class="block-btn reject">❌ Rechazar</button>
+              </form>
+            </div>
+            {% endif %}
+            {% if transaction.get('is_freefire_id') and session.get('is_admin') %}
+            <!-- Botones para transacciones de Free Fire ID (solo admin) -->
+            <div class="transaction-actions">
+              <form method="POST" action="/admin/approve_freefire_id/{{ transaction.id }}" style="display: inline;">
+                <button type="submit" class="block-btn approve">✅ Aprobar</button>
+              </form>
+              <form method="POST" action="/admin/reject_freefire_id/{{ transaction.id }}" style="display: inline;">
                 <button type="submit" class="block-btn reject">❌ Rechazar</button>
               </form>
             </div>
