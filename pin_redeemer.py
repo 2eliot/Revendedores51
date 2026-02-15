@@ -14,6 +14,7 @@ Flujo:
 
 import asyncio
 import logging
+import os
 import subprocess
 import shutil
 from datetime import datetime
@@ -89,7 +90,11 @@ async def redeem_pin_async(pin_code, player_id, config=None):
     """
     cfg = {**DEFAULT_REDEEMER_CONFIG, **(config or {})}
     
-    logger.info(f"[PinRedeemer] Iniciando redencion - PIN: {pin_code[:8]}... Player: {player_id}")
+    # Forzar headless en servidores sin pantalla (Render, etc.)
+    if not os.environ.get('DISPLAY'):
+        cfg['headless'] = True
+    
+    logger.info(f"[PinRedeemer] Iniciando redencion - PIN: {pin_code[:8]}... Player: {player_id} (headless={cfg['headless']})")
     
     # Asegurar que Chromium esté instalado
     ensure_chromium_installed()
