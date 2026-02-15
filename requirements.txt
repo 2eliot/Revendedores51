@@ -9,6 +9,9 @@ Flask-Mail==0.9.1
 # Para conexiones HTTP con API externa
 requests==2.31.0
 
+# Para redención automática de pines (Free Fire ID)
+playwright==1.41.0
+
 # Utilidades (opcional)
 python-dotenv==1.0.0
 
