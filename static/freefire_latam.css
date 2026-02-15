@@ -171,10 +171,14 @@ body {
 .user-panel {
   background-color: #f8f9fa;
   text-align: center;
-  font-size: 1.1rem;
-  padding: 1rem 0;
+  font-size: 0.85rem;
+  padding: 0.4rem 0;
   border-bottom: 1px solid #ddd;
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
+}
+
+.user-panel span {
+  font-size: 1.05rem;
 }
 
 .juego-container {

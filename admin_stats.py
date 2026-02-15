@@ -203,39 +203,74 @@ def top_clients():
             """
             rows = conn.execute(sql, (ms, me, ms, me)).fetchall()
         else:
-            # Legacy schema: usuarios + transacciones
-            sql = f"""
-            WITH base AS (
-              SELECT t.usuario_id AS user_id,
-                     SUM(CASE WHEN t.monto < 0 THEN -t.monto ELSE t.monto END) AS total_spent,
-                     COUNT(*) AS purchases_count
-              FROM transacciones t
-              WHERE t.fecha >= ? AND t.fecha < ?
-              GROUP BY t.usuario_id
-            ),
-            combined AS (
-              SELECT u.id AS user_id,
-                     COALESCE(u.nombre || ' ' || u.apellido, u.correo) AS display_name,
-                     u.correo AS email,
-                     COALESCE(b.total_spent,0) AS total_spent,
-                     COALESCE(b.purchases_count,0) AS purchases_count
-              FROM base b
-              JOIN usuarios u ON u.id = b.user_id
-            ),
-            max_total AS (
-              SELECT MAX(total_spent) AS max_total FROM combined
-            )
-            SELECT c.user_id,
-                   c.display_name,
-                   c.email,
-                   c.total_spent,
-                   c.purchases_count,
-                   CASE WHEN mt.max_total > 0 THEN (COALESCE(c.total_spent,0) * 100.0 / mt.max_total) ELSE 0 END AS pct
-            FROM combined c, max_total mt
-            ORDER BY c.total_spent DESC, c.purchases_count DESC
-            LIMIT 5
-            """
-            rows = conn.execute(sql, (ms, me)).fetchall()
+            # Legacy schema: usar monthly_user_spending si existe, sino transacciones
+            if table_exists(conn, 'monthly_user_spending'):
+                # Calcular year_month del rango
+                from datetime import datetime
+                import pytz
+                tz = pytz.timezone('America/Caracas')
+                start_local = datetime.fromisoformat(ms.replace(' ', 'T')).replace(tzinfo=pytz.utc).astimezone(tz)
+                year_month = start_local.strftime('%Y-%m')
+                
+                sql = """
+                WITH combined AS (
+                  SELECT u.id AS user_id,
+                         COALESCE(u.nombre || ' ' || u.apellido, u.correo) AS display_name,
+                         u.correo AS email,
+                         COALESCE(mus.total_spent, 0) AS total_spent,
+                         COALESCE(mus.purchases_count, 0) AS purchases_count
+                  FROM monthly_user_spending mus
+                  JOIN usuarios u ON u.id = mus.usuario_id
+                  WHERE mus.year_month = ?
+                ),
+                max_total AS (
+                  SELECT MAX(total_spent) AS max_total FROM combined
+                )
+                SELECT c.user_id,
+                       c.display_name,
+                       c.email,
+                       c.total_spent,
+                       c.purchases_count,
+                       CASE WHEN mt.max_total > 0 THEN (c.total_spent * 100.0 / mt.max_total) ELSE 0 END AS pct
+                FROM combined c, max_total mt
+                ORDER BY c.total_spent DESC, c.purchases_count DESC
+                LIMIT 5
+                """
+                rows = conn.execute(sql, (year_month,)).fetchall()
+            else:
+                # Fallback a transacciones (menos confiable por la limpieza)
+                sql = """
+                WITH base AS (
+                  SELECT t.usuario_id AS user_id,
+                         SUM(CASE WHEN t.monto < 0 THEN -t.monto ELSE t.monto END) AS total_spent,
+                         COUNT(*) AS purchases_count
+                  FROM transacciones t
+                  WHERE t.fecha >= ? AND t.fecha < ?
+                  GROUP BY t.usuario_id
+                ),
+                combined AS (
+                  SELECT u.id AS user_id,
+                         COALESCE(u.nombre || ' ' || u.apellido, u.correo) AS display_name,
+                         u.correo AS email,
+                         COALESCE(b.total_spent,0) AS total_spent,
+                         COALESCE(b.purchases_count,0) AS purchases_count
+                  FROM base b
+                  JOIN usuarios u ON u.id = b.user_id
+                ),
+                max_total AS (
+                  SELECT MAX(total_spent) AS max_total FROM combined
+                )
+                SELECT c.user_id,
+                       c.display_name,
+                       c.email,
+                       c.total_spent,
+                       c.purchases_count,
+                       CASE WHEN mt.max_total > 0 THEN (COALESCE(c.total_spent,0) * 100.0 / mt.max_total) ELSE 0 END AS pct
+                FROM combined c, max_total mt
+                ORDER BY c.total_spent DESC, c.purchases_count DESC
+                LIMIT 5
+                """
+                rows = conn.execute(sql, (ms, me)).fetchall()
         conn.close()
         data = [dict(r) for r in rows]
         # Rename admin accounts

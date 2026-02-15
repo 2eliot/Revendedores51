@@ -59,12 +59,9 @@
       <div class="user-icon" onclick="toggleUserBox()">
         <svg class="icon" viewBox="0 0 24 24"><path d="M12 12a5 5 0 100-10 5 5 0 000 10zm0 2c-4.418 0-8 2.239-8 5v1h16v-1c0-2.761-3.582-5-8-5z"/></svg>
         <div id="user-box" class="user-box">
-          <p><strong>Nombre:</strong> {{ session.get('nombre', '---') }}</p>
-          <p><strong>Apellido:</strong> {{ session.get('apellido', '---') }}</p>
           <p><strong>Correo:</strong> {{ session.get('usuario', '---') }}</p>
-          <p><strong>ID:</strong> {{ user_id }}</p>
           {% if session.get('is_admin') %}
-          <a href="/admin" class="admin-btn">Panel Admin</a>
+          <a href="/admin" class="admin-btn">🛠️ Panel Admin</a>
           {% endif %}
           {% if not session.get('is_admin') %}
           <a href="https://wa.me/584125712917?text=Hola%2C%20quiero%20recargar%20saldo.%20Mi%20ID%20es%20{{ user_id }}" target="_blank" rel="noopener noreferrer" class="admin-btn">💳 Recargar saldo</a>
@@ -77,7 +74,7 @@
 
   <!-- Panel del usuario -->
   <section class="user-panel">
-    <p>Mi ID <span style="color: #28a745; font-weight: 600;">{{ user_id }}</span> &nbsp; | &nbsp; Saldo <span style="color: #28a745; font-weight: 600;">${{ "%.2f"|format(balance) }}</span></p>
+    <p>Mi ID <span style="color: #28a745; font-weight: 600;">{{ user_id }}</span> &nbsp; | &nbsp; Saldo <span id="saldo-display" data-saldo="{{ balance }}" style="color: #28a745; font-weight: 600; transition: color 0.3s ease;">${{ "%.2f"|format(balance) }}</span></p>
   </section>
 
   <section class="juego-container">
@@ -188,6 +185,39 @@
   </section>
 
   <script>
+    // Animación de saldo cuando hay compra exitosa
+    {% if compra_exitosa %}
+    document.addEventListener('DOMContentLoaded', function() {
+      const saldoDisplay = document.getElementById('saldo-display');
+      if (saldoDisplay) {
+        const saldoActual = parseFloat(saldoDisplay.getAttribute('data-saldo'));
+        const montoCompra = {{ monto_compra }};
+        const saldoAnterior = saldoActual + montoCompra;
+        
+        saldoDisplay.style.color = '#dc3545';
+        let currentValue = saldoAnterior;
+        const duration = 800;
+        const steps = 30;
+        const decrement = (saldoAnterior - saldoActual) / steps;
+        const interval = duration / steps;
+        
+        let step = 0;
+        const timer = setInterval(function() {
+          step++;
+          currentValue -= decrement;
+          if (step >= steps) {
+            currentValue = saldoActual;
+            clearInterval(timer);
+            setTimeout(function() {
+              saldoDisplay.style.color = '#28a745';
+            }, 100);
+          }
+          saldoDisplay.textContent = '$' + currentValue.toFixed(2);
+        }, interval);
+      }
+    });
+    {% endif %}
+    
     function toggleUserBox() {
       document.getElementById("user-box").classList.toggle("visible");
     }

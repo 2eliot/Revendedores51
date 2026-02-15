@@ -141,9 +141,9 @@
             <div class="card-header"><h3>Top clientes del mes</h3></div>
             <div class="card-body">
               <div class="table-responsive">
-                <table class="table" style="width:100%; min-width: 480px;">
+                <table class="table" style="width:100%; min-width: 300px;">
                   <thead>
-                    <tr><th>#</th><th>Cliente</th><th>Total gastado</th><th>Compras</th><th>% del top</th></tr>
+                    <tr><th>#</th><th>Cliente</th><th>Total</th><th>Compras</th><th>%</th></tr>
                   </thead>
                   <tbody id="top-clients-body"></tbody>
                 </table>
@@ -729,23 +729,21 @@
           visibleData.forEach((d, idx) => {
             const bar = document.createElement('div');
             bar.className = 'bar';
-            // Escala suavizada: raíz cuadrada para que no crezcan tan rápido con pocas compras
-            const h = Math.sqrt(d.value / max) * 100;
+            // Escala lineal: la altura es proporcional al valor respecto al máximo
+            const h = (d.value / max) * 100;
             bar.style.height = `${h}%`;
             bar.title = `${d.day}: $${d.value.toFixed(2)}`;
             chart.appendChild(bar);
           });
-          // Etiquetas: mostrar marcas cada 3 días (1,4,7,10,...) manteniendo una celda por día para alinear
-          const labelsData = monthData; // usar mes completo
-          labelsData.forEach((d, idx) => {
+          // Etiquetas: usar mismos datos que las barras para alineación exacta
+          visibleData.forEach((d, idx) => {
             const xl = document.createElement('div');
             try {
               const parts = String(d.day).split('-');
               const dayNum = parts.length === 3 ? parseInt(parts[2], 10) : (idx + 1);
-              xl.textContent = ((dayNum - 1) % 3 === 0) ? String(dayNum) : '';
+              xl.textContent = String(dayNum);
             } catch (e) {
-              const dayNum = idx + 1;
-              xl.textContent = ((dayNum - 1) % 3 === 0) ? String(dayNum) : '';
+              xl.textContent = String(idx + 1);
             }
             xlabels.appendChild(xl);
           });

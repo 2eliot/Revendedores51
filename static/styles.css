@@ -316,8 +316,8 @@ body {
 .user-panel {
   background-color: #f8f9fa;
   text-align: center;
-  font-size: 1.1rem;
-  padding: 1rem 0;
+  font-size: 0.95rem;
+  padding: 0.6rem 0;
   border-bottom: 1px solid #ddd;
 }
 

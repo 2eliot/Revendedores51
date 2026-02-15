@@ -37,9 +37,12 @@
           <label for="login-email">Correo electrónico</label>
           <input type="text" id="login-email" name="correo" placeholder="tu usuario o correo" required>
         </div>
-        <div class="input-group">
+        <div class="input-group" style="position: relative;">
           <label for="login-password">Contraseña</label>
           <input type="password" id="login-password" name="contraseña" placeholder="••••••••" required>
+          <button type="button" onclick="togglePassword('login-password', this)" style="position: absolute; right: 10px; top: 38px; background: none; border: none; cursor: pointer; padding: 5px; color: #666; font-size: 18px;" aria-label="Mostrar contraseña">
+            👁️
+          </button>
         </div>
         <button type="submit" class="submit-btn">Iniciar Sesión</button>
       </form>
@@ -61,9 +64,12 @@
           <label for="register-email">Correo electrónico</label>
           <input type="email" id="register-email" name="correo" placeholder="tu@email.com" required>
         </div>
-        <div class="input-group">
+        <div class="input-group" style="position: relative;">
           <label for="register-password">Contraseña</label>
           <input type="password" id="register-password" name="contraseña" placeholder="••••••••" required>
+          <button type="button" onclick="togglePassword('register-password', this)" style="position: absolute; right: 10px; top: 38px; background: none; border: none; cursor: pointer; padding: 5px; color: #666; font-size: 18px;" aria-label="Mostrar contraseña">
+            👁️
+          </button>
         </div>
         <button type="submit" class="submit-btn">Crear Cuenta</button>
       </form>
@@ -76,6 +82,17 @@
       document.getElementById('register-form').style.display = tab === 'register' ? 'block' : 'none';
       document.getElementById('login-tab').classList.toggle('active-tab', tab === 'login');
       document.getElementById('register-tab').classList.toggle('active-tab', tab === 'register');
+    }
+    
+    function togglePassword(inputId, button) {
+      const input = document.getElementById(inputId);
+      if (input.type === 'password') {
+        input.type = 'text';
+        button.textContent = '🙈';
+      } else {
+        input.type = 'password';
+        button.textContent = '👁️';
+      }
     }
     
     // Auto-ocultar mensajes flash después de 2 segundos

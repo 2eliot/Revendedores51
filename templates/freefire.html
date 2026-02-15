@@ -59,12 +59,9 @@
       <div class="user-icon" onclick="toggleUserBox()">
         <svg class="icon" viewBox="0 0 24 24"><path d="M12 12a5 5 0 100-10 5 5 0 000 10zm0 2c-4.418 0-8 2.239-8 5v1h16v-1c0-2.761-3.582-5-8-5z"/></svg>
         <div id="user-box" class="user-box">
-          <p><strong>Nombre:</strong> {{ session.get('nombre', '---') }}</p>
-          <p><strong>Apellido:</strong> {{ session.get('apellido', '---') }}</p>
           <p><strong>Correo:</strong> {{ session.get('usuario', '---') }}</p>
-          <p><strong>ID:</strong> {{ user_id }}</p>
           {% if session.get('is_admin') %}
-          <a href="/admin" class="admin-btn">Panel Admin</a>
+          <a href="/admin" class="admin-btn">🛠️ Panel Admin</a>
           {% endif %}
           {% if not session.get('is_admin') %}
           <a href="https://wa.me/584125712917?text=Hola%2C%20quiero%20recargar%20saldo.%20Mi%20ID%20es%20{{ user_id }}" target="_blank" rel="noopener noreferrer" class="admin-btn">💳 Recargar saldo</a>
@@ -77,7 +74,7 @@
 
   <!-- Panel del usuario -->
   <section class="user-panel">
-    <p>Mi ID <span style="color: #28a745; font-weight: 600;">{{ user_id }}</span> &nbsp; | &nbsp; Saldo <span style="color: #28a745; font-weight: 600;">${{ "%.2f"|format(balance) }}</span></p>
+    <p>Mi ID <span style="color: #28a745; font-weight: 600;">{{ user_id }}</span> &nbsp; | &nbsp; Saldo <span id="saldo-display" data-saldo="{{ balance }}" style="color: #28a745; font-weight: 600; transition: color 0.3s ease;">${{ "%.2f"|format(balance) }}</span></p>
   </section>
 
   <section class="juego-container">
@@ -109,47 +106,49 @@
         </div>
       </div>
 
-      <div id="total-price" class="total-price" style="display: none;"></div>
+      <div id="total-price" class="total-price" style="display: none; margin-bottom: 16px; padding: 12px; background: #f0f9ff; border-radius: 8px; border-left: 4px solid #3b82f6;"></div>
 
       <button type="submit" id="submit-btn">Validar compra</button>
     </form>
 
     {% if compra_exitosa %}
     <div class="compra-exitosa">
-      <h3>🎉 ¡Compra Exitosa!</h3>
+      <h3 style="text-align: center; margin-bottom: 20px;">🎉 Compra exitosa</h3>
       
       {% if pines_list %}
         <!-- Múltiples pines -->
-        <div class="pin-container">
-          <h4>📋 Tus {{ cantidad_comprada }} Pines:</h4>
+        <div style="background: rgba(255,255,255,0.05); padding: 16px; border-radius: 12px; margin-bottom: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h4 style="margin: 0; font-size: 16px; font-weight: 600;">Tus pines</h4>
+            <button class="copy-all-btn" onclick="copyAllPins()" style="margin: 0; padding: 6px 12px; font-size: 13px;">📋 Copiar Todos</button>
+          </div>
           {% for pin_code in pines_list %}
-          <div class="pin-info">
-            <p class="pin-label">PIN {{ loop.index }}:</p>
-            <p class="pin-code" id="pinCode{{ loop.index }}">{{ pin_code }}</p>
-            <button class="copy-btn" onclick="copyPin('pinCode{{ loop.index }}')">📋</button>
+          <div style="display: flex; align-items: center; gap: 12px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; margin-bottom: 8px;">
+            <span style="flex: 0 0 auto; font-weight: 600; font-size: 14px;">{{ paquete_nombre.split(' x')[0] }}:</span>
+            <span id="pinCode{{ loop.index }}" class="pin-code" style="flex: 1; font-family: monospace; font-size: 13px; letter-spacing: 0.5px;">{{ pin_code }}</span>
+            <button class="copy-btn" onclick="copyPin('pinCode{{ loop.index }}')" style="flex: 0 0 auto; padding: 6px 12px; font-size: 13px;">📋 Copiar</button>
           </div>
           {% endfor %}
-          <div class="copy-all-container">
-            <button class="copy-all-btn" onclick="copyAllPins()">📋 Copiar Todos los Pines</button>
-          </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+          <span style="font-weight: 600;">Cantidad solicitada: <span style="color: #28a745;">{{ cantidad_comprada }}</span></span>
+          <span style="font-weight: 600;">Total: <span style="color: #28a745;">${{ "%.2f"|format(monto_compra) }}</span></span>
         </div>
       {% else %}
         <!-- Un solo pin -->
-        <div class="pin-container">
-          <div class="pin-info">
-            <p class="pin-label">PIN:</p>
-            <p class="pin-code" id="pinCode">{{ pin }}</p>
-            <button class="copy-btn" onclick="copyPin('pinCode')">📋</button>
+        <div style="background: rgba(255,255,255,0.05); padding: 16px; border-radius: 12px; margin-bottom: 16px;">
+          <h4 style="margin: 0 0 16px 0; font-size: 16px; font-weight: 600;">Tus pines</h4>
+          <div style="display: flex; align-items: center; gap: 12px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px;">
+            <span style="flex: 0 0 auto; font-weight: 600; font-size: 14px;">{{ paquete_nombre }}:</span>
+            <span id="pinCode" style="flex: 1; font-family: monospace; font-size: 13px; letter-spacing: 0.5px;">{{ pin }}</span>
+            <button class="copy-btn" onclick="copyPin('pinCode')" style="flex: 0 0 auto; padding: 6px 12px; font-size: 13px;">📋 Copiar</button>
           </div>
         </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+          <span style="font-weight: 600;">Cantidad solicitada: <span style="color: #28a745;">1</span></span>
+          <span style="font-weight: 600;">Total: <span style="color: #28a745;">${{ "%.2f"|format(monto_compra) }}</span></span>
+        </div>
       {% endif %}
-      
-      <div class="monto-info">
-        <p><strong>Monto Total:</strong> ${{ "%.2f"|format(monto_compra) }}</p>
-      </div>
-      <div class="entrega-info">
-        <p>✅ Compra exitosa.</p>
-      </div>
     </div>
     {% else %}
     <div class="informacion">
@@ -204,14 +203,16 @@
       if (montoSelect.value && cantidadSelect.value) {
         const selectedOption = montoSelect.options[montoSelect.selectedIndex];
         const priceText = selectedOption.textContent;
-        const priceMatch = priceText.match(/\$(\d+\.\d+)/);
+        const pricePart = priceText.split('/')[1];
         
-        if (priceMatch) {
-          const unitPrice = parseFloat(priceMatch[1]);
+        if (pricePart) {
+          const priceStr = pricePart.replace('$', '').trim();
+          const unitPrice = parseFloat(priceStr);
           const quantity = parseInt(cantidadSelect.value);
           const totalPrice = unitPrice * quantity;
+          const pinText = quantity === 1 ? 'pin' : 'pines';
           
-          totalPriceDiv.innerHTML = `<strong>Total: $${totalPrice.toFixed(2)} (${quantity} ${quantity === 1 ? 'pin' : 'pines'})</strong>`;
+          totalPriceDiv.innerHTML = '<strong>Total: $' + totalPrice.toFixed(2) + ' (' + quantity + ' ' + pinText + ')</strong>';
           totalPriceDiv.style.display = 'block';
         }
       } else {
@@ -239,7 +240,8 @@
             for (let i = 1; i <= limit; i++) {
               const opt = document.createElement('option');
               opt.value = i;
-              opt.textContent = `${i} ${i === 1 ? 'pin' : 'pines'}`;
+              const pinLabel = i === 1 ? 'pin' : 'pines';
+              opt.textContent = i + ' ' + pinLabel;
               cantidadSelect.appendChild(opt);
             }
             // Habilitar/deshabilitar según stock
@@ -277,18 +279,21 @@
     });
     
     function copyPin(elementId = 'pinCode') {
-      const pinCode = document.getElementById(elementId).textContent;
+      const pinElement = document.getElementById(elementId);
+      const pinCode = pinElement.textContent;
       navigator.clipboard.writeText(pinCode).then(function() {
-        // Cambiar el botón temporalmente para mostrar confirmación
-        const copyBtn = document.querySelector(`#${elementId}`).nextElementSibling;
-        const originalText = copyBtn.textContent;
-        copyBtn.textContent = '✅';
-        copyBtn.style.background = '#28a745';
-        
-        setTimeout(function() {
-          copyBtn.textContent = originalText;
-          copyBtn.style.background = '';
-        }, 1500);
+        // Buscar el botón copiar en el mismo contenedor padre
+        const copyBtn = pinElement.parentElement.querySelector('.copy-btn');
+        if (copyBtn) {
+          const originalText = copyBtn.textContent;
+          copyBtn.textContent = '✅';
+          copyBtn.style.background = '#28a745';
+          
+          setTimeout(function() {
+            copyBtn.textContent = originalText;
+            copyBtn.style.background = '';
+          }, 1500);
+        }
       }).catch(function(err) {
         console.error('Error al copiar: ', err);
         // Fallback para navegadores más antiguos
@@ -299,15 +304,17 @@
         document.execCommand('copy');
         document.body.removeChild(textArea);
         
-        const copyBtn = document.querySelector(`#${elementId}`).nextElementSibling;
-        const originalText = copyBtn.textContent;
-        copyBtn.textContent = '✅';
-        copyBtn.style.background = '#28a745';
-        
-        setTimeout(function() {
-          copyBtn.textContent = originalText;
-          copyBtn.style.background = '';
-        }, 1500);
+        const copyBtn = pinElement.parentElement.querySelector('.copy-btn');
+        if (copyBtn) {
+          const originalText = copyBtn.textContent;
+          copyBtn.textContent = '✅';
+          copyBtn.style.background = '#28a745';
+          
+          setTimeout(function() {
+            copyBtn.textContent = originalText;
+            copyBtn.style.background = '';
+          }, 1500);
+        }
       });
     }
     
@@ -347,6 +354,41 @@
         }, 2000);
       });
     }
+    
+    // Animación de saldo cuando hay compra exitosa
+    {% if compra_exitosa %}
+    document.addEventListener('DOMContentLoaded', function() {
+      const saldoDisplay = document.getElementById('saldo-display');
+      if (saldoDisplay) {
+        const saldoActual = parseFloat(saldoDisplay.getAttribute('data-saldo'));
+        const montoCompra = {{ monto_compra }};
+        const saldoAnterior = saldoActual + montoCompra;
+        
+        // Cambiar a rojo y animar contador bajando
+        saldoDisplay.style.color = '#dc3545';
+        let currentValue = saldoAnterior;
+        const duration = 800;
+        const steps = 30;
+        const decrement = (saldoAnterior - saldoActual) / steps;
+        const interval = duration / steps;
+        
+        let step = 0;
+        const timer = setInterval(function() {
+          step++;
+          currentValue -= decrement;
+          if (step >= steps) {
+            currentValue = saldoActual;
+            clearInterval(timer);
+            // Cambiar a verde rápidamente
+            setTimeout(function() {
+              saldoDisplay.style.color = '#28a745';
+            }, 100);
+          }
+          saldoDisplay.textContent = '$' + currentValue.toFixed(2);
+        }, interval);
+      }
+    });
+    {% endif %}
     
     // Auto-ocultar mensajes flash después de 2 segundos
     setTimeout(function() {

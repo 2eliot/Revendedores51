@@ -45,10 +45,7 @@
       <div class="user-icon" onclick="toggleUserBox()">
         <svg class="icon" viewBox="0 0 24 24"><path d="M12 12a5 5 0 100-10 5 5 0 000 10zm0 2c-4.418 0-8 2.239-8 5v1h16v-1c0-2.761-3.582-5-8-5z"/></svg>
         <div id="user-box" class="user-box">
-          <p><strong>Nombre:</strong> {{ session.get('nombre', '---') }}</p>
-          <p><strong>Apellido:</strong> {{ session.get('apellido', '---') }}</p>
           <p><strong>Correo:</strong> {{ session.get('usuario', '---') }}</p>
-          <p><strong>ID:</strong> {{ user_id }}</p>
           {% if session.get('is_admin') %}
           <a href="/admin" class="admin-btn">🛠️ Panel Admin</a>
           {% endif %}

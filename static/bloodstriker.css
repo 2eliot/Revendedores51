@@ -159,10 +159,15 @@ body {
 /* Panel del usuario */
 .user-panel {
   background: rgba(255, 255, 255, 0.95);
-  padding: 15px 20px;
+  padding: 6px 20px;
   text-align: center;
+  font-size: 0.85rem;
   font-weight: 500;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.user-panel span {
+  font-size: 1.05rem;
 }
 
 /* Contenedor del juego */

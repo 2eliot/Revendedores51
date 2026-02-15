@@ -31,6 +31,7 @@ from functools import lru_cache
 import random
 import string
 from admin_stats import bp as admin_stats_bp
+from update_monthly_spending import update_monthly_spending
 
 
 def _generate_batch_id():
@@ -524,6 +525,18 @@ def init_db():
             )
         ''')
         
+        # Tabla de gastos mensuales por usuario (persistente para top clientes)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS monthly_user_spending (
+                usuario_id INTEGER NOT NULL,
+                year_month TEXT NOT NULL,
+                total_spent REAL NOT NULL DEFAULT 0.0,
+                purchases_count INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT DEFAULT (datetime('now')),
+                PRIMARY KEY (usuario_id, year_month)
+            )
+        ''')
+        
         # Tabla de estadísticas de ventas semanales
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS ventas_semanales (
@@ -817,7 +830,7 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
     offset = (page - 1) * per_page
     
     if is_admin:
-        # Admin ve todas las transacciones de todos los usuarios
+        # Admin ve todas las transacciones de todos los usuarios (incluyendo las propias)
         transactions = conn.execute('''
             SELECT t.*, u.nombre, u.apellido
             FROM transacciones t
@@ -1556,12 +1569,28 @@ def login():
     admin_password = os.environ.get('ADMIN_PASSWORD', 'InefableAdmin2024!')
     
     if (not is_production and correo == 'admin' and contraseña == '123456') or (correo == admin_email and contraseña == admin_password):
+        # Buscar o crear usuario admin en la base de datos
+        conn = get_db_connection()
+        admin_user = conn.execute('SELECT * FROM usuarios WHERE correo = ?', (admin_email,)).fetchone()
+        
+        if not admin_user:
+            # Crear usuario admin si no existe
+            hashed_password = hash_password(admin_password)
+            conn.execute('''
+                INSERT INTO usuarios (nombre, apellido, telefono, correo, contraseña, saldo)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', ('Administrador', 'Sistema', '00000000000', admin_email, hashed_password, 0))
+            conn.commit()
+            admin_user = conn.execute('SELECT * FROM usuarios WHERE correo = ?', (admin_email,)).fetchone()
+        
+        conn.close()
+        
         session.permanent = True  # Activar duración de sesión de 30 minutos
         session['usuario'] = admin_email
-        session['nombre'] = 'Administrador'
-        session['apellido'] = 'Sistema'
-        session['id'] = 'ADMIN'
-        session['user_db_id'] = 0
+        session['nombre'] = admin_user['nombre']
+        session['apellido'] = admin_user['apellido']
+        session['id'] = str(admin_user['id']).zfill(5)
+        session['user_db_id'] = admin_user['id']
         session['saldo'] = 0
         session['is_admin'] = True
         return redirect('/')
@@ -3013,6 +3042,14 @@ def validar_freefire_latam():
                 INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto)
                 VALUES (?, ?, ?, ?, ?, ?)
             ''', (user_id, numero_control, pines_texto, transaccion_id, paquete_nombre, monto_transaccion))
+            
+            # Actualizar gastos mensuales persistentes (para top clientes)
+            if not is_admin:
+                try:
+                    update_monthly_spending(conn, user_id, precio_total)
+                except Exception:
+                    pass
+            
             # Persistir profit (legacy)
             try:
                 record_profit_for_transaction(conn, user_id, is_admin, 'freefire_latam', monto_id, cantidad, precio_unitario, transaccion_id)
@@ -3503,14 +3540,17 @@ def approve_bloodstriker_transaction(transaction_id):
         ''', (transaction_id,)).fetchone()
         
         if bs_transaction:
-            # Crear transacción normal en el historial
+            # Obtener el ID del admin que está validando
+            admin_user_id = session.get('user_db_id')
+            
+            # Crear transacción normal en el historial del admin (quien valida)
             conn.execute('''
                 INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto)
                 VALUES (?, ?, ?, ?, ?, ?)
             ''', (
-                bs_transaction['usuario_id'],
+                admin_user_id,  # Usar ID del admin en lugar del usuario que compró
                 bs_transaction['numero_control'],
-                f"ID: {bs_transaction['player_id']}",
+                f"ID: {bs_transaction['player_id']} - Usuario: {bs_transaction['nombre']} {bs_transaction['apellido']}",
                 bs_transaction['transaccion_id'],
                 bs_transaction['paquete_nombre'],
                 bs_transaction['monto']
@@ -3537,14 +3577,19 @@ def approve_bloodstriker_transaction(transaction_id):
             
             conn.commit()
             
-            # Registrar venta en estadísticas semanales
-            register_weekly_sale(
-                'bloodstriker', 
-                bs_transaction['paquete_id'], 
-                bs_transaction['paquete_nombre'], 
-                bs_transaction['precio'], 
-                1
-            )
+            # Registrar venta en estadísticas semanales (solo para usuarios normales)
+            admin_ids_env = os.environ.get('ADMIN_USER_IDS', '').strip()
+            admin_ids = [int(x.strip()) for x in admin_ids_env.split(',') if x.strip().isdigit()]
+            is_admin_user = bs_transaction['usuario_id'] in admin_ids
+            
+            if not is_admin_user:
+                register_weekly_sale(
+                    'bloodstriker', 
+                    bs_transaction['paquete_id'], 
+                    bs_transaction['paquete_nombre'], 
+                    bs_transaction['precio'], 
+                    1
+                )
             
             # Crear notificación personalizada para el usuario
             titulo = "🎯 Blood Striker - Recarga realizada con éxito"
@@ -4636,22 +4681,31 @@ def validar_freefire():
             INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto)
             VALUES (?, ?, ?, ?, ?, ?)
         ''', (user_id, numero_control, pines_texto, transaccion_id, paquete_nombre, monto_transaccion))
+        
+        # Actualizar gastos mensuales persistentes (para top clientes)
+        if not is_admin:
+            try:
+                update_monthly_spending(conn, user_id, precio_total)
+            except Exception:
+                pass
+        
         # Persistir profit (legacy)
         try:
             record_profit_for_transaction(conn, user_id, is_admin, 'freefire_global', monto_id, cantidad, precio_unitario, transaccion_id)
         except Exception:
             pass
         
-        # Limitar transacciones a 30 por usuario
+        # Limitar transacciones (100 para admin, 30 para usuarios normales)
+        limit = 100 if is_admin else 30
         conn.execute('''
             DELETE FROM transacciones 
             WHERE usuario_id = ? AND id NOT IN (
                 SELECT id FROM transacciones 
                 WHERE usuario_id = ? 
                 ORDER BY fecha DESC 
-                LIMIT 30
+                LIMIT ?
             )
-        ''', (user_id, user_id))
+        ''', (user_id, user_id, limit))
         
         conn.commit()
         
@@ -5269,16 +5323,17 @@ def api_simple_endpoint():
         except Exception:
             pass
         
-        # Limitar transacciones a 30 por usuario
+        # Limitar transacciones (100 para admin, 30 para usuarios normales)
+        limit = 100 if is_admin_user else 30
         conn.execute('''
             DELETE FROM transacciones 
             WHERE usuario_id = ? AND id NOT IN (
                 SELECT id FROM transacciones 
                 WHERE usuario_id = ? 
                 ORDER BY fecha DESC 
-                LIMIT 30
+                LIMIT ?
             )
-        ''', (user['id'], user['id']))
+        ''', (user['id'], user['id'], limit))
         
         conn.commit()
         conn.close()
