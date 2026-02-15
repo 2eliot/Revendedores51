@@ -14,10 +14,32 @@ Flujo:
 
 import asyncio
 import logging
+import subprocess
+import shutil
 from datetime import datetime
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
 logger = logging.getLogger(__name__)
+
+_chromium_installed = False
+
+def ensure_chromium_installed():
+    """Instala Chromium de Playwright si no está disponible."""
+    global _chromium_installed
+    if _chromium_installed:
+        return
+    try:
+        result = subprocess.run(
+            ['playwright', 'install', 'chromium'],
+            capture_output=True, text=True, timeout=120
+        )
+        if result.returncode == 0:
+            logger.info('[PinRedeemer] Chromium instalado/verificado correctamente')
+        else:
+            logger.warning(f'[PinRedeemer] playwright install chromium salió con código {result.returncode}: {result.stderr}')
+    except Exception as e:
+        logger.warning(f'[PinRedeemer] No se pudo instalar Chromium automáticamente: {e}')
+    _chromium_installed = True
 
 # Configuración por defecto para el formulario de redención
 DEFAULT_REDEEMER_CONFIG = {
@@ -68,6 +90,9 @@ async def redeem_pin_async(pin_code, player_id, config=None):
     cfg = {**DEFAULT_REDEEMER_CONFIG, **(config or {})}
     
     logger.info(f"[PinRedeemer] Iniciando redencion - PIN: {pin_code[:8]}... Player: {player_id}")
+    
+    # Asegurar que Chromium esté instalado
+    ensure_chromium_installed()
     
     async with async_playwright() as p:
         browser = None
