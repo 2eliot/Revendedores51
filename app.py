@@ -38,6 +38,7 @@ import time as time_module
 import urllib.parse
 from pin_manager import create_pin_manager
 from pin_redeemer import redeem_pin_threaded, redeem_pin, PinRedeemResult, get_redeemer_config_from_db
+from redeem_hype_http import redeem_pin_http
 from functools import lru_cache
 import random
 import string
@@ -4652,14 +4653,18 @@ def validar_freefire_id():
             except Exception:
                 pass
         
-        # 5. Ejecutar redención automática con Playwright
+        # 5. Ejecutar redención automática
         redeemer_config = get_redeemer_config_from_db(get_db_connection)
         
         redeem_result = None
+        redeem_method = str(redeemer_config.get('redeem_method', 'playwright')).strip().lower()
         try:
-            redeem_result = redeem_pin(pin_codigo, player_id, redeemer_config)
+            if redeem_method in ('http', 'httpx', 'light'):
+                redeem_result = redeem_pin_http(pin_codigo, player_id, redeemer_config)
+            else:
+                redeem_result = redeem_pin(pin_codigo, player_id, redeemer_config)
         except Exception as e:
-            logger.error(f"[FreeFire ID] Error en redencion automatica: {str(e)}")
+            logger.error(f"[FreeFire ID] Error en redencion automatica ({redeem_method}): {str(e)}")
             redeem_result = None
         
         # 6. Evaluar resultado

@@ -8,6 +8,7 @@ Flask-Mail==0.9.1
 
 # Para conexiones HTTP con API externa
 requests==2.31.0
+httpx==0.27.0
 
 # Para redención automática de pines (Free Fire ID)
 greenlet>=3.1.0
