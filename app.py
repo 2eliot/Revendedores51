@@ -1380,47 +1380,57 @@ def verificar_recarga_binance(recarga_id):
     codigo_ref = recarga['codigo_referencia']
     monto_esperado = float(recarga['monto_unico'])
     
+    # Guardar datos antes de buscar (la conexión original ya se cerró)
+    usuario_id = recarga['usuario_id']
+    
+    logger.info(f"Verificando recarga {recarga_id}: codigo={codigo_ref}, monto={monto_esperado}, transacciones encontradas={len(transactions)}")
+    
     # Buscar transacción que coincida: note contiene el código Y amount coincide
     for tx in transactions:
         tx_note = str(tx.get('note', '')).strip().upper()
         tx_amount = abs(float(tx.get('amount', 0)))
         tx_currency = str(tx.get('currency', '')).upper()
+        tx_raw_amount = float(tx.get('amount', 0))
+        
+        logger.info(f"  TX: note='{tx_note}', amount={tx_raw_amount}, currency={tx_currency}")
         
         # El amount positivo = ingreso (recibido)
-        if float(tx.get('amount', 0)) <= 0:
+        if tx_raw_amount <= 0:
             continue
         
         # Verificar: nota contiene el código de referencia Y monto coincide Y es USDT
         if codigo_ref.upper() in tx_note and abs(tx_amount - monto_esperado) < 0.01 and tx_currency == 'USDT':
+            logger.info(f"  ¡Match encontrado! TX ID: {tx.get('transactionId', '')}")
             # ¡Match encontrado! Acreditar saldo
             bonus = round(monto_esperado * (RECARGA_BONUS_PERCENT / 100), 2)
             monto_total = monto_esperado + bonus
             tx_id = tx.get('transactionId', '')
             
-            conn = get_db_connection()
             try:
                 # Verificar que no se haya procesado ya (idempotencia)
-                ya_procesada = conn.execute(
+                conn2 = get_db_connection()
+                ya_procesada = conn2.execute(
                     'SELECT 1 FROM recargas_binance WHERE binance_transaction_id = ? AND estado = ?',
                     (tx_id, 'completada')
                 ).fetchone()
                 
                 if ya_procesada:
-                    conn.close()
+                    conn2.close()
                     return {'status': 'ya_procesada', 'message': 'Esta transacción ya fue procesada'}
                 
                 # Actualizar recarga como completada
-                conn.execute('''
+                conn2.execute('''
                     UPDATE recargas_binance 
                     SET estado = 'completada', binance_transaction_id = ?, fecha_completada = CURRENT_TIMESTAMP, bonus = ?
                     WHERE id = ?
                 ''', (tx_id, bonus, recarga_id))
+                conn2.commit()
+                conn2.close()
                 
-                # Acreditar saldo al usuario
-                add_credit_to_user(recarga['usuario_id'], monto_total)
+                # Acreditar saldo al usuario (usa su propia conexión)
+                add_credit_to_user(usuario_id, monto_total)
                 
-                conn.commit()
-                conn.close()
+                logger.info(f"Recarga {recarga_id} completada: usuario={usuario_id}, monto={monto_esperado}, bonus={bonus}, total={monto_total}")
                 
                 return {
                     'status': 'completada',
@@ -1431,12 +1441,13 @@ def verificar_recarga_binance(recarga_id):
                     'transaction_id': tx_id
                 }
             except Exception as e:
-                logger.error(f"Error acreditando recarga: {e}")
-                conn.rollback()
-                conn.close()
+                logger.error(f"Error acreditando recarga {recarga_id}: {e}", exc_info=True)
                 return {'status': 'error', 'message': 'Error al acreditar saldo'}
     
-    return {'status': 'pendiente', 'message': 'Pago no detectado aún. Intenta de nuevo en unos segundos.'}
+    if len(transactions) > 0:
+        logger.info(f"Recarga {recarga_id}: {len(transactions)} transacciones revisadas, ninguna coincide con codigo={codigo_ref} monto={monto_esperado}")
+    
+    return {'status': 'pendiente', 'message': 'Pago no detectado aún. Asegúrate de enviar el monto exacto con el código como nota y espera unos segundos.'}
 
 def _ensure_recargas_table():
     """Crea la tabla recargas_binance si no existe"""
@@ -3685,6 +3696,23 @@ def verificar_recarga():
         flash(resultado.get('message', 'Error al verificar'), 'error')
     
     return redirect('/billetera')
+
+@app.route('/billetera/verificar-recarga-api', methods=['POST'])
+def verificar_recarga_api():
+    """API JSON para verificación automática desde el frontend (polling)"""
+    if 'usuario' not in session or session.get('is_admin'):
+        return jsonify({'status': 'error', 'message': 'No autorizado'}), 401
+    
+    user_id = session.get('user_db_id')
+    if not user_id:
+        return jsonify({'status': 'error', 'message': 'Error de sesión'}), 400
+    
+    recarga = get_recarga_pendiente(user_id)
+    if not recarga:
+        return jsonify({'status': 'no_pendiente', 'message': 'No hay recarga pendiente'})
+    
+    resultado = verificar_recarga_binance(recarga['id'])
+    return jsonify(resultado)
 
 @app.route('/billetera/cancelar-recarga', methods=['POST'])
 def cancelar_recarga():
