@@ -87,7 +87,7 @@
           <a href="/admin" class="admin-btn">🛠️ Panel Admin</a>
           {% endif %}
           {% if not session.get('is_admin') %}
-          <a href="https://wa.me/584125712917?text=Hola%2C%20quiero%20recargar%20saldo.%20Mi%20ID%20es%20{{ user_id }}" target="_blank" rel="noopener noreferrer" class="admin-btn">💳 Recargar saldo</a>
+          <a href="https://wa.me/584125712917?text=Hola%2C%20quiero%20recargar%20saldo.%20Mi%20ID%20es%20{{ user_id }}" target="_blank" rel="noopener noreferrer" class="admin-btn">� Contactar al admin</a>
           {% endif %}
           <a href="/logout" class="logout-btn">Cerrar sesión</a>
         </div>
@@ -101,6 +101,7 @@
   </section>
 
   <div id="bs-toast-container" style="position: fixed; right: 16px; top: 84px; z-index: 9999; display: flex; flex-direction: column; gap: 10px;"></div>
+  <div id="news-toast-container" style="position: fixed; right: 16px; top: 84px; z-index: 10000; display: flex; flex-direction: column; gap: 10px;"></div>
 
   <!-- Historial -->
   <section class="transactions">
@@ -488,7 +489,122 @@
       }, 15000);
     }
 
+    async function fetchUnreadNews() {
+      try {
+        const res = await fetch('/api/news/unread', {
+          method: 'GET',
+          headers: { 'Accept': 'application/json' }
+        });
+        if (!res.ok) return [];
+        const data = await res.json();
+        return (data && data.news) ? data.news : [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    async function dismissNews(noticiaId) {
+      try {
+        const res = await fetch(`/api/news/dismiss/${noticiaId}`, {
+          method: 'POST',
+          headers: { 'Accept': 'application/json' }
+        });
+        return res.ok;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function renderNewsToasts(news) {
+      const container = document.getElementById('news-toast-container');
+      if (!container) return;
+
+      const existingIds = new Set(Array.from(container.querySelectorAll('[data-news-id]')).map(n => n.getAttribute('data-news-id')));
+      (news || []).forEach(n => {
+        const idStr = String(n.id);
+        if (existingIds.has(idStr)) return;
+
+        const toast = document.createElement('div');
+        toast.setAttribute('data-news-id', idStr);
+        toast.style.background = '#ffffff';
+        toast.style.color = '#333';
+        toast.style.borderRadius = '12px';
+        toast.style.boxShadow = '0 8px 24px rgba(0,0,0,0.12)';
+        toast.style.padding = '12px 12px 12px 14px';
+        toast.style.width = '340px';
+        toast.style.maxWidth = 'calc(100vw - 32px)';
+        toast.style.border = n.importante ? '1px solid rgba(220,53,69,0.35)' : '1px solid rgba(102,126,234,0.22)';
+        toast.style.borderLeft = n.importante ? '4px solid #dc3545' : '4px solid #667eea';
+        toast.style.display = 'flex';
+        toast.style.gap = '10px';
+
+        const left = document.createElement('div');
+        left.style.flex = '1';
+
+        const title = document.createElement('div');
+        title.style.fontWeight = '700';
+        title.style.marginBottom = '4px';
+        title.textContent = n.titulo || 'Noticia';
+
+        const msg = document.createElement('div');
+        msg.style.fontSize = '13px';
+        msg.style.lineHeight = '1.35';
+        msg.style.opacity = '0.92';
+        const content = (n.contenido || '').trim();
+        msg.textContent = content.length > 140 ? (content.slice(0, 140) + '...') : content;
+
+        const hint = document.createElement('div');
+        hint.style.fontSize = '12px';
+        hint.style.marginTop = '8px';
+        hint.style.color = '#6c757d';
+        hint.textContent = 'Toca para ver · X para ocultar';
+
+        left.appendChild(title);
+        left.appendChild(msg);
+        left.appendChild(hint);
+
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.textContent = 'X';
+        close.setAttribute('aria-label', 'Ocultar noticia');
+        close.style.background = 'transparent';
+        close.style.color = '#333';
+        close.style.border = 'none';
+        close.style.cursor = 'pointer';
+        close.style.fontWeight = '700';
+        close.style.fontSize = '14px';
+        close.style.width = '24px';
+        close.style.height = '24px';
+        close.style.opacity = '0.75';
+        close.onclick = async function(ev) {
+          ev.stopPropagation();
+          close.disabled = true;
+          await dismissNews(n.id);
+          toast.remove();
+        };
+
+        toast.onclick = async function() {
+          await dismissNews(n.id);
+          window.location.href = '/noticias';
+        };
+
+        toast.appendChild(left);
+        toast.appendChild(close);
+        container.appendChild(toast);
+      });
+    }
+
+    async function initNewsToasts() {
+      const news = await fetchUnreadNews();
+      renderNewsToasts(news);
+      setInterval(async function() {
+        const n = await fetchUnreadNews();
+        renderNewsToasts(n);
+      }, 15000);
+    }
+
     initBloodStrikerReloadToasts();
+    initNewsToasts();
   </script>
 </body>
 </html>

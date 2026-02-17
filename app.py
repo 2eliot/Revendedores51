@@ -1220,6 +1220,60 @@ def mark_wallet_credits_as_read(user_id):
     conn.commit()
     conn.close()
 
+
+@app.route('/api/news/unread', methods=['GET'])
+def api_unread_news():
+    if 'usuario' not in session or session.get('is_admin'):
+        return jsonify({'news': []})
+
+    user_id = session.get('user_db_id')
+    if not user_id:
+        return jsonify({'news': []})
+
+    create_news_table()
+    create_news_views_table()
+
+    conn = get_db_connection()
+    rows = conn.execute('''
+        SELECT n.id, n.titulo, n.contenido, n.importante, n.fecha
+        FROM noticias n
+        WHERE n.id NOT IN (
+            SELECT nv.noticia_id FROM noticias_vistas nv
+            WHERE nv.usuario_id = ?
+        )
+        ORDER BY n.fecha DESC
+        LIMIT 5
+    ''', (user_id,)).fetchall()
+    conn.close()
+
+    news = [dict(r) for r in rows]
+    return jsonify({'news': news})
+
+
+@app.route('/api/news/dismiss/<int:noticia_id>', methods=['POST'])
+def api_dismiss_news(noticia_id):
+    if 'usuario' not in session or session.get('is_admin'):
+        return jsonify({'status': 'error'}), 401
+
+    user_id = session.get('user_db_id')
+    if not user_id:
+        return jsonify({'status': 'error'}), 400
+
+    create_news_table()
+    create_news_views_table()
+
+    conn = get_db_connection()
+    try:
+        conn.execute('''
+            INSERT OR IGNORE INTO noticias_vistas (usuario_id, noticia_id)
+            VALUES (?, ?)
+        ''', (user_id, noticia_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({'status': 'ok'})
+
 # ===== Sistema de Recargas por Binance Pay =====
 BINANCE_API_KEY = os.environ.get('BINANCE_API_KEY', '')
 BINANCE_API_SECRET = os.environ.get('BINANCE_API_SECRET', '')
@@ -4655,7 +4709,11 @@ def validar_freefire_id():
         else:
             # === FALLO: Devolver PIN al stock y reembolsar saldo ===
             error_msg = redeem_result.message if redeem_result else 'Error desconocido en la redención'
-            logger.error(f"[FreeFire ID] Redencion fallida: {error_msg}")
+            logger.error(
+                f"[FreeFire ID] Redencion fallida: {error_msg} | "
+                f"usuario_id={user_id} player_id={player_id} package_id={package_id} precio={precio} | "
+                f"pin={pin_codigo} numero_control={transaction_data.get('numero_control')} transaccion_id={transaction_data.get('transaccion_id')}"
+            )
             
             # Devolver PIN al inventario
             try:

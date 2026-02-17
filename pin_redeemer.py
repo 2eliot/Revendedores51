@@ -50,6 +50,8 @@ DEFAULT_REDEEMER_CONFIG = {
     'url_base': 'https://redeem.hype.games/',
     'timeout_ms': 30000,
     'headless': True,
+    'fast_mode': True,
+    'typing_delay_ms': 0,
 }
 
 
@@ -121,6 +123,13 @@ async def redeem_pin_async(pin_code, player_id, config=None):
             )
             
             page = await context.new_page()
+
+            # Ajustar timeouts por defecto
+            try:
+                page.set_default_timeout(cfg.get('timeout_ms', 30000))
+                page.set_default_navigation_timeout(cfg.get('timeout_ms', 30000))
+            except Exception:
+                pass
             
             # Ocultar webdriver
             await page.add_init_script("""
@@ -135,9 +144,9 @@ async def redeem_pin_async(pin_code, player_id, config=None):
                 await page.goto(cfg['url_base'], wait_until='domcontentloaded', timeout=timeout)
             except Exception:
                 # Reintentar una vez
-                await page.wait_for_timeout(2000)
+                await page.wait_for_timeout(1000)
                 await page.goto(cfg['url_base'], wait_until='domcontentloaded', timeout=timeout)
-            await page.wait_for_timeout(500)  # Esperar carga completa
+            await page.wait_for_timeout(200 if cfg.get('fast_mode') else 500)  # Esperar carga completa
             
             # ========== PASO 2: Ingresar el PIN ==========
             logger.info("[PinRedeemer] Paso 2: Ingresando PIN")
@@ -166,8 +175,12 @@ async def redeem_pin_async(pin_code, player_id, config=None):
             # Escribir el PIN de forma natural (con delay entre teclas)
             await pin_input.click()
             await pin_input.fill('')  # Limpiar primero
-            await pin_input.type(pin_code, delay=5)
-            await page.wait_for_timeout(100)
+            # En modo rápido, usar fill directo (mucho más rápido y estable en servidores)
+            if cfg.get('fast_mode'):
+                await pin_input.fill(pin_code)
+            else:
+                await pin_input.type(pin_code, delay=int(cfg.get('typing_delay_ms', 5)))
+            await page.wait_for_timeout(30 if cfg.get('fast_mode') else 100)
             
             # ========== PASO 3: Hacer clic en "Canjear" ==========
             logger.info("[PinRedeemer] Paso 3: Haciendo clic en Canjear")
@@ -191,7 +204,7 @@ async def redeem_pin_async(pin_code, player_id, config=None):
             if not canjear_btn:
                 return PinRedeemResult(False, "No se encontro el boton Canjear", pin_code, player_id)
             
-            await page.wait_for_timeout(100)
+            await page.wait_for_timeout(30 if cfg.get('fast_mode') else 100)
             await canjear_btn.click()
             
             # ========== PASO 4: Esperar redirección al formulario ==========
@@ -200,7 +213,7 @@ async def redeem_pin_async(pin_code, player_id, config=None):
             # Esperar a que la página cambie o aparezca el formulario
             try:
                 await page.wait_for_load_state('networkidle', timeout=timeout)
-                await page.wait_for_timeout(500)
+                await page.wait_for_timeout(200 if cfg.get('fast_mode') else 500)
             except PlaywrightTimeout:
                 pass
             
@@ -254,11 +267,11 @@ async def redeem_pin_async(pin_code, player_id, config=None):
             logger.info("[PinRedeemer] Paso 5: Completando formulario de datos")
             
             # Esperar que el formulario cargue
-            await page.wait_for_timeout(300)
+            await page.wait_for_timeout(120 if cfg.get('fast_mode') else 300)
             
             # Scroll al inicio de la página para asegurar visibilidad
             await page.evaluate('window.scrollTo(0, 0)')
-            await page.wait_for_timeout(100)
+            await page.wait_for_timeout(50 if cfg.get('fast_mode') else 100)
             
             fecha_valor = cfg['fecha_nacimiento']  # formato DD/MM/YYYY
             fecha_iso = fecha_valor
@@ -368,7 +381,7 @@ async def redeem_pin_async(pin_code, player_id, config=None):
             for r in fill_result:
                 logger.info(f"[PinRedeemer] JS: {r}")
             
-            await page.wait_for_timeout(100)
+            await page.wait_for_timeout(50 if cfg.get('fast_mode') else 100)
             
             # ========== PASO 6: Checkbox ya marcado en JS del PASO 5 ==========
             logger.info("[PinRedeemer] Paso 6: Checkbox ya procesado en JS")
@@ -376,7 +389,7 @@ async def redeem_pin_async(pin_code, player_id, config=None):
             # ========== PASO 7: Clic en "Verificar ID" (#btn-verify) ==========
             logger.info("[PinRedeemer] Paso 7: Haciendo clic en Verificar ID")
             
-            await page.wait_for_timeout(200)
+            await page.wait_for_timeout(80 if cfg.get('fast_mode') else 200)
             
             # Clic en #btn-verify via JS
             await page.evaluate('''() => {
@@ -451,7 +464,7 @@ async def redeem_pin_async(pin_code, player_id, config=None):
             # ========== PASO 8: Clic en "Canjear Ahora" (#btn-redeem) ==========
             logger.info("[PinRedeemer] Paso 8: Haciendo clic en Canjear Ahora!")
             
-            await page.wait_for_timeout(100)
+            await page.wait_for_timeout(50 if cfg.get('fast_mode') else 100)
             
             await page.evaluate('''() => {
                 const btn = document.getElementById('btn-redeem');
@@ -466,14 +479,97 @@ async def redeem_pin_async(pin_code, player_id, config=None):
             # ========== PASO 9: Esperar confirmación final ==========
             logger.info("[PinRedeemer] Paso 9: Esperando confirmacion final")
             
+            url_before_redeem = page.url
+
             try:
                 await page.wait_for_load_state('networkidle', timeout=timeout)
-                await page.wait_for_timeout(1000)
+                await page.wait_for_timeout(1500)
             except PlaywrightTimeout:
                 pass
+
+            # Dar un margen extra para que aparezcan modales/toasts de confirmación
+            await page.wait_for_timeout(2000)
+
+            # Polling: esperar señales claras de éxito/error o cambios de estado.
+            # En Render a veces no hay navegación, solo un toast o cambio de UI.
+            final_state = None
+            for attempt in range(20):  # ~10s
+                final_state = await page.evaluate('''(urlBefore) => {
+                    const isVisible = (el) => {
+                        if (!el) return false;
+                        const style = window.getComputedStyle(el);
+                        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+                        const r = el.getBoundingClientRect();
+                        return r.width > 0 && r.height > 0;
+                    };
+
+                    const successSelectors = [
+                        '.alert-success',
+                        '.success-message',
+                        '.text-success',
+                        '.swal2-icon.swal2-success',
+                        '.swal2-success',
+                        '[role="alert"][class*="success" i]'
+                    ];
+                    const errorSelectors = [
+                        '.error-message',
+                        '.alert-danger',
+                        '.text-danger',
+                        '.swal2-icon.swal2-error',
+                        '.swal2-error',
+                        '[role="alert"][class*="danger" i]',
+                        '[role="alert"][class*="error" i]'
+                    ];
+
+                    for (const sel of successSelectors) {
+                        const el = document.querySelector(sel);
+                        if (isVisible(el) && (el.textContent || '').trim().length > 0) {
+                            return { status: 'success', message: (el.textContent || '').trim() };
+                        }
+                    }
+                    for (const sel of errorSelectors) {
+                        const el = document.querySelector(sel);
+                        if (isVisible(el) && (el.textContent || '').trim().length > 0) {
+                            return { status: 'error', message: (el.textContent || '').trim() };
+                        }
+                    }
+
+                    const redeemBtn = document.getElementById('btn-redeem');
+                    const redeemDisabled = redeemBtn ? redeemBtn.hasAttribute('disabled') : null;
+                    const redeemLoading = redeemBtn ? redeemBtn.classList.contains('loading') : null;
+
+                    const urlChanged = (window.location && window.location.href) ? (window.location.href !== urlBefore) : false;
+
+                    const bodyText = (document.body && document.body.innerText) ? document.body.innerText : '';
+                    const snippet = bodyText.replace(/\s+/g, ' ').trim().slice(0, 220);
+
+                    return {
+                        status: 'waiting',
+                        message: snippet,
+                        redeem_disabled: redeemDisabled,
+                        redeem_loading: redeemLoading,
+                        url_changed: urlChanged
+                    };
+                }''', url_before_redeem)
+
+                logger.info(
+                    f"[PinRedeemer] Confirmacion [{attempt+1}]: {final_state.get('status')} | "
+                    f"disabled={final_state.get('redeem_disabled')} loading={final_state.get('redeem_loading')} url_changed={final_state.get('url_changed')}"
+                )
+
+                if final_state.get('status') in ('success', 'error'):
+                    break
+
+                # Heurística: si el botón quedó disabled o en loading y el body menciona 'gracias'/'success',
+                # muchas veces el sitio ya completó el canje aunque no haya alert visible.
+                msg_lower = (final_state.get('message') or '').lower()
+                if (final_state.get('redeem_disabled') or final_state.get('url_changed')) and any(k in msg_lower for k in ('gracias', 'success', 'exito', 'éxito', 'completad')):
+                    final_state = { 'status': 'success', 'message': final_state.get('message', '') }
+                    break
+
+                await page.wait_for_timeout(500)
             
-            # Verificar resultado final
-            final_text = (await page.inner_text('body')).lower()
+            final_text = ((final_state or {}).get('message', '') or '').lower()
             
             # Tomar screenshot del resultado
             ss_path = f'static/redeem_result_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png'
@@ -481,6 +577,16 @@ async def redeem_pin_async(pin_code, player_id, config=None):
                 await page.screenshot(path=ss_path, full_page=True)
             except:
                 ss_path = None
+
+            # Si detectamos error por selector visible, fallar explícitamente
+            if final_state.get('status') == 'error':
+                logger.error(f"[PinRedeemer] ERROR - Confirmacion final indica error visible: {final_state.get('message', '')}")
+                return PinRedeemResult(False, f"Error en confirmacion final: {final_state.get('message', '')}", pin_code, player_id, ss_path)
+
+            # Si detectamos éxito por selector visible, confirmar éxito
+            if final_state.get('status') == 'success':
+                logger.info(f"[PinRedeemer] EXITO - Confirmacion final indica exito visible")
+                return PinRedeemResult(True, f"Pin canjeado exitosamente para jugador {player_id}", pin_code, player_id, ss_path, captured_player_name)
             
             # Buscar indicadores de éxito
             success_keywords = ['exitoso', 'exitosa', 'completado', 'completada', 'exito', 'éxito', 
@@ -490,13 +596,6 @@ async def redeem_pin_async(pin_code, player_id, config=None):
                 if keyword in final_text:
                     logger.info(f"[PinRedeemer] EXITO - Pin redencion completada para player {player_id} ({captured_player_name})")
                     return PinRedeemResult(True, f"Pin canjeado exitosamente para jugador {player_id}", pin_code, player_id, ss_path, captured_player_name)
-            
-            # Si no encontramos keywords de éxito, verificar si hay error
-            error_final_keywords = ['error', 'fallo', 'falló', 'invalido', 'inválido', 'rechazado']
-            for keyword in error_final_keywords:
-                if keyword in final_text:
-                    logger.error(f"[PinRedeemer] ERROR - Posible fallo en la redencion")
-                    return PinRedeemResult(False, f"Posible error en la redencion del pin", pin_code, player_id, ss_path)
             
             # Si no detectamos éxito ni error, reportar como pendiente de verificación
             logger.warning("[PinRedeemer] Resultado no determinado - verificar screenshot")
