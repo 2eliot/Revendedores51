@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 def get_games_active():
     """Devuelve dict con flags de juegos activos segun tablas de precios."""
     flags = {'freefire': False, 'freefire_global': False, 'bloodstriker': False, 'freefire_id': False}
@@ -30,6 +33,9 @@ import pytz
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_mail import Mail, Message
 import threading
+import hmac as hmac_module
+import time as time_module
+import urllib.parse
 from pin_manager import create_pin_manager
 from pin_redeemer import redeem_pin_threaded, redeem_pin, PinRedeemResult, get_redeemer_config_from_db
 from functools import lru_cache
@@ -1213,6 +1219,333 @@ def mark_wallet_credits_as_read(user_id):
     ''', (user_id,))
     conn.commit()
     conn.close()
+
+# ===== Sistema de Recargas por Binance Pay =====
+BINANCE_API_KEY = os.environ.get('BINANCE_API_KEY', '')
+BINANCE_API_SECRET = os.environ.get('BINANCE_API_SECRET', '')
+BINANCE_PAY_ID = os.environ.get('BINANCE_PAY_ID', '')
+RECARGA_BONUS_PERCENT = float(os.environ.get('RECARGA_BONUS_PERCENT', '3'))
+RECARGA_EXPIRATION_MINUTES = int(os.environ.get('RECARGA_EXPIRATION_MINUTES', '30'))
+RECARGA_MIN_USDT = float(os.environ.get('RECARGA_MIN_USDT', '1'))
+RECARGA_MAX_USDT = float(os.environ.get('RECARGA_MAX_USDT', '50000'))
+BINANCE_PROXY = os.environ.get('BINANCE_PROXY', '')
+
+def binance_create_signature(query_string):
+    """Genera firma HMAC SHA256 para autenticación con Binance API"""
+    return hmac_module.new(
+        BINANCE_API_SECRET.encode('utf-8'),
+        query_string.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+
+BINANCE_API_ENDPOINTS = [
+    'https://api1.binance.com',
+    'https://api2.binance.com',
+    'https://api3.binance.com',
+    'https://api4.binance.com',
+    'https://api.binance.com',
+]
+
+def binance_get_pay_transactions(start_time=None, end_time=None, limit=100):
+    """Consulta historial de transacciones de Binance Pay via GET /sapi/v1/pay/transactions"""
+    import requests as req_lib
+    if not BINANCE_API_KEY or not BINANCE_API_SECRET:
+        logger.error("Binance API keys no configuradas")
+        return None
+    
+    timestamp = str(int(time_module.time() * 1000))
+    params = {'timestamp': timestamp, 'limit': str(limit)}
+    
+    if start_time:
+        params['startTime'] = str(int(start_time * 1000)) if isinstance(start_time, float) else str(start_time)
+    if end_time:
+        params['endTime'] = str(int(end_time * 1000)) if isinstance(end_time, float) else str(end_time)
+    
+    query_string = urllib.parse.urlencode(params)
+    signature = binance_create_signature(query_string)
+    params['signature'] = signature
+    
+    headers = {'X-MBX-APIKEY': BINANCE_API_KEY}
+    proxies = {'https': BINANCE_PROXY, 'http': BINANCE_PROXY} if BINANCE_PROXY else None
+    
+    last_error = None
+    for base_url in BINANCE_API_ENDPOINTS:
+        url = f'{base_url}/sapi/v1/pay/transactions'
+        try:
+            resp = req_lib.get(url, params=params, headers=headers, timeout=15, proxies=proxies)
+            data = resp.json()
+            if data.get('code') == '000000' or data.get('success') == True:
+                return data.get('data', [])
+            else:
+                logger.error(f"Binance Pay API error ({base_url}): {data}")
+                return None
+        except Exception as e:
+            last_error = e
+            logger.warning(f"Binance endpoint {base_url} falló: {type(e).__name__}")
+            continue
+    
+    logger.error(f"Todos los endpoints de Binance fallaron. Último error: {last_error}")
+    return None
+
+def generar_codigo_recarga():
+    """Genera un código de referencia único para la recarga"""
+    chars = string.ascii_uppercase + string.digits
+    while True:
+        code = 'REC-' + ''.join(random.choices(chars, k=6))
+        conn = get_db_connection()
+        exists = conn.execute(
+            'SELECT 1 FROM recargas_binance WHERE codigo_referencia = ?', (code,)
+        ).fetchone()
+        conn.close()
+        if not exists:
+            return code
+
+def crear_orden_recarga(user_id, monto):
+    """Crea una nueva orden de recarga pendiente"""
+    codigo = generar_codigo_recarga()
+    
+    # Usar UTC para que coincida con CURRENT_TIMESTAMP de SQLite
+    ahora_utc = datetime.utcnow()
+    expiracion_utc = ahora_utc + timedelta(minutes=RECARGA_EXPIRATION_MINUTES)
+    
+    conn = get_db_connection()
+    try:
+        # Verificar que no haya otra recarga pendiente del mismo usuario
+        pendiente = conn.execute('''
+            SELECT id FROM recargas_binance 
+            WHERE usuario_id = ? AND estado = 'pendiente'
+        ''', (user_id,)).fetchone()
+        
+        if pendiente:
+            # Expirar la anterior
+            conn.execute('''
+                UPDATE recargas_binance SET estado = 'expirada' 
+                WHERE usuario_id = ? AND estado = 'pendiente'
+            ''', (user_id,))
+        
+        conn.execute('''
+            INSERT INTO recargas_binance (usuario_id, codigo_referencia, monto_solicitado, monto_unico, fecha_creacion, fecha_expiracion)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (user_id, codigo, monto, monto, ahora_utc.strftime('%Y-%m-%d %H:%M:%S'), expiracion_utc.strftime('%Y-%m-%d %H:%M:%S')))
+        conn.commit()
+        
+        # Convertir expiración a hora local para mostrar al usuario
+        tz = pytz.timezone(os.environ.get('DEFAULT_TZ', 'America/Caracas'))
+        expiracion_local = pytz.utc.localize(expiracion_utc).astimezone(tz)
+        
+        return {
+            'codigo': codigo,
+            'monto': monto,
+            'expiracion': expiracion_local.strftime('%Y-%m-%d %H:%M:%S'),
+            'binance_pay_id': BINANCE_PAY_ID
+        }
+    except Exception as e:
+        logger.error(f"Error creando orden de recarga: {e}")
+        conn.rollback()
+        return None
+    finally:
+        conn.close()
+
+def verificar_recarga_binance(recarga_id):
+    """Verifica si una recarga pendiente fue pagada consultando Binance Pay API"""
+    conn = get_db_connection()
+    recarga = conn.execute('''
+        SELECT * FROM recargas_binance WHERE id = ? AND estado = 'pendiente'
+    ''', (recarga_id,)).fetchone()
+    
+    if not recarga:
+        conn.close()
+        return {'status': 'error', 'message': 'Recarga no encontrada o ya procesada'}
+    
+    # Verificar expiración (fechas almacenadas en UTC)
+    ahora_utc = datetime.utcnow()
+    fecha_exp = datetime.strptime(recarga['fecha_expiracion'], '%Y-%m-%d %H:%M:%S')
+    
+    if ahora_utc > fecha_exp:
+        conn.execute('UPDATE recargas_binance SET estado = ? WHERE id = ?', ('expirada', recarga_id))
+        conn.commit()
+        conn.close()
+        return {'status': 'expirada', 'message': 'La orden de recarga ha expirado'}
+    
+    conn.close()
+    
+    # Consultar transacciones de Binance Pay
+    fecha_creacion = datetime.strptime(recarga['fecha_creacion'], '%Y-%m-%d %H:%M:%S')
+    start_ts = int(fecha_creacion.timestamp() * 1000) - 60000  # 1 min antes
+    
+    transactions = binance_get_pay_transactions(start_time=start_ts)
+    if transactions is None:
+        return {'status': 'error', 'message': 'Error al consultar Binance Pay API'}
+    
+    codigo_ref = recarga['codigo_referencia']
+    monto_esperado = float(recarga['monto_unico'])
+    
+    # Buscar transacción que coincida: note contiene el código Y amount coincide
+    for tx in transactions:
+        tx_note = str(tx.get('note', '')).strip().upper()
+        tx_amount = abs(float(tx.get('amount', 0)))
+        tx_currency = str(tx.get('currency', '')).upper()
+        
+        # El amount positivo = ingreso (recibido)
+        if float(tx.get('amount', 0)) <= 0:
+            continue
+        
+        # Verificar: nota contiene el código de referencia Y monto coincide Y es USDT
+        if codigo_ref.upper() in tx_note and abs(tx_amount - monto_esperado) < 0.01 and tx_currency == 'USDT':
+            # ¡Match encontrado! Acreditar saldo
+            bonus = round(monto_esperado * (RECARGA_BONUS_PERCENT / 100), 2)
+            monto_total = monto_esperado + bonus
+            tx_id = tx.get('transactionId', '')
+            
+            conn = get_db_connection()
+            try:
+                # Verificar que no se haya procesado ya (idempotencia)
+                ya_procesada = conn.execute(
+                    'SELECT 1 FROM recargas_binance WHERE binance_transaction_id = ? AND estado = ?',
+                    (tx_id, 'completada')
+                ).fetchone()
+                
+                if ya_procesada:
+                    conn.close()
+                    return {'status': 'ya_procesada', 'message': 'Esta transacción ya fue procesada'}
+                
+                # Actualizar recarga como completada
+                conn.execute('''
+                    UPDATE recargas_binance 
+                    SET estado = 'completada', binance_transaction_id = ?, fecha_completada = CURRENT_TIMESTAMP, bonus = ?
+                    WHERE id = ?
+                ''', (tx_id, bonus, recarga_id))
+                
+                # Acreditar saldo al usuario
+                add_credit_to_user(recarga['usuario_id'], monto_total)
+                
+                conn.commit()
+                conn.close()
+                
+                return {
+                    'status': 'completada',
+                    'message': f'Recarga completada exitosamente',
+                    'monto': monto_esperado,
+                    'bonus': bonus,
+                    'total_acreditado': monto_total,
+                    'transaction_id': tx_id
+                }
+            except Exception as e:
+                logger.error(f"Error acreditando recarga: {e}")
+                conn.rollback()
+                conn.close()
+                return {'status': 'error', 'message': 'Error al acreditar saldo'}
+    
+    return {'status': 'pendiente', 'message': 'Pago no detectado aún. Intenta de nuevo en unos segundos.'}
+
+def expirar_recargas_vencidas():
+    """Marca como expiradas las recargas que pasaron su tiempo límite"""
+    conn = get_db_connection()
+    try:
+        conn.execute('''
+            UPDATE recargas_binance 
+            SET estado = 'expirada' 
+            WHERE estado = 'pendiente' AND fecha_expiracion < CURRENT_TIMESTAMP
+        ''')
+        conn.commit()
+    except Exception as e:
+        logger.error(f"Error expirando recargas: {e}")
+    finally:
+        conn.close()
+
+def _utc_to_local(utc_str):
+    """Convierte fecha UTC string a fecha local string"""
+    if not utc_str:
+        return utc_str
+    try:
+        tz = pytz.timezone(os.environ.get('DEFAULT_TZ', 'America/Caracas'))
+        utc_dt = datetime.strptime(utc_str.split('.')[0], '%Y-%m-%d %H:%M:%S')
+        utc_dt = pytz.utc.localize(utc_dt)
+        local_dt = utc_dt.astimezone(tz)
+        return local_dt.strftime('%Y-%m-%d %H:%M:%S')
+    except:
+        return utc_str
+
+def _recarga_to_dict(row):
+    """Convierte una fila de recarga a dict con fechas en hora local"""
+    if not row:
+        return None
+    d = dict(row)
+    d['fecha_creacion'] = _utc_to_local(d.get('fecha_creacion', ''))
+    d['fecha_expiracion'] = _utc_to_local(d.get('fecha_expiracion', ''))
+    d['fecha_completada'] = _utc_to_local(d.get('fecha_completada', ''))
+    return d
+
+def get_recargas_usuario(user_id, limit=20):
+    """Obtiene el historial de recargas de un usuario"""
+    conn = get_db_connection()
+    # Crear tabla si no existe (compatibilidad)
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS recargas_binance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER NOT NULL,
+            codigo_referencia TEXT NOT NULL UNIQUE,
+            monto_solicitado REAL NOT NULL,
+            monto_unico REAL NOT NULL,
+            estado TEXT DEFAULT 'pendiente',
+            binance_transaction_id TEXT,
+            fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+            fecha_expiracion DATETIME NOT NULL,
+            fecha_completada DATETIME,
+            bonus REAL DEFAULT 0.0,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+        )
+    ''')
+    recargas = conn.execute('''
+        SELECT * FROM recargas_binance 
+        WHERE usuario_id = ? 
+        ORDER BY fecha_creacion DESC 
+        LIMIT ?
+    ''', (user_id, limit)).fetchall()
+    conn.close()
+    return [_recarga_to_dict(r) for r in recargas]
+
+def get_recarga_pendiente(user_id):
+    """Obtiene la recarga pendiente activa de un usuario (si existe)"""
+    expirar_recargas_vencidas()
+    conn = get_db_connection()
+    recarga = conn.execute('''
+        SELECT * FROM recargas_binance 
+        WHERE usuario_id = ? AND estado = 'pendiente'
+        ORDER BY fecha_creacion DESC LIMIT 1
+    ''', (user_id,)).fetchone()
+    conn.close()
+    return _recarga_to_dict(recarga)
+
+def _binance_verification_loop():
+    """Background thread que verifica periódicamente recargas pendientes"""
+    while True:
+        try:
+            time_module.sleep(30)  # Verificar cada 30 segundos
+            expirar_recargas_vencidas()
+            
+            if not BINANCE_API_KEY or not BINANCE_API_SECRET:
+                continue
+            
+            conn = get_db_connection()
+            pendientes = conn.execute('''
+                SELECT id FROM recargas_binance WHERE estado = 'pendiente'
+            ''').fetchall()
+            conn.close()
+            
+            for rec in pendientes:
+                try:
+                    verificar_recarga_binance(rec['id'])
+                    time_module.sleep(2)  # Rate limit
+                except Exception as e:
+                    logger.error(f"Error verificando recarga {rec['id']}: {e}")
+        except Exception as e:
+            logger.error(f"Error en binance verification loop: {e}")
+            time_module.sleep(60)
+
+# Iniciar thread de verificación automática
+_binance_verify_thread = threading.Thread(target=_binance_verification_loop, daemon=True)
+_binance_verify_thread.start()
 
 # Funciones para sistema de noticias
 def create_news_table():
@@ -3217,7 +3550,13 @@ def billetera():
                              wallet_credits=wallet_credits,
                              user_id=session.get('id', '00000'),
                              balance=0,
-                             is_admin=True)
+                             is_admin=True,
+                             recarga_pendiente=None,
+                             recargas_historial=[],
+                             binance_pay_id=BINANCE_PAY_ID,
+                             recarga_min=RECARGA_MIN_USDT,
+                             recarga_max=RECARGA_MAX_USDT,
+                             recarga_bonus=RECARGA_BONUS_PERCENT)
     else:
         # Usuario normal ve solo sus créditos de billetera
         user_id = session.get('user_db_id')
@@ -3231,6 +3570,10 @@ def billetera():
         # Obtener créditos de billetera del usuario
         wallet_credits = get_user_wallet_credits(user_id)
         
+        # Obtener recarga pendiente y historial de recargas
+        recarga_pendiente = get_recarga_pendiente(user_id)
+        recargas_historial = get_recargas_usuario(user_id)
+        
         # Actualizar saldo
         conn = get_db_connection()
         user = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
@@ -3242,7 +3585,97 @@ def billetera():
                              wallet_credits=wallet_credits, 
                              user_id=session.get('id', '00000'),
                              balance=session.get('saldo', 0),
-                             is_admin=False)
+                             is_admin=False,
+                             recarga_pendiente=recarga_pendiente,
+                             recargas_historial=recargas_historial,
+                             binance_pay_id=BINANCE_PAY_ID,
+                             recarga_min=RECARGA_MIN_USDT,
+                             recarga_max=RECARGA_MAX_USDT,
+                             recarga_bonus=RECARGA_BONUS_PERCENT)
+
+@app.route('/billetera/crear-recarga', methods=['POST'])
+def crear_recarga():
+    """Crea una nueva orden de recarga por Binance Pay"""
+    if 'usuario' not in session or session.get('is_admin'):
+        return redirect('/auth')
+    
+    user_id = session.get('user_db_id')
+    if not user_id:
+        flash('Error de sesión', 'error')
+        return redirect('/billetera')
+    
+    try:
+        monto = float(request.form.get('monto', 0))
+    except (ValueError, TypeError):
+        flash('Monto inválido', 'error')
+        return redirect('/billetera')
+    
+    if monto < RECARGA_MIN_USDT or monto > RECARGA_MAX_USDT:
+        flash(f'El monto debe estar entre {RECARGA_MIN_USDT} y {RECARGA_MAX_USDT} USDT', 'error')
+        return redirect('/billetera')
+    
+    resultado = crear_orden_recarga(user_id, monto)
+    if resultado:
+        flash(f'Orden de recarga creada. Envía exactamente {monto:.2f} USDT con el código {resultado["codigo"]} como nota.', 'success')
+    else:
+        flash('Error al crear la orden de recarga. Intenta de nuevo.', 'error')
+    
+    return redirect('/billetera')
+
+@app.route('/billetera/verificar-recarga', methods=['POST'])
+def verificar_recarga():
+    """Verifica manualmente si una recarga fue pagada"""
+    if 'usuario' not in session or session.get('is_admin'):
+        return redirect('/auth')
+    
+    user_id = session.get('user_db_id')
+    if not user_id:
+        flash('Error de sesión', 'error')
+        return redirect('/billetera')
+    
+    recarga = get_recarga_pendiente(user_id)
+    if not recarga:
+        flash('No tienes una recarga pendiente', 'error')
+        return redirect('/billetera')
+    
+    resultado = verificar_recarga_binance(recarga['id'])
+    
+    if resultado['status'] == 'completada':
+        monto = resultado.get('monto', 0)
+        bonus = resultado.get('bonus', 0)
+        total = resultado.get('total_acreditado', 0)
+        flash(f'¡Recarga completada! Monto: {monto:.2f} USDT + {bonus:.2f} bonus = {total:.2f}$ acreditados', 'success')
+    elif resultado['status'] == 'expirada':
+        flash('La orden de recarga ha expirado. Crea una nueva.', 'error')
+    elif resultado['status'] == 'pendiente':
+        flash('Pago no detectado aún. Asegúrate de enviar el monto exacto con el código como nota y espera unos segundos.', 'warning')
+    elif resultado['status'] == 'ya_procesada':
+        flash('Esta transacción ya fue procesada anteriormente.', 'warning')
+    else:
+        flash(resultado.get('message', 'Error al verificar'), 'error')
+    
+    return redirect('/billetera')
+
+@app.route('/billetera/cancelar-recarga', methods=['POST'])
+def cancelar_recarga():
+    """Cancela una recarga pendiente"""
+    if 'usuario' not in session or session.get('is_admin'):
+        return redirect('/auth')
+    
+    user_id = session.get('user_db_id')
+    if not user_id:
+        return redirect('/billetera')
+    
+    conn = get_db_connection()
+    conn.execute('''
+        UPDATE recargas_binance SET estado = 'expirada' 
+        WHERE usuario_id = ? AND estado = 'pendiente'
+    ''', (user_id,))
+    conn.commit()
+    conn.close()
+    
+    flash('Orden de recarga cancelada', 'info')
+    return redirect('/billetera')
 
 
 @app.route('/validar/freefire_latam', methods=['POST'])

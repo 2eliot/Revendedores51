@@ -58,15 +58,235 @@
     </div>
   </header>
 
+  <style>
+    .billetera-title {
+      text-align: center;
+      color: #00ffcc;
+      font-size: 2rem;
+      margin: 20px 0 10px;
+      font-weight: bold;
+    }
+    .recarga-section {
+      max-width: 600px;
+      margin: 20px auto;
+      padding: 0 15px;
+    }
+    .recarga-card {
+      background: linear-gradient(135deg, #0a1628, #0d1f3c);
+      border: 1px solid #1a3a5c;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    .recarga-card-header {
+      background: linear-gradient(90deg, #00ffcc, #00ccaa);
+      color: #000;
+      font-weight: bold;
+      font-size: 1rem;
+      padding: 12px 18px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    .recarga-label {
+      color: #8899aa;
+      font-size: 0.85rem;
+      margin-bottom: 6px;
+      display: block;
+    }
+    .recarga-input {
+      width: 100%;
+      padding: 12px 14px;
+      background: #0a1628;
+      border: 1px solid #1a3a5c;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 1rem;
+      box-sizing: border-box;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .recarga-input:focus {
+      border-color: #00ffcc;
+    }
+    .recarga-hint {
+      color: #556677;
+      font-size: 0.78rem;
+      margin-top: 4px;
+    }
+    .recarga-btn {
+      display: block;
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(90deg, #00ffcc, #00ccaa);
+      color: #000;
+      font-weight: bold;
+      font-size: 1rem;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-top: 18px;
+      transition: opacity 0.2s;
+    }
+    .recarga-btn:hover { opacity: 0.85; }
+    .recarga-btn-secondary {
+      background: transparent;
+      border: 1px solid #ff4466;
+      color: #ff4466;
+      margin-top: 10px;
+    }
+    .recarga-btn-secondary:hover { background: rgba(255,68,102,0.1); }
+    .recarga-btn-verify {
+      background: linear-gradient(90deg, #00ccff, #0099dd);
+    }
+    .recarga-info-box {
+      background: rgba(0,255,204,0.05);
+      border: 1px solid rgba(0,255,204,0.2);
+      border-radius: 10px;
+      padding: 18px;
+      margin-top: 16px;
+    }
+    .recarga-info-box h4 {
+      color: #00ffcc;
+      margin: 0 0 10px;
+      font-size: 0.95rem;
+    }
+    .recarga-info-box ol {
+      color: #8899aa;
+      font-size: 0.85rem;
+      padding-left: 18px;
+      margin: 0;
+      line-height: 1.7;
+    }
+    .recarga-pending-box {
+      background: rgba(0,204,255,0.05);
+      border: 1px solid rgba(0,204,255,0.3);
+      border-radius: 10px;
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+    .recarga-pending-box .code-display {
+      background: #0a1628;
+      border: 1px dashed #00ffcc;
+      border-radius: 8px;
+      padding: 14px;
+      text-align: center;
+      margin: 12px 0;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .recarga-pending-box .code-display:hover { background: #0d1f3c; }
+    .recarga-pending-box .code-display .code-text {
+      color: #00ffcc;
+      font-size: 1.5rem;
+      font-weight: bold;
+      font-family: monospace;
+      letter-spacing: 2px;
+    }
+    .recarga-pending-box .code-display .copy-hint {
+      color: #556677;
+      font-size: 0.75rem;
+      margin-top: 4px;
+    }
+    .recarga-detail {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      font-size: 0.88rem;
+    }
+    .recarga-detail .label { color: #8899aa; }
+    .recarga-detail .value { color: #fff; font-weight: 500; }
+    .recarga-countdown {
+      text-align: center;
+      color: #ffaa00;
+      font-size: 0.85rem;
+      margin-top: 10px;
+    }
+    .historial-title {
+      color: #8899aa;
+      font-size: 1.1rem;
+      text-align: center;
+      margin: 30px 0 15px;
+      font-weight: 600;
+    }
+    .recarga-history-card {
+      background: #0a1628;
+      border: 1px solid #1a3a5c;
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .recarga-history-left .rec-code {
+      color: #fff;
+      font-weight: 600;
+      font-size: 0.9rem;
+      font-family: monospace;
+    }
+    .recarga-history-left .rec-meta {
+      color: #556677;
+      font-size: 0.78rem;
+      margin-top: 3px;
+    }
+    .recarga-history-right {
+      text-align: right;
+    }
+    .rec-status {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .rec-status-completada { background: rgba(0,255,100,0.15); color: #00ff66; border: 1px solid rgba(0,255,100,0.3); }
+    .rec-status-pendiente { background: rgba(255,170,0,0.15); color: #ffaa00; border: 1px solid rgba(255,170,0,0.3); }
+    .rec-status-expirada { background: rgba(255,68,68,0.15); color: #ff4444; border: 1px solid rgba(255,68,68,0.3); }
+    .rec-amount {
+      color: #fff;
+      font-size: 0.88rem;
+      margin-top: 4px;
+    }
+    .rec-bonus {
+      color: #00ffcc;
+      font-size: 0.78rem;
+    }
+    .copied-toast {
+      position: fixed;
+      top: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #00ffcc;
+      color: #000;
+      padding: 8px 20px;
+      border-radius: 8px;
+      font-weight: bold;
+      font-size: 0.85rem;
+      z-index: 9999;
+      display: none;
+      animation: fadeInOut 1.5s ease;
+    }
+    @keyframes fadeInOut {
+      0% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+      20% { opacity: 1; transform: translateX(-50%) translateY(0); }
+      80% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+  </style>
+
+  <div id="copied-toast" class="copied-toast">Copiado</div>
+
   {% if is_admin %}
     <!-- Panel del administrador -->
     <section class="user-panel">
-      <p>🛠️ Cartera del Administrador - Créditos Agregados a Usuarios</p>
+      <p>Cartera del Administrador - Creditos Agregados a Usuarios</p>
     </section>
 
     <!-- Créditos de billetera para admin -->
     <section class="transactions">
-      <h2 class="transaction-title">Historial de Créditos Agregados</h2>
+      <h2 class="transaction-title">Historial de Creditos Agregados</h2>
       <div class="transaction-container">
         {% if wallet_credits %}
           {% for credit in wallet_credits %}
@@ -74,8 +294,8 @@
             <div class="transaction-row">
               <div class="transaction-main">
                 <div class="control-status">
-                  <span class="control-num">💰 Crédito</span>
-                  <span class="status-simple">✅</span>
+                  <span class="control-num">Credito</span>
+                  <span class="status-simple">OK</span>
                 </div>
                 <div class="package-cost">
                   <span class="package">{{ credit.nombre }} {{ credit.apellido }}</span>
@@ -100,21 +320,110 @@
               <svg class="empty-icon" viewBox="0 0 24 24">
                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
               </svg>
-              <p>No hay créditos registrados en el sistema</p>
+              <p>No hay creditos registrados en el sistema</p>
             </div>
           </div>
         {% endif %}
       </div>
     </section>
   {% else %}
+    <h1 class="billetera-title">Billetera</h1>
+
     <!-- Panel del usuario normal -->
     <section class="user-panel">
-      <p>💰 Mi Billetera - ID {{ user_id }} &nbsp; | &nbsp; Saldo ${{ "%.2f"|format(balance) }}</p>
+      <p>ID {{ user_id }} | Saldo ${{ "%.2f"|format(balance) }}</p>
     </section>
+
+    <div class="recarga-section">
+      <!-- Sección de recarga con Binance Pay -->
+      <div class="recarga-card">
+        <div class="recarga-card-header">Recargar saldo con Binance Pay</div>
+
+        {% if recarga_pendiente %}
+          <!-- Orden pendiente activa -->
+          <div class="recarga-pending-box">
+            <div class="recarga-detail">
+              <span class="label">Monto a enviar</span>
+              <span class="value">{{ "%.2f"|format(recarga_pendiente.monto_unico) }} USDT</span>
+            </div>
+            <div class="recarga-detail">
+              <span class="label">Binance Pay ID</span>
+              <span class="value">{{ binance_pay_id }}</span>
+            </div>
+            <div class="recarga-detail" style="border-bottom:none;">
+              <span class="label">Codigo de referencia (nota)</span>
+            </div>
+            <div class="code-display" onclick="copyCode('{{ recarga_pendiente.codigo_referencia }}')">
+              <div class="code-text">{{ recarga_pendiente.codigo_referencia }}</div>
+              <div class="copy-hint">Toca para copiar</div>
+            </div>
+            <div class="recarga-detail">
+              <span class="label">Expira</span>
+              <span class="value" id="expira-time">{{ recarga_pendiente.fecha_expiracion }}</span>
+            </div>
+            <div class="recarga-countdown" id="countdown"></div>
+          </div>
+
+          <form action="/billetera/verificar-recarga" method="POST">
+            <button type="submit" class="recarga-btn recarga-btn-verify">Ya envie el pago - Verificar</button>
+          </form>
+          <form action="/billetera/cancelar-recarga" method="POST">
+            <button type="submit" class="recarga-btn recarga-btn-secondary">Cancelar orden</button>
+          </form>
+
+        {% else %}
+          <!-- Formulario para crear nueva recarga -->
+          <form action="/billetera/crear-recarga" method="POST">
+            <label class="recarga-label">Monto a recargar (USDT)</label>
+            <input type="number" name="monto" class="recarga-input" step="0.01" min="{{ recarga_min }}" max="{{ recarga_max }}" placeholder="Ej: 10.00" required>
+            <div class="recarga-hint">Minimo: {{ recarga_min }} USDT - Maximo: {{ "%.0f"|format(recarga_max) }}</div>
+            <button type="submit" class="recarga-btn">Generar orden de recarga</button>
+          </form>
+        {% endif %}
+
+        <div class="recarga-info-box">
+          <h4>Como funciona?</h4>
+          <ol>
+            <li>Ingresa el monto exacto que deseas recargar</li>
+            <li>Se generara un codigo de referencia unico</li>
+            <li>Envia el monto exacto en USDT a nuestro Binance Pay con ese codigo como nota</li>
+            <li>Tu saldo se acreditara automaticamente en segundos</li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- Historial de recargas -->
+      {% if recargas_historial %}
+        <h3 class="historial-title">Historial de recargas</h3>
+        {% for recarga in recargas_historial %}
+          <div class="recarga-history-card">
+            <div class="recarga-history-left">
+              <div class="rec-code">{{ recarga.codigo_referencia }}</div>
+              <div class="rec-meta">
+                Monto: {{ "%.2f"|format(recarga.monto_solicitado) }} USDT
+                <br>{{ recarga.fecha_creacion.split('.')[0] if '.' in recarga.fecha_creacion else recarga.fecha_creacion }}
+              </div>
+            </div>
+            <div class="recarga-history-right">
+              {% if recarga.estado == 'completada' %}
+                <span class="rec-status rec-status-completada">Completada</span>
+                {% if recarga.bonus and recarga.bonus > 0 %}
+                  <div class="rec-bonus">+{{ "%.2f"|format(recarga.bonus) }} bonus &rarr; {{ "%.2f"|format(recarga.monto_solicitado + recarga.bonus) }}$</div>
+                {% endif %}
+              {% elif recarga.estado == 'pendiente' %}
+                <span class="rec-status rec-status-pendiente">Pendiente</span>
+              {% else %}
+                <span class="rec-status rec-status-expirada">Expirada</span>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      {% endif %}
+    </div>
 
     <!-- Créditos de billetera para usuario normal -->
     <section class="transactions">
-      <h2 class="transaction-title">Créditos Recibidos</h2>
+      <h2 class="transaction-title">Creditos Recibidos</h2>
       <div class="transaction-container">
         {% if wallet_credits %}
           {% for credit in wallet_credits %}
@@ -122,8 +431,8 @@
             <div class="transaction-row">
               <div class="transaction-main">
                 <div class="control-status">
-                  <span class="control-num">💰 Crédito</span>
-                  <span class="status-simple">✅</span>
+                  <span class="control-num">Credito</span>
+                  <span class="status-simple">OK</span>
                 </div>
                 <div class="package-cost">
                   <span class="package">Saldo agregado</span>
@@ -143,16 +452,10 @@
               <svg class="empty-icon" viewBox="0 0 24 24">
                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
               </svg>
-              <p>No hay créditos registrados en tu billetera</p>
+              <p>No hay creditos registrados en tu billetera</p>
             </div>
           </div>
         {% endif %}
-      </div>
-      <div class="pagination">
-        <a href="#" class="page">«</a>
-        <a href="#" class="page active">1</a>
-        <a href="#" class="page">2</a>
-        <a href="#" class="page">»</a>
       </div>
     </section>
   {% endif %}
@@ -161,15 +464,47 @@
     function toggleUserBox() {
       document.getElementById("user-box").classList.toggle("visible");
     }
-    
-    // Auto-ocultar mensajes flash después de 2 segundos
-    setTimeout(function() {
-      const flashMessages = document.querySelector('.flash-messages');
-      if (flashMessages) {
-        flashMessages.style.opacity = '0';
-        setTimeout(() => flashMessages.remove(), 300);
+
+    function copyCode(code) {
+      navigator.clipboard.writeText(code).then(function() {
+        var toast = document.getElementById('copied-toast');
+        toast.style.display = 'block';
+        setTimeout(function() { toast.style.display = 'none'; }, 1500);
+      });
+    }
+
+    // Countdown timer para recarga pendiente
+    (function() {
+      var expEl = document.getElementById('expira-time');
+      var cdEl = document.getElementById('countdown');
+      if (!expEl || !cdEl) return;
+
+      var expStr = expEl.textContent.trim();
+      var expDate = new Date(expStr.replace(' ', 'T'));
+
+      function updateCountdown() {
+        var now = new Date();
+        var diff = expDate - now;
+        if (diff <= 0) {
+          cdEl.textContent = 'Orden expirada - recarga la pagina';
+          return;
+        }
+        var mins = Math.floor(diff / 60000);
+        var secs = Math.floor((diff % 60000) / 1000);
+        cdEl.textContent = 'Expira en ' + mins + 'm ' + secs + 's';
+        setTimeout(updateCountdown, 1000);
       }
-    }, 2000);
+      updateCountdown();
+    })();
+
+    // Auto-ocultar mensajes flash
+    setTimeout(function() {
+      var msgs = document.querySelectorAll('.flash-message-main');
+      msgs.forEach(function(m) {
+        m.style.opacity = '0';
+        setTimeout(function() { m.remove(); }, 300);
+      });
+    }, 4000);
   </script>
 </body>
 </html>
