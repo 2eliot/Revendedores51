@@ -1438,8 +1438,38 @@ def verificar_recarga_binance(recarga_id):
     
     return {'status': 'pendiente', 'message': 'Pago no detectado aún. Intenta de nuevo en unos segundos.'}
 
+def _ensure_recargas_table():
+    """Crea la tabla recargas_binance si no existe"""
+    conn = get_db_connection()
+    try:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS recargas_binance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                usuario_id INTEGER NOT NULL,
+                codigo_referencia TEXT NOT NULL UNIQUE,
+                monto_solicitado REAL NOT NULL,
+                monto_unico REAL NOT NULL,
+                estado TEXT DEFAULT 'pendiente',
+                binance_transaction_id TEXT,
+                fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+                fecha_expiracion DATETIME NOT NULL,
+                fecha_completada DATETIME,
+                bonus REAL DEFAULT 0.0,
+                FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_recargas_usuario ON recargas_binance(usuario_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_recargas_estado ON recargas_binance(estado)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_recargas_codigo ON recargas_binance(codigo_referencia)')
+        conn.commit()
+    except Exception as e:
+        logger.error(f"Error creando tabla recargas_binance: {e}")
+    finally:
+        conn.close()
+
 def expirar_recargas_vencidas():
     """Marca como expiradas las recargas que pasaron su tiempo límite"""
+    _ensure_recargas_table()
     conn = get_db_connection()
     try:
         conn.execute('''
