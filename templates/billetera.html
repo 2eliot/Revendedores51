@@ -288,6 +288,55 @@
       <p>Cartera del Administrador - Creditos Agregados a Usuarios</p>
     </section>
 
+    <!-- Recargas Binance Pay de todos los usuarios -->
+    <section class="transactions">
+      <h2 class="transaction-title">Recargas Binance Pay</h2>
+      <div class="transaction-container">
+        {% if recargas_admin %}
+          {% for rec in recargas_admin %}
+          <div class="transaction-card-simple" style="border-left: 4px solid {% if rec.estado == 'completada' %}#28a745{% elif rec.estado == 'pendiente' %}#e67e22{% else %}#dc3545{% endif %};">
+            <div class="transaction-row">
+              <div class="transaction-main">
+                <div class="control-status">
+                  <span class="control-num" style="font-family:'Courier New',monospace;">{{ rec.codigo_referencia }}</span>
+                  {% if rec.estado == 'completada' %}
+                    <span class="rec-status rec-status-completada">Completada</span>
+                  {% elif rec.estado == 'pendiente' %}
+                    <span class="rec-status rec-status-pendiente">Pendiente</span>
+                  {% else %}
+                    <span class="rec-status rec-status-expirada">Expirada</span>
+                  {% endif %}
+                </div>
+                <div class="package-cost">
+                  <span class="package">{{ rec.nombre }} {{ rec.apellido }}</span>
+                  <span class="cost">${{ "%.2f"|format(rec.monto_solicitado) }} USDT</span>
+                </div>
+              </div>
+            </div>
+            <div class="transaction-footer">
+              <span class="date-simple">{{ rec.fecha_creacion.split('.')[0] if '.' in rec.fecha_creacion else rec.fecha_creacion }}</span>
+              <span class="user-simple">
+                {{ rec.correo }}
+                {% if rec.estado == 'completada' and rec.fecha_completada %}
+                  | Acreditado: {{ rec.fecha_completada.split('.')[0] if '.' in rec.fecha_completada else rec.fecha_completada }}
+                {% endif %}
+              </span>
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="no-transactions">
+            <div class="empty-state">
+              <svg class="empty-icon" viewBox="0 0 24 24">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+              </svg>
+              <p>No hay recargas Binance Pay registradas</p>
+            </div>
+          </div>
+        {% endif %}
+      </div>
+    </section>
+
     <!-- Créditos de billetera para admin -->
     <section class="transactions">
       <h2 class="transaction-title">Historial de Creditos Agregados</h2>
@@ -352,7 +401,7 @@
             </div>
             <div class="recarga-detail">
               <span class="label">Binance Pay ID</span>
-              <span class="value">{{ binance_pay_id }}</span>
+              <span class="value" style="cursor:pointer;" onclick="copyCode('{{ binance_pay_id }}')">{{ binance_pay_id }} <span style="font-size:0.75rem; color:#667eea;">&#128203; Copiar</span></span>
             </div>
             <div class="recarga-detail" style="border-bottom:none;">
               <span class="label">Codigo de referencia (nota)</span>
@@ -415,9 +464,6 @@
             <div class="recarga-history-right">
               {% if recarga.estado == 'completada' %}
                 <span class="rec-status rec-status-completada">Completada</span>
-                {% if recarga.bonus and recarga.bonus > 0 %}
-                  <div class="rec-bonus">+{{ "%.2f"|format(recarga.bonus) }} bonus &rarr; {{ "%.2f"|format(recarga.monto_solicitado + recarga.bonus) }}$</div>
-                {% endif %}
               {% elif recarga.estado == 'pendiente' %}
                 <span class="rec-status rec-status-pendiente">Pendiente</span>
               {% else %}
@@ -534,7 +580,7 @@
             spinner.style.display = 'none';
             verifyText.style.color = '#28a745';
             verifyText.textContent = 'Pago verificado! Recarga completada';
-            verifySub.textContent = 'Monto: ' + (data.monto || 0).toFixed(2) + ' + ' + (data.bonus || 0).toFixed(2) + ' bonus = ' + (data.total_acreditado || 0).toFixed(2) + '$ acreditados';
+            verifySub.textContent = (data.total_acreditado || data.monto || 0).toFixed(2) + '$ acreditados a tu saldo';
             verifySub.style.color = '#28a745';
             setTimeout(function() { window.location.reload(); }, 2500);
           } else if (data.status === 'expirada' || data.status === 'no_pendiente') {

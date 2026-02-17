@@ -1402,8 +1402,8 @@ def verificar_recarga_binance(recarga_id):
         if codigo_ref.upper() in tx_note and abs(tx_amount - monto_esperado) < 0.01 and tx_currency == 'USDT':
             logger.info(f"  ¡Match encontrado! TX ID: {tx.get('transactionId', '')}")
             # ¡Match encontrado! Acreditar saldo
-            bonus = round(monto_esperado * (RECARGA_BONUS_PERCENT / 100), 2)
-            monto_total = monto_esperado + bonus
+            bonus = 0.0
+            monto_total = monto_esperado
             tx_id = tx.get('transactionId', '')
             
             try:
@@ -1516,6 +1516,27 @@ def _recarga_to_dict(row):
     d['fecha_expiracion'] = _utc_to_local(d.get('fecha_expiracion', ''))
     d['fecha_completada'] = _utc_to_local(d.get('fecha_completada', ''))
     return d
+
+def get_all_recargas_admin(limit=50):
+    """Obtiene todas las recargas de todos los usuarios (para admin)"""
+    _ensure_recargas_table()
+    conn = get_db_connection()
+    recargas = conn.execute('''
+        SELECT r.*, u.nombre, u.apellido, u.correo
+        FROM recargas_binance r
+        LEFT JOIN usuarios u ON r.usuario_id = u.id
+        ORDER BY r.fecha_creacion DESC
+        LIMIT ?
+    ''', (limit,)).fetchall()
+    conn.close()
+    result = []
+    for r in recargas:
+        d = _recarga_to_dict(r)
+        d['nombre'] = r['nombre'] if r['nombre'] else ''
+        d['apellido'] = r['apellido'] if r['apellido'] else ''
+        d['correo'] = r['correo'] if r['correo'] else ''
+        result.append(d)
+    return result
 
 def get_recargas_usuario(user_id, limit=20):
     """Obtiene el historial de recargas de un usuario"""
@@ -3586,9 +3607,11 @@ def billetera():
     if is_admin:
         # Admin ve todos los créditos agregados a usuarios
         wallet_credits = get_all_wallet_credits()
+        recargas_admin = get_all_recargas_admin()
         
         return render_template('billetera.html', 
                              wallet_credits=wallet_credits,
+                             recargas_admin=recargas_admin,
                              user_id=session.get('id', '00000'),
                              balance=0,
                              is_admin=True,
@@ -3682,10 +3705,8 @@ def verificar_recarga():
     resultado = verificar_recarga_binance(recarga['id'])
     
     if resultado['status'] == 'completada':
-        monto = resultado.get('monto', 0)
-        bonus = resultado.get('bonus', 0)
         total = resultado.get('total_acreditado', 0)
-        flash(f'¡Recarga completada! Monto: {monto:.2f} USDT + {bonus:.2f} bonus = {total:.2f}$ acreditados', 'success')
+        flash(f'¡Recarga completada! {total:.2f}$ acreditados a tu saldo', 'success')
     elif resultado['status'] == 'expirada':
         flash('La orden de recarga ha expirado. Crea una nueva.', 'error')
     elif resultado['status'] == 'pendiente':
