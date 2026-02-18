@@ -37,8 +37,8 @@ import hmac as hmac_module
 import time as time_module
 import urllib.parse
 from pin_manager import create_pin_manager
-from pin_redeemer import redeem_pin_threaded, redeem_pin, PinRedeemResult, get_redeemer_config_from_db
-from redeem_hype_http import redeem_pin_http
+from pin_redeemer import PinRedeemResult, get_redeemer_config_from_db
+from redeem_hype_2captcha import redeem_pin_2captcha
 from functools import lru_cache
 import random
 import string
@@ -4657,14 +4657,10 @@ def validar_freefire_id():
         redeemer_config = get_redeemer_config_from_db(get_db_connection)
         
         redeem_result = None
-        redeem_method = str(redeemer_config.get('redeem_method', 'playwright')).strip().lower()
         try:
-            if redeem_method in ('http', 'httpx', 'light'):
-                redeem_result = redeem_pin_http(pin_codigo, player_id, redeemer_config)
-            else:
-                redeem_result = redeem_pin(pin_codigo, player_id, redeemer_config)
+            redeem_result = redeem_pin_2captcha(pin_codigo, player_id, redeemer_config)
         except Exception as e:
-            logger.error(f"[FreeFire ID] Error en redencion automatica ({redeem_method}): {str(e)}")
+            logger.error(f"[FreeFire ID] Error en redencion automatica (2captcha): {str(e)}")
             redeem_result = None
         
         # 6. Evaluar resultado
@@ -4929,7 +4925,7 @@ def approve_freefire_id_transaction(transaction_id):
             
             # 2. Ejecutar la redención automática en redeempins.com
             try:
-                redeem_result = redeem_pin(pin_codigo, player_id, redeemer_config)
+                redeem_result = redeem_pin_2captcha(pin_codigo, player_id, redeemer_config)
             except Exception as e:
                 # Si falla la redención, devolver el pin al inventario
                 try:
@@ -5120,7 +5116,7 @@ def admin_test_redeem():
     config['headless'] = False
     
     try:
-        result = redeem_pin(pin_code, player_id, config)
+        result = redeem_pin_2captcha(pin_code, player_id, config)
         if result.success:
             flash(f'Prueba exitosa: {result.message}', 'success')
         else:
