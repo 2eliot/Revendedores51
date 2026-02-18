@@ -2808,7 +2808,7 @@ def get_freefire_id_prices_cached():
     finally:
         return_db_connection(conn)
 
-def create_freefire_id_transaction(user_id, player_id, package_id, precio):
+def create_freefire_id_transaction(user_id, player_id, package_id, precio, pin_codigo=None):
     """Crea una transacción pendiente de Free Fire ID"""
     import random
     import string
@@ -2820,9 +2820,9 @@ def create_freefire_id_transaction(user_id, player_id, package_id, precio):
     try:
         cursor = conn.execute('''
             INSERT INTO transacciones_freefire_id 
-            (usuario_id, player_id, paquete_id, numero_control, transaccion_id, monto, estado)
-            VALUES (?, ?, ?, ?, ?, ?, 'pendiente')
-        ''', (user_id, player_id, package_id, numero_control, transaccion_id, -precio))
+            (usuario_id, player_id, paquete_id, numero_control, transaccion_id, monto, estado, pin_codigo)
+            VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?)
+        ''', (user_id, player_id, package_id, numero_control, transaccion_id, -precio, pin_codigo))
         
         transaction_id = cursor.lastrowid
         conn.commit()
@@ -4644,18 +4644,8 @@ def validar_freefire_id():
             conn.close()
             session['saldo'] = saldo_actual - precio
         
-        # 3. Crear transacción
-        transaction_data = create_freefire_id_transaction(user_id, player_id, package_id, precio)
-        
-        # 3b. Guardar PIN usado en la transacción
-        try:
-            conn_pin = get_db_connection()
-            conn_pin.execute('UPDATE transacciones_freefire_id SET pin_codigo = ? WHERE id = ?',
-                           (pin_codigo, transaction_data['id']))
-            conn_pin.commit()
-            conn_pin.close()
-        except Exception:
-            pass
+        # 3. Crear transacción (con PIN incluido directamente)
+        transaction_data = create_freefire_id_transaction(user_id, player_id, package_id, precio, pin_codigo=pin_codigo)
         
         # 4. Actualizar gastos mensuales
         if not is_admin:
