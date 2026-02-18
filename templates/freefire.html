@@ -116,7 +116,7 @@
 
     {% if compra_exitosa %}
     <div class="compra-exitosa">
-      <h3 style="text-align: center; margin-bottom: 20px;">🎉 Compra exitosa</h3>
+      <h3 style="text-align: center; margin-bottom: 20px;">Compra exitosa</h3>
       
       {% if pines_list %}
         <!-- Múltiples pines -->
@@ -154,16 +154,30 @@
       {% endif %}
     </div>
     {% else %}
-    <div class="informacion">
-      <p><strong>Importante:</strong> Los pines adquiridos no tienen reembolso una vez realizada la compra.</p>
-      <p style="color: red; font-weight: bold; font-style: italic;">¡Aprovecha esta oferta por tiempo limitado!</p>
-      <br><br>
-      <p>¿Cómo redimir?</p>
-      <br>
-      <li>Ingresa a <a href="https://redeempins.com/">https://redeempins.com/</a></li><br>
-      <li>Ingresa el pin adquirido</li><br>
-      <li>Ingresa tu ID</li><br>
-      <li>Acepta los Términos y Condiciones y luego canjear</li>
+    <div class="informacion" style="background: #fff; border-radius: 12px; padding: 20px; border: 1px solid #e0e0e0;">
+      <p style="margin-bottom: 16px; color: #555; font-size: 0.9em;">Los pines adquiridos no tienen reembolso una vez realizada la compra.</p>
+
+      <div style="background: #f8f9fa; border-radius: 10px; padding: 16px; margin-top: 8px;">
+        <p style="font-weight: 700; font-size: 1.05em; margin-bottom: 12px; color: #333;">Pasos para canjear tu PIN:</p>
+        <ol style="margin: 0; padding-left: 20px; list-style: none; counter-reset: steps;">
+          <li style="padding: 8px 0; color: #444; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 10px;">
+            <span style="background: #ff8c00; color: white; border-radius: 50%; min-width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; font-weight: 700;">1</span>
+            Ingresa a <a href="https://redeempins.com/" target="_blank" style="color: #ff8c00; font-weight: 600; margin-left: 4px;">redeempins.com</a>
+          </li>
+          <li style="padding: 8px 0; color: #444; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 10px;">
+            <span style="background: #ff8c00; color: white; border-radius: 50%; min-width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; font-weight: 700;">2</span>
+            Ingresa el PIN que recibiste
+          </li>
+          <li style="padding: 8px 0; color: #444; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 10px;">
+            <span style="background: #ff8c00; color: white; border-radius: 50%; min-width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; font-weight: 700;">3</span>
+            Ingresa tu ID de jugador
+          </li>
+          <li style="padding: 8px 0; color: #444; display: flex; align-items: center; gap: 10px;">
+            <span style="background: #ff8c00; color: white; border-radius: 50%; min-width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; font-weight: 700;">4</span>
+            Acepta los Terminos y Condiciones y presiona Canjear
+          </li>
+        </ol>
+      </div>
     </div>
     {% endif %}
 
