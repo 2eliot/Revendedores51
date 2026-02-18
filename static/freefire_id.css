@@ -264,7 +264,7 @@ body {
 
 /* Compra exitosa */
 .compra-exitosa {
-  background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+  background: #ffffff;
   margin: 20px 30px;
   padding: 25px;
   border-radius: 12px;
