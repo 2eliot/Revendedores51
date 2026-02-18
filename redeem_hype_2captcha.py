@@ -105,15 +105,55 @@ def _build_form_data(hidden_fields, nombre, born_at, nacionalidad, player_id):
     return data
 
 
+PIN_UUID_REGEX = re.compile(
+    r'^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$'
+)
+PLAYER_ID_REGEX = re.compile(r'^\d{5,20}$')
+
+ERRORES_NO_REINTENTABLES = [
+    "pin usado", "pin already", "already redeemed", "pin expirado", "pin expired",
+    "pin inválido", "invalid pin", "pin not found", "não encontrado",
+    "account (failed)", "cuenta no encontrada", "account not found",
+]
+
+
+def _validate_inputs(pin_code, player_id):
+    """Validación previa de formato ANTES de gastar saldo en captcha."""
+    errors = []
+    if not pin_code or not PIN_UUID_REGEX.match(str(pin_code).strip()):
+        errors.append(f"Formato de PIN inválido: '{pin_code}' (debe ser UUID)")
+    if not player_id or not PLAYER_ID_REGEX.match(str(player_id).strip()):
+        errors.append(f"Formato de Player ID inválido: '{player_id}' (debe ser 5-20 dígitos)")
+    return errors
+
+
+def _is_error_no_reintentable(mensaje):
+    """Detecta errores que NO se solucionan reintentando (PIN usado, expirado, etc.)."""
+    if not mensaje:
+        return False
+    low = mensaje.lower()
+    return any(err in low for err in ERRORES_NO_REINTENTABLES)
+
+
 def redeem_pin_2captcha(pin_code, player_id, config=None):
     """
     Modo 2Captcha (sin Playwright).
-    Flujo real de redeem.hype.games en 3 pasos:
-      1) POST /validate         -> valida el PIN, devuelve formulario
-      2) POST /validate/account -> verifica el GameAccountId, devuelve username
-      3) POST /confirm          -> redención final
+    Flujo: POST /validate -> POST /confirm
+    
+    Protecciones de ahorro:
+      - Validación de formato ANTES de pedir captcha (no gasta saldo)
+      - Máximo 2 intentos por redención
+      - Cancela inmediato si el error no es reintentable (PIN usado, expirado, etc.)
     """
     cfg = dict(config or {})
+    max_intentos = int(cfg.get("max_intentos_captcha", 2))
+
+    # ========== VALIDACIÓN PREVIA (gratis, no gasta captcha) ==========
+    errores_formato = _validate_inputs(pin_code, player_id)
+    if errores_formato:
+        msg = "; ".join(errores_formato)
+        logger.warning(f"[2Captcha] Validación previa falló (sin gastar captcha): {msg}")
+        return PinRedeemResult(False, msg, pin_code, player_id)
 
     api_key = cfg.get("twocaptcha_api_key") or os.environ.get("TWOCAPTCHA_API_KEY", "").strip()
     if not api_key:
@@ -139,83 +179,114 @@ def redeem_pin_2captcha(pin_code, player_id, config=None):
         "PartnerIdentifier": "",
     }
 
-    try:
-        with httpx.Client(timeout=timeout_s, follow_redirects=True, headers=headers) as client:
-            # 0) Visitar página principal para cookies de sesión
-            client.get(BASE_URL)
+    ultimo_error = "Error desconocido"
 
-            # ========== PASO 1: POST /validate (validar PIN) ==========
-            logger.info(f"[2Captcha] Paso 1/2: Resolviendo captcha para /validate (PIN {pin_code[:8]}...)")
-            try:
-                token1 = _solve_recaptcha_v3(
-                    api_key=api_key, pageurl=BASE_URL, sitekey=RECAPTCHA_SITEKEY,
-                    action="validate", min_score=captcha_min_score, timeout_s=captcha_timeout,
-                )
-            except Exception as e:
-                return PinRedeemResult(False, f"Error 2Captcha (validate): {e}", pin_code, player_id)
+    for intento in range(1, max_intentos + 1):
+        logger.info(f"[2Captcha] === Intento {intento}/{max_intentos} para PIN {pin_code[:8]}... ===")
 
-            resp1 = client.post(VALIDATE_URL, data={
-                "Key": pin_code,
-                "CaptchaToken": token1,
-                "origin": "redeem",
-            })
-            logger.info(f"[2Captcha] /validate -> HTTP {resp1.status_code}")
+        try:
+            with httpx.Client(timeout=timeout_s, follow_redirects=True, headers=headers) as client:
+                # 0) Visitar página principal para cookies de sesión
+                client.get(BASE_URL)
 
-            if resp1.status_code != 200:
-                return PinRedeemResult(False, f"Validate HTTP {resp1.status_code}", pin_code, player_id)
-
-            html1 = resp1.text
-            if "StatusCode" in html1 and "Message" in html1:
+                # ========== PASO 1: POST /validate (validar PIN) ==========
+                logger.info(f"[2Captcha] Paso 1/2: Resolviendo captcha para /validate...")
                 try:
-                    err = json.loads(html1)
-                    if err.get("StatusCode"):
-                        return PinRedeemResult(False, err.get("Message", "Error en validate"), pin_code, player_id)
-                except Exception:
-                    pass
+                    token1 = _solve_recaptcha_v3(
+                        api_key=api_key, pageurl=BASE_URL, sitekey=RECAPTCHA_SITEKEY,
+                        action="validate", min_score=captcha_min_score, timeout_s=captcha_timeout,
+                    )
+                except Exception as e:
+                    ultimo_error = f"Error 2Captcha (validate): {e}"
+                    logger.error(f"[2Captcha] {ultimo_error}")
+                    continue
 
-            hidden_fields = _extract_hidden_fields(html1)
-            logger.info(f"[2Captcha] Hidden fields: {hidden_fields}")
+                resp1 = client.post(VALIDATE_URL, data={
+                    "Key": pin_code,
+                    "CaptchaToken": token1,
+                    "origin": "redeem",
+                })
+                logger.info(f"[2Captcha] /validate -> HTTP {resp1.status_code}")
 
-            form_data = _build_form_data(hidden_fields, nombre, born_at, nacionalidad, player_id)
-            logger.info(f"[2Captcha] Form data completo: {list(form_data.keys())}")
+                if resp1.status_code != 200:
+                    ultimo_error = f"Validate HTTP {resp1.status_code}"
+                    continue
 
-            # ========== PASO 2: POST /confirm (redención final) ==========
-            logger.info(f"[2Captcha] Paso 2/2: Resolviendo captcha para /confirm...")
-            try:
-                token2 = _solve_recaptcha_v3(
-                    api_key=api_key, pageurl=BASE_URL, sitekey=RECAPTCHA_SITEKEY,
-                    action="KEY_REDEEM", min_score=captcha_min_score, timeout_s=captcha_timeout,
-                )
-            except Exception as e:
-                return PinRedeemResult(False, f"Error 2Captcha (confirm): {e}", pin_code, player_id)
+                html1 = resp1.text
+                if "StatusCode" in html1 and "Message" in html1:
+                    try:
+                        err = json.loads(html1)
+                        if err.get("StatusCode"):
+                            err_msg = err.get("Message", "Error en validate")
+                            if _is_error_no_reintentable(err_msg):
+                                logger.warning(f"[2Captcha] Error no reintentable en validate: {err_msg}")
+                                return PinRedeemResult(False, err_msg, pin_code, player_id)
+                            ultimo_error = err_msg
+                            continue
+                    except Exception:
+                        pass
 
-            confirm_data = dict(form_data)
-            confirm_data["CaptchaToken"] = token2
-            confirm_data["origin"] = "redeem"
+                hidden_fields = _extract_hidden_fields(html1)
+                logger.info(f"[2Captcha] Hidden fields: {hidden_fields}")
 
-            logger.info(f"[2Captcha] POST /confirm con {len(confirm_data)} campos")
-            resp2 = client.post(CONFIRM_URL, data=confirm_data)
-            logger.info(f"[2Captcha] /confirm -> HTTP {resp2.status_code}")
+                form_data = _build_form_data(hidden_fields, nombre, born_at, nacionalidad, player_id)
 
-            html2 = resp2.text
-            logger.info(f"[2Captcha] /confirm body (500 chars): {html2[:500]}")
+                # ========== PASO 2: POST /confirm (redención final) ==========
+                logger.info(f"[2Captcha] Paso 2/2: Resolviendo captcha para /confirm...")
+                try:
+                    token2 = _solve_recaptcha_v3(
+                        api_key=api_key, pageurl=BASE_URL, sitekey=RECAPTCHA_SITEKEY,
+                        action="KEY_REDEEM", min_score=captcha_min_score, timeout_s=captcha_timeout,
+                    )
+                except Exception as e:
+                    ultimo_error = f"Error 2Captcha (confirm): {e}"
+                    logger.error(f"[2Captcha] {ultimo_error}")
+                    continue
 
-            if resp2.status_code == 200:
-                low = html2.lower()
-                if any(kw in low for kw in ["succes", "exitosa", "completad", "confirmad", "resgatado"]):
-                    logger.info(f"[2Captcha] Redención exitosa!")
+                confirm_data = dict(form_data)
+                confirm_data["CaptchaToken"] = token2
+                confirm_data["origin"] = "redeem"
+
+                resp2 = client.post(CONFIRM_URL, data=confirm_data)
+                logger.info(f"[2Captcha] /confirm -> HTTP {resp2.status_code}")
+
+                html2 = resp2.text
+                logger.info(f"[2Captcha] /confirm body (500 chars): {html2[:500]}")
+
+                if resp2.status_code == 200:
+                    low = html2.lower()
+                    if any(kw in low for kw in ["succes", "exitosa", "completad", "confirmad", "resgatado"]):
+                        logger.info(f"[2Captcha] Redención exitosa en intento {intento}!")
+                        return PinRedeemResult(True, "Recarga completada (2Captcha)", pin_code, player_id)
+
+                    error_match = re.search(r'class=["\'][^"\']*error[^"\']*["\'][^>]*>([^<]+)', html2, re.IGNORECASE)
+                    if error_match:
+                        err_msg = error_match.group(1).strip()
+                        if _is_error_no_reintentable(err_msg):
+                            logger.warning(f"[2Captcha] Error no reintentable: {err_msg}")
+                            return PinRedeemResult(False, err_msg, pin_code, player_id)
+                        ultimo_error = err_msg
+                        continue
+
+                    logger.info(f"[2Captcha] /confirm 200 OK - asumiendo éxito")
                     return PinRedeemResult(True, "Recarga completada (2Captcha)", pin_code, player_id)
+                else:
+                    ultimo_error = f"Confirm HTTP {resp2.status_code}"
+                    logger.warning(f"[2Captcha] {ultimo_error}: {html2[:300]}")
+                    if _is_error_no_reintentable(html2):
+                        return PinRedeemResult(False, ultimo_error, pin_code, player_id)
+                    continue
 
-                error_match = re.search(r'class=["\'][^"\']*error[^"\']*["\'][^>]*>([^<]+)', html2, re.IGNORECASE)
-                if error_match:
-                    return PinRedeemResult(False, error_match.group(1).strip(), pin_code, player_id)
+        except Exception as e:
+            ultimo_error = f"Error: {str(e)}"
+            logger.error(f"[2Captcha] Error general intento {intento}: {e}")
+            continue
 
-                logger.info(f"[2Captcha] /confirm 200 OK - asumiendo éxito")
-                return PinRedeemResult(True, "Recarga completada (2Captcha)", pin_code, player_id)
-            else:
-                logger.warning(f"[2Captcha] /confirm error body: {html2[:1000]}")
-                return PinRedeemResult(False, f"Confirm HTTP {resp2.status_code}", pin_code, player_id)
+        # Esperar antes del siguiente intento
+        if intento < max_intentos:
+            logger.info(f"[2Captcha] Esperando 3s antes del intento {intento + 1}...")
+            time.sleep(3)
 
-    except Exception as e:
-        logger.error(f"[2Captcha] Error general: {e}")
-        return PinRedeemResult(False, f"Error: {str(e)}", pin_code, player_id)
+    # Si llegamos aquí, se agotaron los intentos
+    logger.warning(f"[2Captcha] ALERTA: {max_intentos} intentos agotados para PIN {pin_code[:8]}...")
+    return PinRedeemResult(False, f"Falló tras {max_intentos} intentos: {ultimo_error}", pin_code, player_id)
