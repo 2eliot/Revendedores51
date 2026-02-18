@@ -4621,11 +4621,36 @@ def validar_freefire_id():
         flash('Paquete no encontrado o inactivo', 'error')
         return redirect('/juego/freefire_id')
     
-    saldo_actual = session.get('saldo', 0)
+    # === PROTECCIÓN 1: Verificar saldo desde DB (no session) ===
+    if not is_admin:
+        conn_check = get_db_connection()
+        row = conn_check.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+        conn_check.close()
+        saldo_actual = row['saldo'] if row else 0
+        session['saldo'] = saldo_actual  # sincronizar session
+    else:
+        saldo_actual = session.get('saldo', 0)
     
     if not is_admin and saldo_actual < precio:
         flash(f'Saldo insuficiente. Necesitas ${precio:.2f} pero tienes ${saldo_actual:.2f}', 'error')
         return redirect('/juego/freefire_id')
+    
+    # === PROTECCIÓN 2: Dedup — rechazar si ya hay transacción reciente (<30s) ===
+    try:
+        conn_dedup = get_db_connection()
+        recent = conn_dedup.execute('''
+            SELECT id FROM transacciones_freefire_id
+            WHERE usuario_id = ? AND paquete_id = ? AND player_id = ?
+              AND estado IN ('pendiente', 'aprobado')
+              AND fecha > datetime('now', '-30 seconds')
+            LIMIT 1
+        ''', (user_id, package_id, player_id)).fetchone()
+        conn_dedup.close()
+        if recent:
+            flash('Ya tienes una solicitud reciente para este paquete. Espera unos segundos antes de intentar de nuevo.', 'error')
+            return redirect('/juego/freefire_id')
+    except Exception:
+        pass
     
     try:
         # 1. Verificar si hay PIN disponible en stock de FF Global ANTES de cobrar
@@ -4636,13 +4661,29 @@ def validar_freefire_id():
         
         pin_codigo = pin_disponible['pin_codigo']
         
-        # 2. Cobrar al usuario
+        # 2. Cobrar al usuario (atómico: solo si saldo >= precio)
         if not is_admin:
             conn = get_db_connection()
-            conn.execute('UPDATE usuarios SET saldo = saldo - ? WHERE id = ?', (precio, user_id))
+            cursor = conn.execute(
+                'UPDATE usuarios SET saldo = saldo - ? WHERE id = ? AND saldo >= ?',
+                (precio, user_id, precio))
+            if cursor.rowcount == 0:
+                conn.close()
+                # Devolver PIN al stock
+                try:
+                    conn2 = get_db_connection()
+                    conn2.execute('INSERT INTO pines_freefire_global (monto_id, pin_codigo, usado) VALUES (?, ?, FALSE)', (package_id, pin_codigo))
+                    conn2.commit()
+                    conn2.close()
+                except Exception:
+                    pass
+                flash(f'Saldo insuficiente al momento de procesar. Recarga tu saldo e intenta de nuevo.', 'error')
+                return redirect('/juego/freefire_id')
             conn.commit()
+            # Leer saldo actualizado desde DB
+            new_saldo = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
             conn.close()
-            session['saldo'] = saldo_actual - precio
+            session['saldo'] = new_saldo['saldo'] if new_saldo else 0
         
         # 3. Crear transacción (con PIN incluido directamente)
         transaction_data = create_freefire_id_transaction(user_id, player_id, package_id, precio, pin_codigo=pin_codigo)
@@ -6089,24 +6130,42 @@ def get_pin_stock_freefire_global():
     return stock
 
 def get_available_pin_freefire_global(monto_id):
-    """Obtiene un pin disponible de Free Fire Global para el monto especificado y lo elimina"""
+    """Obtiene un pin disponible de Free Fire Global para el monto especificado y lo elimina atómicamente"""
     conn = get_db_connection()
-    pin = conn.execute('''
-        SELECT * FROM pines_freefire_global 
-        WHERE monto_id = ? AND usado = FALSE 
-        LIMIT 1
-    ''', (monto_id,)).fetchone()
-    
-    if pin:
-        # Eliminar el pin de la base de datos
-        conn.execute('''
+    try:
+        # Atómico: DELETE + RETURNING en una sola query para evitar race conditions
+        # Si 2 requests llegan al mismo tiempo, solo 1 logrará borrar el PIN
+        pin = conn.execute('''
             DELETE FROM pines_freefire_global 
-            WHERE id = ?
-        ''', (pin['id'],))
+            WHERE id = (
+                SELECT id FROM pines_freefire_global 
+                WHERE monto_id = ? AND usado = FALSE 
+                LIMIT 1
+            )
+            RETURNING *
+        ''', (monto_id,)).fetchone()
         conn.commit()
-    
-    conn.close()
-    return pin
+        return pin
+    except Exception:
+        # Fallback para SQLite antiguo sin RETURNING (< 3.35)
+        pin = conn.execute('''
+            SELECT * FROM pines_freefire_global 
+            WHERE monto_id = ? AND usado = FALSE 
+            LIMIT 1
+        ''', (monto_id,)).fetchone()
+        if pin:
+            deleted = conn.execute('''
+                DELETE FROM pines_freefire_global 
+                WHERE id = ? AND usado = FALSE
+            ''', (pin['id'],))
+            if deleted.rowcount == 0:
+                # Otro request ya lo tomó
+                conn.close()
+                return get_available_pin_freefire_global(monto_id)  # Reintentar
+            conn.commit()
+        return pin
+    finally:
+        conn.close()
 
 def get_freefire_global_prices():
     """Obtiene información de paquetes de Free Fire Global con precios dinámicos"""

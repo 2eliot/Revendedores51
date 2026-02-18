@@ -101,8 +101,26 @@
         {% endfor %}
       </select>
 
-      <button type="submit">Recargar Ahora</button>
+      <button type="submit" id="btn-recargar">Recargar Ahora</button>
     </form>
+
+    <script>
+    (function() {
+      var form = document.getElementById('ffid-form');
+      var btn = document.getElementById('btn-recargar');
+      var submitted = false;
+      form.addEventListener('submit', function(e) {
+        if (submitted) {
+          e.preventDefault();
+          return false;
+        }
+        submitted = true;
+        btn.disabled = true;
+        btn.textContent = 'Procesando...';
+        btn.style.opacity = '0.6';
+      });
+    })();
+    </script>
 
     {% if compra_exitosa %}
     <div class="compra-exitosa" id="compra-exitosa">
