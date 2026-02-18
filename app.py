@@ -18,7 +18,7 @@ def get_games_active():
 import logging
 logger = logging.getLogger(__name__)
 
-from flask import Flask, render_template, request, redirect, session, flash, jsonify
+from flask import Flask, render_template, render_template_string, request, redirect, session, flash, jsonify
 import json
 import csv
 import re
@@ -305,6 +305,10 @@ def init_db():
             pass
         try:
             cursor.execute("ALTER TABLE pines_freefire_global ADD COLUMN batch_id TEXT")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE transacciones_freefire_id ADD COLUMN pin_codigo TEXT")
         except Exception:
             pass
     
@@ -4643,6 +4647,16 @@ def validar_freefire_id():
         # 3. Crear transacción
         transaction_data = create_freefire_id_transaction(user_id, player_id, package_id, precio)
         
+        # 3b. Guardar PIN usado en la transacción
+        try:
+            conn_pin = get_db_connection()
+            conn_pin.execute('UPDATE transacciones_freefire_id SET pin_codigo = ? WHERE id = ?',
+                           (pin_codigo, transaction_data['id']))
+            conn_pin.commit()
+            conn_pin.close()
+        except Exception:
+            pass
+        
         # 4. Actualizar gastos mensuales
         if not is_admin:
             try:
@@ -4880,6 +4894,149 @@ def admin_update_freefire_id_name():
         flash(f'Error al actualizar nombre: {str(e)}', 'error')
     
     return redirect('/admin')
+
+@app.route('/admin/freefire_id_pin_log')
+def admin_freefire_id_pin_log():
+    """Vista admin para ver PINes gastados recientemente en recargas FreeFire ID"""
+    if not session.get('is_admin'):
+        flash('Acceso denegado. Solo administradores.', 'error')
+        return redirect('/auth')
+    
+    conn = get_db_connection()
+    transactions = conn.execute('''
+        SELECT fi.id, fi.usuario_id, fi.player_id, fi.pin_codigo, fi.paquete_id,
+               fi.numero_control, fi.transaccion_id, fi.monto, fi.estado, fi.fecha,
+               fi.fecha_procesado, fi.notas,
+               u.nombre || ' ' || u.apellido as usuario_nombre, u.correo,
+               p.nombre as paquete_nombre
+        FROM transacciones_freefire_id fi
+        JOIN usuarios u ON fi.usuario_id = u.id
+        LEFT JOIN precios_freefire_id p ON fi.paquete_id = p.id
+        ORDER BY fi.fecha DESC
+        LIMIT 100
+    ''').fetchall()
+    conn.close()
+    
+    return render_template_string(PIN_LOG_TEMPLATE, transactions=transactions)
+
+PIN_LOG_TEMPLATE = r'''
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Log de PINes FreeFire ID</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0a0a1a; color: #e0e0e0; padding: 20px; }
+        h1 { color: #00ff88; margin-bottom: 5px; }
+        .subtitle { color: #888; margin-bottom: 20px; font-size: 14px; }
+        .back-link { color: #00ff88; text-decoration: none; margin-bottom: 20px; display: inline-block; }
+        .back-link:hover { text-decoration: underline; }
+        .stats { display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; }
+        .stat-box { background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 12px 20px; }
+        .stat-box .num { font-size: 24px; font-weight: bold; }
+        .stat-box .label { font-size: 12px; color: #888; }
+        .stat-box.success .num { color: #00ff88; }
+        .stat-box.fail .num { color: #ff4444; }
+        .stat-box.pending .num { color: #ffaa00; }
+        table { width: 100%; border-collapse: collapse; background: #1a1a2e; border-radius: 8px; overflow: hidden; }
+        th { background: #16213e; color: #00ff88; padding: 10px 8px; text-align: left; font-size: 12px; position: sticky; top: 0; }
+        td { padding: 8px; border-bottom: 1px solid #222; font-size: 13px; }
+        tr:hover { background: #16213e; }
+        .pin-code { font-family: monospace; font-size: 12px; color: #ffdd57; cursor: pointer; }
+        .pin-code:hover { color: #fff; }
+        .estado-aprobado { color: #00ff88; font-weight: bold; }
+        .estado-rechazado { color: #ff4444; font-weight: bold; }
+        .estado-pendiente { color: #ffaa00; font-weight: bold; }
+        .player-id { font-family: monospace; color: #88ccff; }
+        .search-box { margin-bottom: 15px; }
+        .search-box input { background: #1a1a2e; border: 1px solid #333; color: #fff; padding: 8px 15px;
+                           border-radius: 6px; width: 300px; font-size: 14px; }
+        .search-box input:focus { outline: none; border-color: #00ff88; }
+        .notas { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: #999; }
+        .copy-toast { position: fixed; bottom: 20px; right: 20px; background: #00ff88; color: #000;
+                     padding: 10px 20px; border-radius: 6px; display: none; font-weight: bold; z-index: 999; }
+    </style>
+</head>
+<body>
+    <a href="/admin" class="back-link">&#8592; Volver al Panel Admin</a>
+    <h1>Log de PINes FreeFire ID</h1>
+    <p class="subtitle">Ultimas 100 transacciones con PIN completo, player ID y estado</p>
+
+    <div class="stats">
+        <div class="stat-box success">
+            <div class="num">{{ transactions|selectattr('estado', 'equalto', 'aprobado')|list|length }}</div>
+            <div class="label">Aprobadas</div>
+        </div>
+        <div class="stat-box fail">
+            <div class="num">{{ transactions|selectattr('estado', 'equalto', 'rechazado')|list|length }}</div>
+            <div class="label">Rechazadas</div>
+        </div>
+        <div class="stat-box pending">
+            <div class="num">{{ transactions|selectattr('estado', 'equalto', 'pendiente')|list|length }}</div>
+            <div class="label">Pendientes</div>
+        </div>
+    </div>
+
+    <div class="search-box">
+        <input type="text" id="searchInput" placeholder="Buscar por PIN, Player ID, usuario..." onkeyup="filterTable()">
+    </div>
+
+    <table id="pinTable">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Fecha</th>
+                <th>Usuario</th>
+                <th>Player ID</th>
+                <th>PIN Completo</th>
+                <th>Paquete</th>
+                <th>Monto</th>
+                <th>Estado</th>
+                <th>Notas</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for t in transactions %}
+            <tr>
+                <td>{{ t.id }}</td>
+                <td>{{ t.fecha[:16] if t.fecha else '-' }}</td>
+                <td>{{ t.usuario_nombre }}<br><small style="color:#666">{{ t.correo }}</small></td>
+                <td class="player-id">{{ t.player_id }}</td>
+                <td class="pin-code" onclick="copyPin(this)" title="Click para copiar">{{ t.pin_codigo or 'N/A' }}</td>
+                <td>{{ t.paquete_nombre or '-' }}</td>
+                <td>${{ '%.2f'|format(t.monto|abs) }}</td>
+                <td class="estado-{{ t.estado }}">{{ t.estado|upper }}</td>
+                <td class="notas" title="{{ t.notas or '' }}">{{ t.notas or '-' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="copy-toast" id="copyToast">PIN copiado al portapapeles</div>
+
+    <script>
+        function copyPin(el) {
+            var pin = el.textContent.trim();
+            if (pin && pin !== 'N/A') {
+                navigator.clipboard.writeText(pin);
+                var toast = document.getElementById('copyToast');
+                toast.style.display = 'block';
+                setTimeout(function() { toast.style.display = 'none'; }, 2000);
+            }
+        }
+        function filterTable() {
+            var q = document.getElementById('searchInput').value.toLowerCase();
+            var rows = document.querySelectorAll('#pinTable tbody tr');
+            rows.forEach(function(row) {
+                row.style.display = row.textContent.toLowerCase().indexOf(q) >= 0 ? '' : 'none';
+            });
+        }
+    </script>
+</body>
+</html>
+'''
 
 @app.route('/admin/approve_freefire_id/<int:transaction_id>', methods=['POST'])
 def approve_freefire_id_transaction(transaction_id):
@@ -6872,3 +7029,62 @@ def api_simple_endpoint_post():
 
 if __name__ == '__main__':
     app.run(debug=True)
+-02-18 16:23:04,995 [INFO] Petición de canje recibida para player_id=8618799151
+2026-02-18 16:23:05,040 [INFO] Navegando a https://redeem.hype.games/
+2026-02-18 16:23:10,267 [INFO] Página cargada en 5.3s
+2026-02-18 16:23:10,274 [INFO] reCAPTCHA disponible: True
+--
+2026-02-18 16:25:23,331 [INFO] Petición de canje recibida para player_id=14381641962
+2026-02-18 16:25:23,365 [INFO] Navegando a https://redeem.hype.games/
+2026-02-18 16:25:28,726 [INFO] Página cargada en 5.4s
+2026-02-18 16:25:28,733 [INFO] reCAPTCHA disponible: True
+--
+2026-02-18 16:25:56,557 [INFO] Petición de canje recibida para player_id=9355308457
+2026-02-18 16:25:56,590 [INFO] Navegando a https://redeem.hype.games/
+2026-02-18 16:26:01,611 [INFO] Página cargada en 5.1s
+2026-02-18 16:26:01,617 [INFO] reCAPTCHA disponible: True
+--
+2026-02-18 16:26:25,268 [INFO] Petición de canje recibida para player_id=2643864116
+2026-02-18 16:26:25,304 [INFO] Navegando a https://redeem.hype.games/
+2026-02-18 16:26:29,915 [INFO] Página cargada en 4.6s
+2026-02-18 16:26:29,921 [INFO] reCAPTCHA disponible: True
+root@priceless-leavitt:~/revendedores# grep "pin=" /root/revendedores/nohup.out
+root@priceless-leavitt:~/revendedores# cat /root/revendedores/nohup.out | grep "PIN\|pin_key\|Petición"
+2026-02-18 15:22:30,468 [INFO] Petición de canje recibida para player_id=2643864116
+2026-02-18 15:22:30,468 [INFO] Ingresando PIN...
+2026-02-18 15:22:31,168 [INFO] Texto de página (200 chars): RESGATE SEU JOGO INSIRA SEU PIN HYPE VERIFICANDO...  Este site é protegido pelo reCAPTCHA.  A Level Up respeita a sua privacidade! Se você tem alguma dúvida sobre como realizamos a proteção dos seus d
+2026-02-18 15:23:13,388 [INFO] Petición de canje recibida para player_id=11727925081
+2026-02-18 15:23:13,388 [INFO] Ingresando PIN...
+2026-02-18 15:35:32,928 [INFO] Petición de canje recibida para player_id=11727925081
+2026-02-18 15:35:32,928 [INFO] Ingresando PIN...
+2026-02-18 15:35:33,576 [INFO] Texto de página (200 chars): RESGATE SEU JOGO INSIRA SEU PIN HYPE VERIFICANDO...  Este site é protegido pelo reCAPTCHA.  A Level Up respeita a sua privacidade! Se você tem alguma dúvida sobre como realizamos a proteção dos seus d
+2026-02-18 15:54:15,000 [INFO] Petición de canje recibida para player_id=2394981739
+2026-02-18 15:54:15,000 [INFO] Ingresando PIN...
+2026-02-18 15:54:15,711 [INFO] Texto de página (200 chars): RESGATE SEU JOGO INSIRA SEU PIN HYPE VERIFICANDO...  Este site é protegido pelo reCAPTCHA.  A Level Up respeita a sua privacidade! Se você tem alguma dúvida sobre como realizamos a proteção dos seus d
+2026-02-18 15:58:56,007 [INFO] Petición de canje recibida para player_id=11727925081
+2026-02-18 15:58:56,898 [INFO] Ingresando PIN...
+2026-02-18 15:58:58,045 [INFO] Texto de página (200 chars): RESGATE SEU JOGO INSIRA SEU PIN HYPE VERIFICANDO...  Este site é protegido pelo reCAPTCHA.  A Level Up respeita a sua privacidade! Se você tem alguma dúvida sobre como realizamos a proteção dos seus d
+2026-02-18 15:59:55,650 [INFO] Petición de canje recibida para player_id=9203832848
+2026-02-18 15:59:56,065 [INFO] Ingresando PIN...
+2026-02-18 15:59:57,158 [INFO] Texto de página (200 chars): RESGATE SEU JOGO INSIRA SEU PIN HYPE VERIFICANDO...  Este site é protegido pelo reCAPTCHA.  A Level Up respeita a sua privacidade! Se você tem alguma dúvida sobre como realizamos a proteção dos seus d
+2026-02-18 16:00:07,553 [INFO] Petición de canje recibida para player_id=9203832848
+2026-02-18 16:00:07,947 [INFO] Ingresando PIN...
+2026-02-18 16:00:08,905 [INFO] Texto de página (200 chars): RESGATE SEU JOGO INSIRA SEU PIN HYPE VERIFICANDO...  Este site é protegido pelo reCAPTCHA.  A Level Up respeita a sua privacidade! Se você tem alguma dúvida sobre como realizamos a proteção dos seus d
+2026-02-18 16:01:08,934 [INFO] Petición de canje recibida para player_id=14381641962
+2026-02-18 16:01:09,323 [INFO] Ingresando PIN...
+2026-02-18 16:01:10,259 [INFO] Texto de página (200 chars): RESGATE SEU JOGO INSIRA SEU PIN HYPE VERIFICANDO...  Este site é protegido pelo reCAPTCHA.  A Level Up respeita a sua privacidade! Se você tem alguma dúvida sobre como realizamos a proteção dos seus d
+2026-02-18 16:04:22,654 [INFO] Petición de canje recibida para player_id=11727925081
+2026-02-18 16:04:28,574 [INFO] Ingresando PIN...
+2026-02-18 16:12:23,470 [INFO] Petición de canje recibida para player_id=1449013716
+2026-02-18 16:14:35,939 [INFO] Petición de canje recibida para player_id=14381641962
+2026-02-18 16:17:39,872 [INFO] Petición de canje recibida para player_id=14381641962
+2026-02-18 16:20:53,874 [INFO] Petición de canje recibida para player_id=14381641962
+2026-02-18 16:20:59,850 [INFO] Ingresando PIN...
+2026-02-18 16:23:04,995 [INFO] Petición de canje recibida para player_id=8618799151
+2026-02-18 16:23:10,275 [INFO] Ingresando PIN...
+2026-02-18 16:25:23,331 [INFO] Petición de canje recibida para player_id=14381641962
+2026-02-18 16:25:28,733 [INFO] Ingresando PIN...
+2026-02-18 16:25:56,557 [INFO] Petición de canje recibida para player_id=9355308457
+2026-02-18 16:26:01,617 [INFO] Ingresando PIN...
+2026-02-18 16:26:25,268 [INFO] Petición de canje recibida para player_id=2643864116
+2026-02-18 16:26:29,921 [INFO] Ingresando PIN...
