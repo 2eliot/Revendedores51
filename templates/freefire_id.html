@@ -125,27 +125,25 @@
     {% if compra_exitosa %}
     <div class="compra-exitosa" id="compra-exitosa">
       {% if estado == 'completado' %}
-      <h3>🔥 ¡Recarga Realizada con Éxito!</h3>
+      <h3>¡Recarga Realizada con Éxito!</h3>
       <div class="solicitud-container">
         <div class="solicitud-info">
           <p class="solicitud-label">Estado:</p>
           <p class="solicitud-estado" id="estadoSolicitud" style="color: #28a745;">✅ COMPLETADO</p>
         </div>
         <div class="detalles-info">
+          <p><strong>Free Fire</strong></p>
           <p><strong>Paquete:</strong> {{ paquete_nombre.split(' / ')[0] if ' / ' in paquete_nombre else paquete_nombre }}</p>
           {% if player_name %}
-          <p><strong>Jugador:</strong> <span style="color: #28a745; font-weight: 700; font-size: 1.1em;">{{ player_name }}</span></p>
+          <p><strong>Jugador:</strong> <span style="font-weight: 700; font-size: 1.1em;">{{ player_name }}</span></p>
           {% endif %}
           <p><strong>ID de Jugador:</strong> {{ player_id }}</p>
           <p><strong>Número de Control:</strong> {{ numero_control }}</p>
           <p style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #ccc; color: #888; font-size: 0.9em;"><strong>Monto:</strong> ${{ "%.2f"|format(monto_compra) }}</p>
         </div>
       </div>
-      <div class="entrega-info" style="background: #d4edda; border: 1px solid #28a745; border-radius: 8px; padding: 12px; margin-top: 10px;">
-        <p style="color: #155724; margin: 0;">✅ Los diamantes han sido agregados a tu cuenta de Free Fire.</p>
-      </div>
       {% else %}
-      <h3>🔥 ¡Solicitud Enviada!</h3>
+      <h3>¡Solicitud Enviada!</h3>
       <div class="solicitud-container">
         <div class="solicitud-info">
           <p class="solicitud-label">Estado:</p>
