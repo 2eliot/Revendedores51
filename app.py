@@ -7175,15 +7175,19 @@ def api_v1_ejecutar_recarga():
         return jsonify({'ok': False, 'error': 'Pin obtenido vacío, contacte al administrador'}), 500
 
     # --- Registrar la transacción en la base de datos de Web B ---
+    transaccion_id = f'INEFABLE-{order_id or "X"}-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
     try:
         conn = get_db_connection()
-        numero_control = ''.join(random.choices(string.digits, k=10))
-        transaccion_id = f'INEFABLE-{order_id or "X"}-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        # Usar el usuario_id del primer admin para que aparezca en el historial del dashboard
+        admin_row = conn.execute("SELECT id FROM usuarios ORDER BY id ASC LIMIT 1").fetchone()
+        admin_uid = int(admin_row[0]) if admin_row else 1
+        # numero_control incluye player_id para trazabilidad en el historial
+        numero_control = f'INEFABLE-{player_id}'
         paquete_nombre = package_info.get('nombre', f'Paquete {package_id}')
         conn.execute(
             '''INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto)
                VALUES (?, ?, ?, ?, ?, ?)''',
-            (0, numero_control, pin_code, transaccion_id, paquete_nombre, -float(package_info.get('precio', 0)))
+            (admin_uid, numero_control, pin_code, transaccion_id, paquete_nombre, -float(package_info.get('precio', 0)))
         )
         conn.commit()
         conn.close()
