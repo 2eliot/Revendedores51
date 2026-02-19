@@ -7149,18 +7149,35 @@ def api_v1_ejecutar_recarga():
         return jsonify({'ok': False, 'error': 'package_id debe estar entre 1 y 9'}), 400
 
     # --- Obtener información del paquete ---
+    # WEBB_FF_TIPO: 'freefire_id' (default), 'freefire_global', 'latam'
+    ff_tipo = os.environ.get('WEBB_FF_TIPO', 'freefire_id').strip().lower()
     try:
-        packages_info = get_package_info_with_prices()
-        package_info = packages_info.get(package_id)
-        if not package_info:
-            return jsonify({'ok': False, 'error': f'Paquete {package_id} no encontrado o inactivo'}), 404
+        conn_tmp = get_db_connection()
+        if ff_tipo == 'freefire_global':
+            tabla_precios = 'precios_freefire_global'
+        elif ff_tipo == 'latam':
+            tabla_precios = 'precios_paquetes'
+        else:
+            tabla_precios = 'precios_freefire_id'
+        row = conn_tmp.execute(
+            f'SELECT id, nombre, precio FROM {tabla_precios} WHERE id = ? AND activo = 1',
+            (package_id,)
+        ).fetchone()
+        conn_tmp.close()
+        if not row:
+            return jsonify({'ok': False, 'error': f'Paquete {package_id} no encontrado o inactivo en {tabla_precios}'}), 404
+        package_info = {'nombre': row['nombre'], 'precio': row['precio']}
     except Exception as e:
         return jsonify({'ok': False, 'error': f'Error obteniendo paquetes: {str(e)}'}), 500
 
     # --- Obtener PIN del stock ---
+    # freefire_id y latam usan pines_freefire; freefire_global usa pines_freefire_global
     try:
         pin_manager = create_pin_manager(DATABASE)
-        result = pin_manager.request_pin(package_id)
+        if ff_tipo == 'freefire_global':
+            result = pin_manager.request_pin_global(package_id)
+        else:
+            result = pin_manager.request_pin(package_id)
     except Exception as e:
         return jsonify({'ok': False, 'error': f'Error en pin_manager: {str(e)}'}), 500
 
