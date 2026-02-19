@@ -115,7 +115,7 @@ app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 
 # Configuración de cookies seguras (solo en producción con HTTPS)
 is_production = os.environ.get('FLASK_ENV') == 'production'
-app.config['SESSION_COOKIE_SECURE'] = is_production  # Solo HTTPS en producción
+app.config['SESSION_COOKIE_SECURE'] = True  # Render siempre usa HTTPS
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # Prevenir XSS
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Protección CSRF
 
@@ -2102,7 +2102,7 @@ def login():
     admin_email = os.environ.get('ADMIN_EMAIL', 'admin@inefable.com')
     admin_password = os.environ.get('ADMIN_PASSWORD', 'InefableAdmin2024!')
     
-    if (not is_production and correo == 'admin' and contraseña == '123456') or (correo == admin_email and contraseña == admin_password):
+    if correo == admin_email and contraseña == admin_password:
         # Buscar o crear usuario admin en la base de datos
         conn = get_db_connection()
         admin_user = conn.execute('SELECT * FROM usuarios WHERE correo = ?', (admin_email,)).fetchone()
