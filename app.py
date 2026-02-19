@@ -1281,6 +1281,7 @@ def api_dismiss_news(noticia_id):
     return jsonify({'status': 'ok'})
 
 # ===== Sistema de Recargas por Binance Pay =====
+BINANCE_API_KEY = os.environ.get('BINANCE_API_KEY', '')
 BINANCE_API_SECRET = os.environ.get('BINANCE_API_SECRET', '')
 BINANCE_PAY_ID = os.environ.get('BINANCE_PAY_ID', '')
 RECARGA_BONUS_PERCENT = float(os.environ.get('RECARGA_BONUS_PERCENT', '3'))
