@@ -7094,5 +7094,115 @@ def api_simple_endpoint_post():
         'message': 'Usar método GET con parámetros en la URL'
     }), 405
 
+
+# ============= API v1: RECARGA AUTOMÁTICA DESDE WEB A =============
+
+@app.route('/api/v1/ejecutar-recarga', methods=['POST'])
+def api_v1_ejecutar_recarga():
+    """
+    Endpoint seguro para ejecutar una recarga de Free Fire desde Web A (Inefable Store).
+
+    Headers requeridos:
+        Authorization: Bearer <REVENDEDORES_API_TOKEN>
+
+    Body JSON:
+        {
+            "player_id": "123456789",   # ID del jugador en Free Fire
+            "package_id": 1,            # ID del paquete (1-9 según tabla de precios)
+            "order_id": 42              # ID del pedido en Web A (para trazabilidad)
+        }
+
+    Respuesta exitosa:
+        { "ok": true, "pin": "...", "package": "...", "order_id": 42 }
+
+    Respuesta de error:
+        { "ok": false, "error": "..." }
+    """
+    # --- Autenticación por Bearer Token ---
+    expected_token = os.environ.get('REVENDEDORES_API_TOKEN', '').strip()
+    if not expected_token:
+        return jsonify({'ok': False, 'error': 'API no configurada (token vacío)'}), 503
+
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return jsonify({'ok': False, 'error': 'Authorization header requerido (Bearer token)'}), 401
+
+    provided_token = auth_header[len('Bearer '):].strip()
+    # Comparación segura contra timing attacks
+    if not hmac_module.compare_digest(provided_token, expected_token):
+        return jsonify({'ok': False, 'error': 'Token inválido'}), 401
+
+    # --- Validar body ---
+    data = request.get_json(silent=True) or {}
+    player_id = str(data.get('player_id') or '').strip()
+    order_id = data.get('order_id')
+
+    try:
+        package_id = int(data.get('package_id') or 0)
+    except (ValueError, TypeError):
+        return jsonify({'ok': False, 'error': 'package_id debe ser un número entero'}), 400
+
+    if not player_id:
+        return jsonify({'ok': False, 'error': 'player_id es requerido'}), 400
+
+    if package_id < 1 or package_id > 9:
+        return jsonify({'ok': False, 'error': 'package_id debe estar entre 1 y 9'}), 400
+
+    # --- Obtener información del paquete ---
+    try:
+        packages_info = get_package_info_with_prices()
+        package_info = packages_info.get(package_id)
+        if not package_info:
+            return jsonify({'ok': False, 'error': f'Paquete {package_id} no encontrado o inactivo'}), 404
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Error obteniendo paquetes: {str(e)}'}), 500
+
+    # --- Obtener PIN del stock ---
+    try:
+        pin_manager = create_pin_manager(DATABASE)
+        result = pin_manager.request_pin(package_id)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Error en pin_manager: {str(e)}'}), 500
+
+    if result.get('status') != 'success':
+        return jsonify({
+            'ok': False,
+            'error': f'Sin stock disponible para el paquete {package_id} ({package_info.get("nombre", "")})'
+        }), 503
+
+    pin_code = result.get('pin_code', '')
+    if not pin_code:
+        return jsonify({'ok': False, 'error': 'Pin obtenido vacío, contacte al administrador'}), 500
+
+    # --- Registrar la transacción en la base de datos de Web B ---
+    try:
+        conn = get_db_connection()
+        numero_control = ''.join(random.choices(string.digits, k=10))
+        transaccion_id = f'INEFABLE-{order_id or "X"}-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        paquete_nombre = package_info.get('nombre', f'Paquete {package_id}')
+        conn.execute(
+            '''INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto)
+               VALUES (?, ?, ?, ?, ?, ?)''',
+            (0, numero_control, pin_code, transaccion_id, paquete_nombre, -float(package_info.get('precio', 0)))
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        # No bloquear la respuesta si falla el registro
+        logger.error(f'[api/v1/ejecutar-recarga] Error registrando transacción: {e}')
+
+    logger.info(f'[api/v1/ejecutar-recarga] Recarga exitosa - order_id={order_id} player_id={player_id} package={package_id} pin={pin_code[:8]}...')
+
+    return jsonify({
+        'ok': True,
+        'pin': pin_code,
+        'package': package_info.get('nombre', ''),
+        'package_id': package_id,
+        'player_id': player_id,
+        'order_id': order_id,
+        'transaccion_id': transaccion_id,
+    })
+
+
 if __name__ == '__main__':
     app.run(debug=True)
