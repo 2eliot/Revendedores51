@@ -1280,12 +1280,11 @@ def api_dismiss_news(noticia_id):
     return jsonify({'status': 'ok'})
 
 # ===== Sistema de Recargas por Binance Pay =====
-BINANCE_API_KEY = os.environ.get('BINANCE_API_KEY', '')
 BINANCE_API_SECRET = os.environ.get('BINANCE_API_SECRET', '')
 BINANCE_PAY_ID = os.environ.get('BINANCE_PAY_ID', '')
 RECARGA_BONUS_PERCENT = float(os.environ.get('RECARGA_BONUS_PERCENT', '3'))
 RECARGA_EXPIRATION_MINUTES = int(os.environ.get('RECARGA_EXPIRATION_MINUTES', '30'))
-RECARGA_MIN_USDT = float(os.environ.get('RECARGA_MIN_USDT', '1'))
+RECARGA_MIN_USDT = float(os.environ.get('RECARGA_MIN_USDT', '10'))
 RECARGA_MAX_USDT = float(os.environ.get('RECARGA_MAX_USDT', '50000'))
 BINANCE_PROXY = os.environ.get('BINANCE_PROXY', '')
 
