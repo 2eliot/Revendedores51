@@ -113,9 +113,10 @@ app = Flask(__name__)
 # En producción, usar variables de entorno
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 
-# Configuración de cookies seguras (solo en producción con HTTPS)
-is_production = os.environ.get('FLASK_ENV') == 'production'
-app.config['SESSION_COOKIE_SECURE'] = True  # Render siempre usa HTTPS
+# Configuración de cookies seguras
+# En Render (producción) siempre hay HTTPS. En local (127.0.0.1) no hay HTTPS.
+is_production = os.environ.get('RENDER') == 'true' or os.environ.get('FLASK_ENV') == 'production'
+app.config['SESSION_COOKIE_SECURE'] = is_production  # True en Render, False en local
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # Prevenir XSS
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Protección CSRF
 
