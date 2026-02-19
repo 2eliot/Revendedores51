@@ -1470,8 +1470,8 @@ def verificar_recarga_binance(recarga_id):
         
         logger.info(f"  TX: note='{tx_note}', amount={tx_amount}, currency={tx_currency}, orderType={tx_order_type}")
         
-        # Solo procesar transacciones recibidas (PAY = pago recibido)
-        if tx_order_type and tx_order_type not in ('PAY', 'C2C_TRANSFER', 'CRYPTO_BOX', ''):
+        # Solo procesar transacciones recibidas - aceptar todos los tipos de ingreso
+        if tx_order_type and tx_order_type not in ('PAY', 'C2C', 'C2C_TRANSFER', 'CRYPTO_BOX', ''):
             continue
         
         # Verificar: nota contiene el código de referencia Y monto coincide Y es USDT
