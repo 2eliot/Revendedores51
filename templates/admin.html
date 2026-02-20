@@ -266,7 +266,7 @@
             <!-- Crear nueva noticia -->
             <div class="create-news-container">
               <h3>✍️ Crear Nueva Noticia</h3>
-              <form method="POST" action="/admin/create_news" class="news-form">
+              <form method="POST" action="/admin/create_news" class="news-form" enctype="multipart/form-data">
                 <div class="form-group">
                   <label for="news_title">📝 Título de la Noticia:</label>
                   <input type="text" id="news_title" name="titulo" placeholder="Ingrese el título de la noticia" required maxlength="200">
@@ -287,8 +287,37 @@
                   <small class="form-help">Las noticias importantes aparecen con un badge especial y generan notificación.</small>
                 </div>
                 
+                <div class="form-group">
+                  <label for="news_imagen">🖼️ Imagen (opcional):</label>
+                  <div class="image-upload-area" onclick="document.getElementById('news_imagen').click()" id="image-upload-area">
+                    <input type="file" id="news_imagen" name="imagen" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none" onchange="previewNewsImage(this)">
+                    <div id="image-upload-placeholder">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:40px;height:40px;color:#aaa;margin-bottom:8px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                      <p style="color:#aaa;margin:0;font-size:0.9em">Haz clic para subir imagen</p>
+                      <p style="color:#bbb;margin:4px 0 0;font-size:0.75em">PNG, JPG, GIF, WEBP</p>
+                    </div>
+                    <img id="image-preview" src="" alt="Preview" style="display:none;max-width:100%;max-height:180px;border-radius:8px;object-fit:contain">
+                  </div>
+                  <small class="form-help">La imagen se mostrará en el popup de la noticia.</small>
+                </div>
+
                 <button type="submit" class="btn btn-create-news">📰 Publicar Noticia</button>
               </form>
+              <script>
+              function previewNewsImage(input) {
+                const placeholder = document.getElementById('image-upload-placeholder');
+                const preview = document.getElementById('image-preview');
+                if (input.files && input.files[0]) {
+                  const reader = new FileReader();
+                  reader.onload = function(e) {
+                    preview.src = e.target.result;
+                    preview.style.display = 'block';
+                    placeholder.style.display = 'none';
+                  };
+                  reader.readAsDataURL(input.files[0]);
+                }
+              }
+              </script>
             </div>
             
             <!-- Lista de noticias existentes -->

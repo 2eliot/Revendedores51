@@ -1241,7 +1241,7 @@ def api_unread_news():
 
     conn = get_db_connection()
     rows = conn.execute('''
-        SELECT n.id, n.titulo, n.contenido, n.importante, n.fecha
+        SELECT n.id, n.titulo, n.contenido, n.importante, n.fecha, n.imagen_url
         FROM noticias n
         WHERE n.id NOT IN (
             SELECT nv.noticia_id FROM noticias_vistas nv
@@ -1699,6 +1699,12 @@ def create_news_table():
         )
     ''')
     conn.commit()
+    # Migración: agregar columna imagen_url si no existe
+    try:
+        conn.execute('ALTER TABLE noticias ADD COLUMN imagen_url TEXT')
+        conn.commit()
+    except:
+        pass
     conn.close()
 
 def create_news_views_table():
@@ -1718,14 +1724,14 @@ def create_news_views_table():
     conn.commit()
     conn.close()
 
-def create_news(titulo, contenido, importante=False):
+def create_news(titulo, contenido, importante=False, imagen_url=None):
     """Crea una nueva noticia"""
     create_news_table()
     conn = get_db_connection()
     cursor = conn.execute('''
-        INSERT INTO noticias (titulo, contenido, importante)
-        VALUES (?, ?, ?)
-    ''', (titulo, contenido, importante))
+        INSERT INTO noticias (titulo, contenido, importante, imagen_url)
+        VALUES (?, ?, ?, ?)
+    ''', (titulo, contenido, importante, imagen_url))
     news_id = cursor.lastrowid
     conn.commit()
     conn.close()
@@ -5435,10 +5441,6 @@ def noticias():
         flash('Error al acceder a las noticias', 'error')
         return redirect('/')
     
-    # Marcar todas las noticias como leídas (solo para usuarios normales)
-    if not is_admin:
-        mark_news_as_read(user_id)
-    
     # Obtener noticias para mostrar
     noticias_list = get_user_news(user_id)
     
@@ -5473,9 +5475,6 @@ def notificaciones():
         if notificaciones_personalizadas:
             mark_personal_notifications_as_read(user_id)
         
-        # Marcar noticias como leídas
-        mark_news_as_read(user_id)
-    
     # Obtener noticias para mostrar
     noticias_list = get_user_news(user_id)
     
@@ -5499,7 +5498,6 @@ def admin_create_news():
         flash('Por favor complete todos los campos obligatorios', 'error')
         return redirect('/admin')
     
-    # Validar longitud
     if len(titulo) > 200:
         flash('El título no puede exceder 200 caracteres', 'error')
         return redirect('/admin')
@@ -5508,8 +5506,24 @@ def admin_create_news():
         flash('El contenido no puede exceder 2000 caracteres', 'error')
         return redirect('/admin')
     
+    # Manejar subida de imagen
+    imagen_url = None
+    imagen_file = request.files.get('imagen')
+    if imagen_file and imagen_file.filename:
+        import uuid
+        ext = imagen_file.filename.rsplit('.', 1)[-1].lower()
+        if ext in ('png', 'jpg', 'jpeg', 'gif', 'webp'):
+            filename = f"news_{uuid.uuid4().hex}.{ext}"
+            upload_dir = os.path.join(os.path.dirname(__file__), 'static', 'news_images')
+            os.makedirs(upload_dir, exist_ok=True)
+            imagen_file.save(os.path.join(upload_dir, filename))
+            imagen_url = f"/static/news_images/{filename}"
+        else:
+            flash('Formato de imagen no válido. Use PNG, JPG, GIF o WEBP.', 'error')
+            return redirect('/admin')
+    
     try:
-        news_id = create_news(titulo, contenido, importante)
+        news_id = create_news(titulo, contenido, importante, imagen_url)
         tipo_noticia = "importante" if importante else "normal"
         flash(f'Noticia {tipo_noticia} creada exitosamente (ID: {news_id})', 'success')
     except Exception as e:
