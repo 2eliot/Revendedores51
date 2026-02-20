@@ -113,6 +113,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.venv-redeemer/
 env/
 venv/
 ENV/
