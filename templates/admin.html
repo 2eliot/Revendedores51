@@ -112,6 +112,10 @@
                 <input type="number" name="new_balance" placeholder="Nuevo saldo" step="0.01" min="0" required class="small-input">
                 <button type="submit" class="btn btn-warning">Modificar</button>
               </form>
+              <form method="POST" action="/admin/toggle_sin_ganancia" class="inline-form">
+                <input type="hidden" name="user_id" value="{{ user.id }}">
+                <button type="submit" class="btn {{ 'btn-danger' if user.sin_ganancia else 'btn-secondary' }}" title="Si está activo, esta cuenta no genera profit, no suma al saldo activo total y no compite en el top clientes">{{ '🚫 Sin ganancia' if user.sin_ganancia else '💰 Con ganancia' }}</button>
+              </form>
               <form method="POST" action="/admin/delete_user" class="inline-form" onsubmit="return confirm('¿Estás seguro de eliminar este usuario? Esta acción no se puede deshacer.')">
                 <input type="hidden" name="user_id" value="{{ user.id }}">
                 <button type="submit" class="btn btn-danger">Eliminar</button>

@@ -180,6 +180,10 @@ def record_profit_for_transaction(conn, usuario_id, is_admin, juego, paquete_id,
     try:
         if is_admin:
             return
+        # No registrar profit para cuentas marcadas sin_ganancia
+        sg = conn.execute('SELECT sin_ganancia FROM usuarios WHERE id = ?', (int(usuario_id),)).fetchone()
+        if sg and sg['sin_ganancia']:
+            return
         if juego is None or paquete_id is None or cantidad is None or precio_unitario is None:
             return
         cur = conn.cursor()
@@ -266,6 +270,11 @@ def init_db():
         # Intentar agregar columna paquete_nombre si no existe (SQLite no soporta IF NOT EXISTS en ADD COLUMN)
         try:
             cursor.execute("ALTER TABLE transacciones ADD COLUMN paquete_nombre TEXT")
+        except Exception:
+            pass
+        # Columna sin_ganancia: cuentas marcadas no generan profit, no suman a saldo activo, no compiten en top
+        try:
+            cursor.execute("ALTER TABLE usuarios ADD COLUMN sin_ganancia BOOLEAN DEFAULT 0")
         except Exception:
             pass
     
@@ -3499,6 +3508,30 @@ def admin_delete_user():
     
     return redirect('/admin')
 
+@app.route('/admin/toggle_sin_ganancia', methods=['POST'])
+def admin_toggle_sin_ganancia():
+    if not session.get('is_admin'):
+        flash('Acceso denegado. Solo administradores.', 'error')
+        return redirect('/auth')
+    
+    user_id = request.form.get('user_id')
+    if user_id:
+        conn = get_db_connection()
+        user = conn.execute('SELECT sin_ganancia FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+        if user:
+            new_val = 0 if user['sin_ganancia'] else 1
+            conn.execute('UPDATE usuarios SET sin_ganancia = ? WHERE id = ?', (new_val, user_id))
+            conn.commit()
+            estado = 'SIN ganancia' if new_val else 'CON ganancia'
+            flash(f'Usuario ID {user_id} ahora está {estado}', 'success')
+        else:
+            flash('Usuario no encontrado', 'error')
+        conn.close()
+    else:
+        flash('ID de usuario inválido', 'error')
+    
+    return redirect('/admin')
+
 @app.route('/admin/add_pin', methods=['POST'])
 def admin_add_pin():
     if not session.get('is_admin'):
@@ -5889,8 +5922,30 @@ def get_profit_analysis():
             'margen_porcentaje': margen
         })
     
+    # Análisis para Free Fire ID
+    freefire_id_analysis = []
+    try:
+        freefire_id_prices = get_freefire_id_prices()
+        for paquete_id, info in freefire_id_prices.items():
+            precio_compra = get_purchase_price('freefire_id', paquete_id)
+            precio_venta = info['precio']
+            ganancia = precio_venta - precio_compra
+            margen = (ganancia / precio_venta * 100) if precio_venta > 0 else 0
+            
+            freefire_id_analysis.append({
+                'juego': 'Free Fire ID',
+                'paquete_id': paquete_id,
+                'nombre': info['nombre'],
+                'precio_compra': precio_compra,
+                'precio_venta': precio_venta,
+                'ganancia': ganancia,
+                'margen_porcentaje': margen
+            })
+    except Exception:
+        pass
+    
     conn.close()
-    return freefire_latam_analysis + freefire_global_analysis + bloodstriker_analysis
+    return freefire_latam_analysis + freefire_global_analysis + bloodstriker_analysis + freefire_id_analysis
 
 def register_weekly_sale(juego, paquete_id, paquete_nombre, precio_venta, cantidad=1):
     """Registra una venta en las estadísticas diarias (corregido para resetear a las 12 AM)"""

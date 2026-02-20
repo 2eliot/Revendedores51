@@ -4,32 +4,46 @@
 .form-control {
   width: 100%;
   padding: 12px 15px;
-  border: 2px solid #e9ecef;
+  border: 1px solid rgba(255,255,255,0.12);
   border-radius: 10px;
   font-size: 1rem;
   margin-bottom: 1.25rem;
   transition: all 0.3s ease;
   font-family: 'Inter', sans-serif;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  background: rgba(255,255,255,0.08);
+  color: #e0e0e0;
 }
 
 .form-control:focus {
   outline: none;
-  border-color: #ff6b35;
-  box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.1);
+  border-color: #a78bfa;
+  box-shadow: 0 0 0 3px rgba(167,139,250,0.15);
 }
 
 .form-control::placeholder {
-  color: #999;
+  color: #6b7280;
+}
+
+/* Override freefire.css select margin-bottom:0 for vertical form layout */
+.juego-form select.form-control {
+  margin-bottom: 1.25rem;
+}
+
+/* Force select option readability */
+.form-control option {
+  background: #1a1a2e;
+  color: #e0e0e0;
 }
 
 /* Solicitud container */
 .solicitud-container {
-  background: white;
+  background: rgba(255,255,255,0.06);
   border-radius: 10px;
   padding: 1.25rem;
   margin-bottom: 1rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  border: 1px solid rgba(255,255,255,0.08);
 }
 
 .solicitud-info {
@@ -38,19 +52,19 @@
   justify-content: center;
   margin-bottom: 1rem;
   padding: 0.75rem;
-  background: #f8f9fa;
+  background: rgba(167,139,250,0.1);
   border-radius: 8px;
 }
 
 .solicitud-label {
   font-weight: 600;
-  color: #2d5016;
+  color: #a78bfa;
   margin-right: 10px;
   margin-bottom: 0;
 }
 
 .solicitud-estado {
-  background: linear-gradient(135deg, #2d5016, #4a7c59);
+  background: linear-gradient(135deg, #a78bfa, #7c3aed);
   color: white;
   padding: 5px 15px;
   border-radius: 20px;
@@ -60,11 +74,43 @@
 }
 
 .detalles-info {
-  border-top: 1px solid #eee;
+  border-top: 1px solid rgba(255,255,255,0.08);
   padding-top: 1rem;
 }
 
 .detalles-info p {
   margin: 8px 0;
-  color: #555;
+  color: #c0c8d4;
 }
+
+/* Compra exitosa override for dark theme */
+.compra-exitosa {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  text-align: left;
+  color: #e0e0e0;
+}
+.compra-exitosa h3 {
+  color: #fff;
+}
+
+/* Entrega info */
+.entrega-info {
+  background: rgba(255,255,255,0.04);
+  padding: 0.8rem;
+  border-radius: 6px;
+  border-left: 4px solid #4ade80;
+  color: #c0c8d4;
+}
+.entrega-info p {
+  margin: 4px 0;
+  color: #c0c8d4;
+}
+
+/* Volver */
+.volver-container { text-align: center; margin-top: 1.5rem; }
+.volver-btn { color: #a78bfa; text-decoration: none; font-weight: 600; }
+.volver-btn:hover { color: #c4b5fd; }

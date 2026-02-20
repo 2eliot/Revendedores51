@@ -45,22 +45,19 @@
     </div>
 
     <div class="icon-container">
-      <svg class="icon" onclick="window.location.href='/'" viewBox="0 0 24 24"><path d="M3 10L12 2l9 8v10a1 1 0 01-1 1h-6v-6H10v6H4a1 1 0 01-1-1V10z"/></svg>
+      <svg class="icon" onclick="window.location.href='/'" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.5V19a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1V9.5"/></svg>
       <div class="dashboard-icon-container" onclick="window.location.href='/dashboard'" title="Mi Dashboard">
-        <svg class="icon" viewBox="0 0 200 200" fill="none" aria-hidden="true" style="color:#ffffff">
-          <line x1="30" y1="10" x2="30" y2="170" stroke="currentColor" stroke-width="12" stroke-linecap="round"/>
-          <line x1="30" y1="170" x2="190" y2="170" stroke="currentColor" stroke-width="12" stroke-linecap="round"/>
-          <rect x="45" y="110" width="20" height="60" fill="currentColor" rx="4"/>
-          <rect x="75" y="80" width="20" height="90" fill="currentColor" rx="4"/>
-          <rect x="105" y="110" width="20" height="60" fill="currentColor" rx="4"/>
-          <rect x="135" y="90" width="20" height="80" fill="currentColor" rx="4"/>
-          <polyline points="55,110 85,80 115,110 145,90" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+          <rect x="14" y="3" width="7" height="7" rx="1.5"/>
+          <rect x="3" y="14" width="7" height="7" rx="1.5"/>
+          <rect x="14" y="14" width="7" height="7" rx="1.5"/>
         </svg>
       </div>
-      <svg class="icon" onclick="window.location.href='/billetera'" viewBox="0 0 24 24"><path d="M18 4H6C4.9 4 4 4.9 4 6v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM6 6h12v2H6V6zm0 4h12v8H6v-8zm2 2h8v1H8v-1zm0 2h6v1H8v-1z"/></svg>
+      <svg class="icon" onclick="window.location.href='/billetera'" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 10h20"/><circle cx="16.5" cy="15" r="1.5"/></svg>
 
       <div class="user-icon" onclick="toggleUserBox()">
-        <svg class="icon" viewBox="0 0 24 24"><path d="M12 12a5 5 0 100-10 5 5 0 000 10zm0 2c-4.418 0-8 2.239-8 5v1h16v-1c0-2.761-3.582-5-8-5z"/></svg>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0112 0v1"/></svg>
         <div id="user-box" class="user-box">
           <p><strong>Correo:</strong> {{ session.get('usuario', '---') }}</p>
           {% if session.get('is_admin') %}
@@ -77,7 +74,10 @@
 
   <!-- Panel del usuario -->
   <section class="user-panel">
-    <p>Mi ID <span style="color: #28a745; font-weight: 600;">{{ user_id }}</span> &nbsp; | &nbsp; Saldo <span id="saldo-display" data-saldo="{{ balance }}" style="color: #28a745; font-weight: 600; transition: color 0.3s ease;">${{ "%.2f"|format(balance) }}</span></p>
+    <p>
+      <span class="user-chip"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0112 0v1"/></svg>ID <span class="chip-value">{{ user_id }}</span></span>
+      <span class="user-chip chip-saldo"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 10h20"/></svg>Saldo <span class="chip-value" id="saldo-display" data-saldo="{{ balance }}">${{ "%.2f"|format(balance) }}</span></span>
+    </p>
   </section>
 
   <section class="juego-container">
@@ -87,7 +87,7 @@
       <div class="form-row">
         <div class="form-col">
           <label for="monto">Selecciona tu paquete:</label>
-          <select id="monto" name="monto" class="form-control" style="background-color: #AAF0F4;" required onchange="updateQuantityOptions()">
+          <select id="monto" name="monto" class="form-control" required onchange="updateQuantityOptions()">
             <option value="">Seleccione paquete</option>
             {% for package_id in range(1, 10) %}
               {% set package = prices.get(package_id, {}) %}
@@ -113,7 +113,7 @@
         
         <div class="form-col">
           <label for="cantidad">Cantidad:</label>
-          <select id="cantidad" name="cantidad" class="form-control" style="background-color: #AAF0F4;" required disabled>
+          <select id="cantidad" name="cantidad" class="form-control" required disabled>
             <option value="">-</option>
             <option value="1">1</option>
             <option value="2">2</option>
@@ -170,7 +170,7 @@
     {% else %}
     <div class="juego-descripcion">
       <p>💡 Instrucciones para canjear tu código PIN:</p>
-      <ul style="list-style-type: square; padding-left: 1.5rem; line-height: 1.6; color: #444;">
+      <ul style="list-style-type: square; padding-left: 1.5rem; line-height: 1.6; color: #c0c8d4;">
         <li>Dirígete al sitio oficial de <a href="https://pagostore.garena.com/" target="_blank">https://pagostore.garena.com/</a></li>
         <li>Accede con tu cuenta usando tu <strong>ID de jugador</strong></li>
         <li>Verifica que la región seleccionada sea <strong>Bolivia</strong></li>

@@ -56,9 +56,11 @@ def compute_legacy_profit_by_day(conn: sqlite3.Connection, start_utc: str, end_u
         placeholders = ','.join('?' for _ in admin_emails)
         filters.append(f"u.correo NOT IN ({placeholders})")
         params.extend(admin_emails)
+    # Excluir cuentas sin_ganancia
+    filters.append("COALESCE(u.sin_ganancia,0)=0")
     where_ex = (" AND " + " AND ".join(filters)) if filters else ""
 
-    # Traer transacciones en rango, excluyendo admin si corresponde
+    # Traer transacciones en rango, excluyendo admin y sin_ganancia
     tx_rows = conn.execute(
         f"""
         SELECT t.usuario_id, t.monto, t.fecha
@@ -85,6 +87,10 @@ def compute_legacy_profit_by_day(conn: sqlite3.Connection, start_utc: str, end_u
         pass
     try:
         prices.extend(load_price_map('precios_bloodstriker', 'bloodstriker'))
+    except Exception:
+        pass
+    try:
+        prices.extend(load_price_map('precios_freefire_id', 'freefire_id'))
     except Exception:
         pass
 
@@ -221,7 +227,7 @@ def top_clients():
                          COALESCE(mus.purchases_count, 0) AS purchases_count
                   FROM monthly_user_spending mus
                   JOIN usuarios u ON u.id = mus.usuario_id
-                  WHERE mus.year_month = ?
+                  WHERE mus.year_month = ? AND COALESCE(u.sin_ganancia,0)=0
                 ),
                 max_total AS (
                   SELECT MAX(total_spent) AS max_total FROM combined
@@ -256,6 +262,7 @@ def top_clients():
                          COALESCE(b.purchases_count,0) AS purchases_count
                   FROM base b
                   JOIN usuarios u ON u.id = b.user_id
+                  WHERE COALESCE(u.sin_ganancia,0)=0
                 ),
                 max_total AS (
                   SELECT MAX(total_spent) AS max_total FROM combined
@@ -324,7 +331,7 @@ def summary():
                 "SELECT COALESCE(SUM(ub.balance),0) AS active_balance_total FROM user_balances ub JOIN users u ON u.id = ub.user_id WHERE COALESCE(u.is_admin,0)=0"
             ).fetchone()
         else:
-            row = conn.execute("SELECT COALESCE(SUM(saldo),0) AS active_balance_total FROM usuarios").fetchone()
+            row = conn.execute("SELECT COALESCE(SUM(saldo),0) AS active_balance_total FROM usuarios WHERE COALESCE(sin_ganancia,0)=0").fetchone()
         parts['active_balance_total'] = row['active_balance_total'] if row else 0
     except sqlite3.Error as e:
         parts['active_balance_total_error'] = str(e)
@@ -696,6 +703,15 @@ def profit_packages_config():
                         """
                     ).fetchall()
                     rows.extend(b)
+                if table_exists(conn, 'precios_freefire_id'):
+                    fi = conn.execute(
+                        """
+                        SELECT id AS package_id, 'freefire_id' AS source, id AS category_id, nombre AS package_name, precio AS base_price, (
+                           SELECT precio_compra FROM precios_compra pc WHERE pc.juego='freefire_id' AND pc.paquete_id = precios_freefire_id.id AND pc.activo = 1 LIMIT 1
+                         ) AS cost FROM precios_freefire_id
+                        """
+                    ).fetchall()
+                    rows.extend(fi)
             conn.close()
             return jsonify({'profit_packages_config': [dict(r) for r in rows]})
         except sqlite3.Error as e:

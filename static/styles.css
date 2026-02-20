@@ -14,8 +14,9 @@
 }
 body {
   font-family: 'Inter', sans-serif;
-  background-color: #f8f9fa;
-  color: #333;
+  background: linear-gradient(135deg, #0f0f0f 0%, #1a1a2e 100%);
+  color: #e0e0e0;
+  min-height: 100vh;
 }
 
 /* Mensajes flash en página principal */
@@ -78,13 +79,14 @@ body {
 
 /* ==== HEADER ==== */
 .header {
-  background-color: #222;
-  padding: 1rem 2rem;
+  background-color: #000;
+  padding: 0.8rem 1.5rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
   position: relative;
   z-index: 10;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
 }
 .hamburger {
   position: relative;
@@ -142,18 +144,22 @@ body {
   position: relative;
 }
 .icon {
-  width: 32px;
-  height: 32px;
-  fill: #ffffff;
-  transition: transform 0.2s ease;
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.8;
+  transition: transform 0.25s cubic-bezier(.4,0,.2,1), stroke 0.25s ease, filter 0.25s ease;
+  cursor: pointer;
 }
 .icon:hover {
-  transform: scale(1.2);
-  cursor: pointer;
+  transform: scale(1.15);
+  stroke: #a78bfa;
+  filter: drop-shadow(0 0 6px rgba(167,139,250,0.45));
 }
 
 .icon.active {
-  fill: #667eea;
+  stroke: #a78bfa;
 }
 
 /* Contenedor del ícono de cartera con notificación */
@@ -210,12 +216,14 @@ body {
 }
 
 .dashboard-icon-container .icon {
-  fill: #ffffff;
-  transition: fill 0.2s ease;
+  fill: none;
+  stroke: #ffffff;
+  transition: stroke 0.25s ease, filter 0.25s ease;
 }
 
 .dashboard-icon-container:hover .icon {
-  fill: #667eea;
+  stroke: #a78bfa;
+  filter: drop-shadow(0 0 6px rgba(167,139,250,0.45));
 }
 
 /* Contenedor del ícono de noticias con notificación */
@@ -314,11 +322,57 @@ body {
 
 /* ==== PANEL SALDO ==== */
 .user-panel {
-  background-color: #f8f9fa;
-  text-align: center;
-  font-size: 0.95rem;
-  padding: 0.6rem 0;
-  border-bottom: 1px solid #ddd;
+  background: linear-gradient(135deg, #0f0f0f 0%, #1a1a2e 100%);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.user-panel p {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.user-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 20px;
+  padding: 5px 14px;
+  font-size: 0.85rem;
+  color: rgba(255,255,255,0.7);
+  backdrop-filter: blur(4px);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.user-chip:hover {
+  background: rgba(255,255,255,0.12);
+  border-color: rgba(255,255,255,0.18);
+}
+.user-chip svg {
+  width: 14px;
+  height: 14px;
+  stroke: rgba(255,255,255,0.5);
+  fill: none;
+  stroke-width: 2;
+  flex-shrink: 0;
+}
+.user-chip .chip-value {
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+.user-chip.chip-saldo .chip-value {
+  color: #4ade80;
+}
+.user-chip.chip-saldo svg {
+  stroke: #4ade80;
 }
 
 /* ==== HISTORIAL ==== */
@@ -327,26 +381,27 @@ body {
   text-align: center;
 }
 .transaction-title {
-  background: linear-gradient(90deg, #333, #000);
+  background: rgba(255,255,255,0.08);
   color: #fff;
   padding: 0.5rem 1rem;
   border-radius: 12px;
   display: inline-block;
   margin-bottom: 1.5rem;
   font-size: 1.4rem;
-  box-shadow: 0 0 4px rgba(0,0,0,0.3);
+  box-shadow: 0 0 8px rgba(0,0,0,0.3);
+  border: 1px solid rgba(255,255,255,0.1);
 }
 
 /* Encabezado dentro de cada tarjeta */
 .transaction-header {
   width: 100%;
-  background-color: rgba(0,0,0,0.06); /* gris transparente */
-  color: #000; /* texto oscuro para contraste */
+  background-color: rgba(255,255,255,0.06);
+  color: #e0e0e0;
   font-weight: 700;
   padding: 0.4rem 0.6rem;
   border-radius: 6px;
   margin-bottom: 0.5rem;
-  border-bottom: 2px solid rgba(0,0,0,0.15); /* línea que delimita */
+  border-bottom: 2px solid rgba(255,255,255,0.08);
 }
 
 /* Contenedor de transacciones simplificado */
@@ -360,17 +415,19 @@ body {
 
 /* Tarjeta de transacción simple */
 .transaction-card-simple {
-  background: #fff;
+  background: rgba(255,255,255,0.05);
   border-radius: 8px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
-  border: 1px solid #e9ecef;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  border: 1px solid rgba(255,255,255,0.08);
   padding: 0.75rem;
-  transition: box-shadow 0.2s ease;
+  transition: box-shadow 0.2s ease, background 0.2s ease;
   text-align: center;
+  color: #e0e0e0;
 }
 
 .transaction-card-simple:hover {
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  background: rgba(255,255,255,0.08);
 }
 
 /* Fila principal de la transacción */
@@ -401,7 +458,7 @@ body {
   font-family: 'Courier New', monospace;
   font-size: 0.85rem;
   font-weight: 600;
-  color: #495057;
+  color: #a0aec0;
 }
 
 .status-simple {
@@ -418,7 +475,7 @@ body {
 .package {
   font-size: 0.9rem;
   font-weight: 600;
-  color: #667eea;
+  color: #a78bfa;
 }
 
 .cost {
@@ -432,10 +489,10 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  background-color: #f8f9fa;
+  background-color: rgba(255,255,255,0.06);
   padding: 0.4rem 0.6rem;
   border-radius: 6px;
-  border: 1px solid #dee2e6;
+  border: 1px solid rgba(255,255,255,0.1);
   align-self: center;
 }
 
@@ -443,7 +500,7 @@ body {
   font-family: 'Courier New', monospace;
   font-size: 0.8rem;
   font-weight: 700;
-  color: #212529;
+  color: #e0e0e0;
   letter-spacing: 0.5px;
 }
 
@@ -490,9 +547,9 @@ body {
   align-items: center;
   gap: 0.5rem;
   padding: 0.25rem;
-  background-color: #f8f9fa;
+  background-color: rgba(255,255,255,0.06);
   border-radius: 4px;
-  border: 1px solid #dee2e6;
+  border: 1px solid rgba(255,255,255,0.1);
 }
 
 .copy-all-btn-simple {
@@ -526,9 +583,9 @@ body {
   align-items: center;
   gap: 0.5rem;
   padding-top: 0.5rem;
-  border-top: 1px solid #f1f3f4;
+  border-top: 1px solid rgba(255,255,255,0.08);
   font-size: 0.8rem;
-  color: #6c757d;
+  color: #8896a6;
 }
 
 .date-simple {
@@ -556,11 +613,11 @@ body {
 .empty-icon {
   width: 64px;
   height: 64px;
-  fill: #adb5bd;
+  fill: #4a5568;
 }
 
 .empty-state p {
-  color: #6c757d;
+  color: #8896a6;
   font-size: 1.1rem;
   font-weight: 500;
 }
@@ -585,26 +642,26 @@ body {
 }
 
 .pagination::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: rgba(255,255,255,0.05);
   border-radius: 2px;
 }
 
 .pagination::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
+  background: rgba(255,255,255,0.15);
   border-radius: 2px;
 }
 
 .pagination::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
+  background: rgba(255,255,255,0.25);
 }
 
 .page {
   padding: 0.5rem 0.75rem;
-  border: 1px solid #aaa;
-  background-color: #fff;
+  border: 1px solid rgba(255,255,255,0.15);
+  background-color: rgba(255,255,255,0.05);
   border-radius: 4px;
   text-decoration: none;
-  color: #333;
+  color: #c0c8d4;
   transition: all 0.2s ease;
   min-width: 40px;
   text-align: center;
@@ -612,17 +669,17 @@ body {
   white-space: nowrap;
 }
 .page:hover {
-  background-color: #eee;
+  background-color: rgba(255,255,255,0.12);
 }
 .page.active {
-  background-color: #333;
+  background-color: #a78bfa;
   color: #fff;
-  border-color: #333;
+  border-color: #a78bfa;
 }
 .page.disabled {
-  background-color: #f8f9fa;
-  color: #6c757d;
-  border-color: #dee2e6;
+  background-color: rgba(255,255,255,0.03);
+  color: #4a5568;
+  border-color: rgba(255,255,255,0.06);
   cursor: not-allowed;
   pointer-events: none;
 }

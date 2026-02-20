@@ -7,19 +7,19 @@
 
 body {
   font-family: 'Inter', sans-serif;
-  background: linear-gradient(135deg, #1a0a00 0%, #3d1c00 50%, #5c2d00 100%);
+  background: linear-gradient(135deg, #0f0f0f 0%, #1a1a2e 100%);
+  color: #e0e0e0;
   min-height: 100vh;
-  color: #333;
 }
 
 /* Header */
 .header {
-  background: linear-gradient(90deg, #c35600, #e67300, #ff8c00);
-  padding: 15px 20px;
+  background-color: #000;
+  padding: 0.8rem 1.5rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  box-shadow: 0 2px 10px rgba(195, 86, 0, 0.3);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
   position: relative;
 }
 
@@ -30,17 +30,19 @@ body {
 }
 
 .icon {
-  width: 24px;
-  height: 24px;
-  fill: white;
-  stroke: white;
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.8;
+  transition: transform 0.25s cubic-bezier(.4,0,.2,1), stroke 0.25s ease, filter 0.25s ease;
   cursor: pointer;
-  transition: all 0.3s ease;
 }
 
 .icon:hover {
-  transform: scale(1.1);
-  filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.5));
+  transform: scale(1.15);
+  stroke: #a78bfa;
+  filter: drop-shadow(0 0 6px rgba(167,139,250,0.45));
 }
 
 .icon-container {
@@ -54,7 +56,7 @@ body {
   position: absolute;
   top: 100%;
   left: 0;
-  background: linear-gradient(135deg, #c35600, #e67300);
+  background: #fff;
   border-radius: 0 0 10px 10px;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
   min-width: 200px;
@@ -174,30 +176,72 @@ body {
 
 /* Panel del usuario */
 .user-panel {
-  background: rgba(255, 255, 255, 0.95);
-  padding: 6px 20px;
-  text-align: center;
-  font-size: 0.85rem;
-  font-weight: 500;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  background: linear-gradient(135deg, #0f0f0f 0%, #1a1a2e 100%);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
 }
-
-.user-panel span {
-  font-size: 1.05rem;
+.user-panel p {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.user-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 20px;
+  padding: 5px 14px;
+  font-size: 0.85rem;
+  color: rgba(255,255,255,0.7);
+  backdrop-filter: blur(4px);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.user-chip:hover {
+  background: rgba(255,255,255,0.12);
+  border-color: rgba(255,255,255,0.18);
+}
+.user-chip svg {
+  width: 14px;
+  height: 14px;
+  stroke: rgba(255,255,255,0.5);
+  fill: none;
+  stroke-width: 2;
+  flex-shrink: 0;
+}
+.user-chip .chip-value {
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+.user-chip.chip-saldo .chip-value {
+  color: #4ade80;
+}
+.user-chip.chip-saldo svg {
+  stroke: #4ade80;
 }
 
 /* Contenedor del juego */
 .juego-container {
   max-width: 600px;
   margin: 30px auto;
-  background: white;
+  background: rgba(255,255,255,0.05);
   border-radius: 15px;
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+  border: 1px solid rgba(255,255,255,0.08);
   overflow: hidden;
 }
 
 .juego-titulo {
-  background: linear-gradient(90deg, #c35600, #ff8c00);
+  background: linear-gradient(90deg, #a78bfa, #7c3aed);
   color: white;
   text-align: center;
   padding: 25px;
@@ -216,19 +260,21 @@ body {
   display: block;
   margin-bottom: 8px;
   font-weight: 600;
-  color: #c35600;
+  color: #c0c8d4;
   font-size: 16px;
 }
 
 .form-control {
   width: 100%;
   padding: 12px 15px;
-  border: 2px solid #ddd;
+  border: 1px solid rgba(255,255,255,0.12);
   border-radius: 8px;
   font-size: 16px;
   margin-bottom: 20px;
   transition: all 0.3s ease;
   font-family: 'Inter', sans-serif;
+  background: rgba(255,255,255,0.08);
+  color: #e0e0e0;
 }
 
 .form-control:focus {
@@ -238,7 +284,7 @@ body {
 }
 
 .form-control::placeholder {
-  color: #999;
+  color: #6b7280;
 }
 
 .juego-form button {
@@ -264,27 +310,30 @@ body {
 
 /* Compra exitosa */
 .compra-exitosa {
-  background: #ffffff;
+  background: rgba(255,255,255,0.05);
   margin: 20px 30px;
   padding: 25px;
   border-radius: 12px;
-  border-left: 5px solid #ff8c00;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  border-left: 5px solid #a78bfa;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: #e0e0e0;
 }
 
 .compra-exitosa h3 {
-  color: #c35600;
+  color: #fff;
   margin-bottom: 20px;
   font-size: 22px;
   text-align: center;
 }
 
 .solicitud-container {
-  background: white;
+  background: rgba(255,255,255,0.06);
   border-radius: 10px;
   padding: 20px;
   margin-bottom: 15px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  border: 1px solid rgba(255,255,255,0.08);
 }
 
 .solicitud-info {
@@ -293,13 +342,13 @@ body {
   justify-content: center;
   margin-bottom: 15px;
   padding: 10px;
-  background: #fff8f0;
+  background: rgba(167,139,250,0.1);
   border-radius: 8px;
 }
 
 .solicitud-label {
   font-weight: 600;
-  color: #c35600;
+  color: #a78bfa;
   margin-right: 10px;
   margin-bottom: 0;
 }
