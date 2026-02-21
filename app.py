@@ -36,6 +36,7 @@ import threading
 import hmac as hmac_module
 import time as time_module
 import urllib.parse
+import requests
 from pin_manager import create_pin_manager
 from pin_redeemer import PinRedeemResult, get_redeemer_config_from_db
 from redeem_hype_vps import redeem_pin_vps
@@ -2949,6 +2950,121 @@ def get_user_pending_freefire_id_transactions(user_id):
     conn.close()
     return formatted_transactions
 
+def verify_pin_already_redeemed(pin_code, player_id, config=None):
+    """
+    Verifica si un PIN ya fue redimido exitosamente en el VPS.
+    Esto previene devolver PINS que ya fueron usados.
+    """
+    try:
+        cfg = dict(config or {})
+        vps_url = cfg.get("vps_url") or os.environ.get("VPS_REDEEM_URL", "http://74.208.158.70:5000/redeem")
+        
+        # Intentar 1: Verificar si el VPS tiene endpoint de verificación
+        try:
+            payload = {
+                "pin_key": str(pin_code).strip(),
+                "player_id": str(player_id).strip(),
+                "verify_only": True
+            }
+            
+            timeout = 30
+            
+            resp = requests.post(
+                vps_url + "/verify",
+                json=payload,
+                timeout=timeout,
+                headers={"Content-Type": "application/json"},
+            )
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("already_redeemed") or data.get("used") or data.get("status") == "used":
+                    logger.warning(f"[FreeFire ID] PIN {pin_code[:8]}... ya fue redimido (verify endpoint)")
+                    return True
+                    
+        except requests.exceptions.RequestException:
+            # Si no hay endpoint /verify, continuar con método alternativo
+            logger.info(f"[FreeFire ID] Endpoint /verify no disponible, usando método alternativo")
+        
+        # Intento 2: Verificar en base de datos local si hay transacciones exitosas recientes
+        conn = get_db_connection()
+        recent_success = conn.execute('''
+            SELECT COUNT(*) as count FROM transacciones_freefire_id 
+            WHERE pin_codigo = ? AND player_id = ? AND estado = 'aprobado'
+            AND fecha > datetime('now', '-5 minutes')
+        ''', (pin_code, player_id)).fetchone()
+        conn.close()
+        
+        if recent_success and recent_success['count'] > 0:
+            logger.warning(f"[FreeFire ID] PIN {pin_code[:8]}... ya fue redimido (verificación local)")
+            return True
+        
+        # Intento 3: Verificar si el PIN ya no está en el stock (fue removido)
+        conn = get_db_connection()
+        pin_in_stock = conn.execute('''
+            SELECT COUNT(*) as count FROM pines_freefire_global 
+            WHERE pin_codigo = ? AND usado = FALSE
+        ''', (pin_code,)).fetchone()
+        conn.close()
+        
+        if pin_in_stock and pin_in_stock['count'] == 0:
+            logger.warning(f"[FreeFire ID] PIN {pin_code[:8]}... no está en stock (probablemente usado)")
+            return True
+        
+        return False
+        
+    except Exception as e:
+        logger.error(f"[FreeFire ID] Error verificando PIN {pin_code[:8]}...: {str(e)}")
+        # En caso de error, ser conservador y asumir que no fue usado
+        return False
+
+def audit_freefire_id_inconsistent_transactions():
+    """
+    Audita y detecta transacciones inconsistentes de Free Fire ID.
+    Busca casos donde el saldo fue reembolsado pero el PIN fue usado.
+    """
+    conn = get_db_connection()
+    
+    # Buscar transacciones rechazadas con PIN que ya no está en stock
+    inconsistent = conn.execute('''
+        SELECT t.*, p.pin_codigo
+        FROM transacciones_freefire_id t
+        LEFT JOIN pines_freefire_global p ON t.pin_codigo = p.pin_codigo AND p.usado = FALSE
+        WHERE t.estado = 'rechazado' 
+        AND p.pin_codigo IS NULL  -- El PIN no está disponible en stock
+        AND t.fecha > datetime('now', '-24 hours')
+        ORDER BY t.fecha DESC
+        LIMIT 50
+    ''').fetchall()
+    
+    results = []
+    for trans in inconsistent:
+        # Verificación adicional: buscar si hay transacciones generales correspondientes
+        general_trans = conn.execute('''
+            SELECT COUNT(*) as count FROM transacciones 
+            WHERE usuario_id = ? AND numero_control = ? 
+            AND monto = ?
+        ''', (trans['usuario_id'], trans['numero_control'], trans['monto'])).fetchone()
+        
+        # Si no hay transacción general, probablemente fue reembolsado
+        was_refunded = general_trans and general_trans['count'] == 0
+        
+        results.append({
+            'id': trans['id'],
+            'usuario_id': trans['usuario_id'],
+            'player_id': trans['player_id'],
+            'pin_codigo': trans['pin_codigo'],
+            'numero_control': trans['numero_control'],
+            'monto': abs(trans['monto']),  # Convertir a positivo
+            'fecha': trans['fecha'],
+            'notas': trans['notas'],
+            'was_refunded': was_refunded,
+            'severity': 'HIGH' if was_refunded else 'MEDIUM'
+        })
+    
+    conn.close()
+    return results
+
 def update_freefire_id_transaction_status(transaction_id, new_status, admin_id, notas=None):
     """Actualiza el estado de una transacción de Free Fire ID"""
     conn = get_db_connection()
@@ -4820,15 +4936,60 @@ def validar_freefire_id():
             return redirect('/juego/freefire_id?compra=exitosa')
         
         else:
-            # === FALLO: Devolver PIN al stock y reembolsar saldo ===
+            # === FALLO: Verificar si el PIN realmente falló antes de reembolsar ===
             error_msg = redeem_result.message if redeem_result else 'Error desconocido en la redención'
             logger.error(
-                f"[FreeFire ID] Redencion fallida: {error_msg} | "
+                f"[FreeFire ID] Redencion reportada como fallida: {error_msg} | "
                 f"usuario_id={user_id} player_id={player_id} package_id={package_id} precio={precio} | "
                 f"pin={pin_codigo} numero_control={transaction_data.get('numero_control')} transaccion_id={transaction_data.get('transaccion_id')}"
             )
             
-            # Devolver PIN al inventario
+            # === VERIFICACIÓN CRÍTICA: Antes de reembolsar, verificar si el PIN ya fue usado ===
+            pin_already_used = verify_pin_already_redeemed(pin_codigo, player_id, redeemer_config)
+            
+            if pin_already_used:
+                # === CASO CRÍTICO: El PIN fue redimido pero hubo error de comunicación ===
+                logger.critical(
+                    f"[FreeFire ID] PIN REDIMIDO PERO ERROR DE COMUNICACIÓN - NO REEMBOLSAR | "
+                    f"usuario_id={user_id} player_id={player_id} pin={pin_codigo} | "
+                    f"El cliente recibió los diamantes pero el sistema reportó fallo"
+                )
+                
+                # Marcar como aprobado manualmente ya que el cliente recibió el producto
+                update_freefire_id_transaction_status(transaction_data['id'], 'aprobado', user_id, 
+                    f'CORRECCIÓN: PIN redimido exitosamente pero error de comunicación. Cliente ya recibió diamantes.')
+                
+                # Registrar en transacciones generales para mantener consistencia
+                conn = get_db_connection()
+                pin_info = f"ID: {player_id} - Jugador: (verificado)"
+                conn.execute('''
+                    INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (user_id, transaction_data['numero_control'], pin_info, 
+                      transaction_data['transaccion_id'], package_info.get('nombre', 'FF ID'), -precio))
+                
+                # Registrar profit
+                try:
+                    admin_ids_env = os.environ.get('ADMIN_USER_IDS', '').strip()
+                    admin_ids = [int(x.strip()) for x in admin_ids_env.split(',') if x.strip().isdigit()]
+                    is_admin_target = user_id in admin_ids
+                    record_profit_for_transaction(conn, user_id, is_admin_target, 'freefire_id', package_id, 1, precio, transaction_data['transaccion_id'])
+                except Exception:
+                    pass
+                
+                conn.commit()
+                
+                # Registrar venta semanal
+                if not is_admin:
+                    register_weekly_sale('freefire_id', package_id, package_info.get('nombre', 'FF ID'), precio, 1)
+                
+                flash('Tu recarga fue procesada exitosamente. Los diamantes ya fueron agregados a tu cuenta.', 'success')
+                return redirect('/juego/freefire_id?compra=exitosa')
+            
+            # === CASO NORMAL: El PIN realmente falló, proceder con reembolso ===
+            logger.info(f"[FreeFire ID] PIN no fue redimido, procediendo con reembolso estándar")
+            
+            # Devolver PIN al inventario (solo si no fue usado)
             try:
                 conn = get_db_connection()
                 conn.execute('''
@@ -4837,8 +4998,9 @@ def validar_freefire_id():
                 ''', (package_id, pin_codigo))
                 conn.commit()
                 conn.close()
-            except:
-                pass
+                logger.info(f"[FreeFire ID] PIN {pin_codigo[:8]}... devuelto al stock")
+            except Exception as e:
+                logger.error(f"[FreeFire ID] Error devolviendo PIN al stock: {str(e)}")
             
             # Reembolsar saldo al usuario
             if not is_admin:
@@ -4847,8 +5009,9 @@ def validar_freefire_id():
                 conn.commit()
                 conn.close()
                 session['saldo'] = session.get('saldo', 0) + precio
+                logger.info(f"[FreeFire ID] Saldo ${precio} reembolsado al usuario {user_id}")
             
-            # Actualizar transacción como fallida
+            # Actualizar transacción como rechazada
             update_freefire_id_transaction_status(transaction_data['id'], 'rechazado', user_id, f'Auto-redención fallida: {error_msg}')
             
             flash(f'Error al procesar la recarga automática. Tu saldo ha sido devuelto. Detalle: {error_msg}', 'error')
@@ -5016,6 +5179,147 @@ def admin_freefire_id_pin_log():
     conn.close()
     
     return render_template_string(PIN_LOG_TEMPLATE, transactions=transactions)
+
+@app.route('/admin/freefire_id_audit')
+def admin_freefire_id_audit():
+    """Vista admin para auditar transacciones inconsistentes de Free Fire ID"""
+    if not session.get('is_admin'):
+        flash('Acceso denegado. Solo administradores.', 'error')
+        return redirect('/auth')
+    
+    inconsistent_transactions = audit_freefire_id_inconsistent_transactions()
+    
+    return render_template_string(AUDIT_TEMPLATE, transactions=inconsistent_transactions)
+
+AUDIT_TEMPLATE = r'''
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auditoría FreeFire ID - Transacciones Inconsistentes</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0a0a1a; color: #e0e0e0; padding: 20px; }
+        h1 { color: #ff6b6b; margin-bottom: 5px; }
+        .subtitle { color: #888; margin-bottom: 20px; font-size: 14px; }
+        .back-link { color: #00ff88; text-decoration: none; margin-bottom: 20px; display: inline-block; }
+        .back-link:hover { text-decoration: underline; }
+        .alert { 
+            background: #ff6b6b20; 
+            border: 1px solid #ff6b6b; 
+            border-radius: 8px; 
+            padding: 15px; 
+            margin-bottom: 20px; 
+        }
+        .alert p { margin: 5px 0; font-size: 14px; }
+        .alert strong { color: #ff6b6b; }
+        table { width: 100%; border-collapse: collapse; background: #1a1a2e; border-radius: 8px; overflow: hidden; }
+        th { background: #16213e; color: #00ff88; padding: 10px 8px; text-align: left; font-size: 12px; position: sticky; top: 0; }
+        td { padding: 8px; border-bottom: 1px solid #222; font-size: 13px; }
+        tr:hover { background: #16213e; }
+        .severity-HIGH { border-left: 4px solid #ff4444; }
+        .severity-MEDIUM { border-left: 4px solid #ffaa00; }
+        .pin-code { font-family: monospace; font-size: 12px; color: #ffdd57; cursor: pointer; }
+        .status-refunded { color: #ff4444; font-weight: bold; }
+        .status-ok { color: #00ff88; font-weight: bold; }
+        .btn { 
+            background: #ff6b6b; 
+            color: white; 
+            border: none; 
+            padding: 4px 8px; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            font-size: 11px; 
+            margin: 0 2px;
+        }
+        .btn:hover { background: #ff5252; }
+        .btn-success { background: #00ff88; }
+        .btn-success:hover { background: #00dd77; }
+        .empty-state { text-align: center; padding: 40px; color: #888; }
+    </style>
+</head>
+<body>
+    <a href="/admin" class="back-link">← Volver al Admin</a>
+    <h1>🔍 Auditoría FreeFire ID</h1>
+    <p class="subtitle">Transacciones inconsistentes (posible doble deducción o reembolso incorrecto)</p>
+    
+    <div class="alert">
+        <p><strong>⚠️ ADVERTENCIA:</strong> Estas transacciones pueden indicar que un cliente recibió diamantes pero también le devolvieron el saldo.</p>
+        <p><strong>Acción recomendada:</strong> Verificar manualmente con el cliente y corregir si es necesario.</p>
+    </div>
+    
+    {% if transactions %}
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Usuario</th>
+                <th>Player ID</th>
+                <th>PIN</th>
+                <th>Monto</th>
+                <th>Fecha</th>
+                <th>Estado</th>
+                <th>Notas</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for trans in transactions %}
+            <tr class="severity-{{ trans.severity }}">
+                <td>{{ trans.id }}</td>
+                <td>Usuario {{ trans.usuario_id }}</td>
+                <td>{{ trans.player_id }}</td>
+                <td><span class="pin-code">{{ trans.pin_codigo[:12] }}...</span></td>
+                <td>${{ "%.2f"|format(trans.monto) }}</td>
+                <td>{{ trans.fecha.split('.')[0] if '.' in trans.fecha else trans.fecha }}</td>
+                <td>
+                    {% if trans.was_refunded %}
+                    <span class="status-refunded">REEMBOLSADO</span>
+                    {% else %}
+                    <span class="status-ok">OK</span>
+                    {% endif %}
+                </td>
+                <td>{{ trans.notas[:50] }}{% if trans.notas|length > 50 %}...{% endif %}</td>
+                <td>
+                    <button class="btn btn-success" onclick="fixTransaction({{ trans.id }})">Corregir</button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <p>✅ No se encontraron transacciones inconsistentes en las últimas 24 horas.</p>
+    </div>
+    {% endif %}
+    
+    <script>
+        function fixTransaction(transactionId) {
+            if (confirm('¿Corregir esta transacción? Esto la marcará como aprobada y registrará la transacción general.')) {
+                fetch('/admin/fix_freefire_id_transaction', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({transaction_id: transactionId})
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Transacción corregida exitosamente');
+                        location.reload();
+                    } else {
+                        alert('Error: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    alert('Error de conexión: ' + error);
+                });
+            }
+        }
+    </script>
+</body>
+</html>
+'''
 
 PIN_LOG_TEMPLATE = r'''
 <!DOCTYPE html>
@@ -5300,6 +5604,65 @@ def approve_freefire_id_transaction(transaction_id):
         flash(f'Error al aprobar transaccion: {str(e)}', 'error')
     
     return redirect('/')
+
+@app.route('/admin/fix_freefire_id_transaction', methods=['POST'])
+def fix_freefire_id_transaction():
+    """Corrige una transacción inconsistente de Free Fire ID"""
+    if not session.get('is_admin'):
+        return jsonify({'success': False, 'error': 'Acceso denegado'})
+    
+    try:
+        data = request.get_json()
+        transaction_id = data.get('transaction_id')
+        
+        if not transaction_id:
+            return jsonify({'success': False, 'error': 'ID de transacción requerido'})
+        
+        # Obtener detalles de la transacción
+        conn = get_db_connection()
+        trans = conn.execute('''
+            SELECT t.*, p.nombre as paquete_nombre
+            FROM transacciones_freefire_id t
+            LEFT JOIN precios_freefire_id p ON t.paquete_id = p.id
+            WHERE t.id = ?
+        ''', (transaction_id,)).fetchone()
+        
+        if not trans:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Transacción no encontrada'})
+        
+        # Actualizar estado a aprobado
+        update_freefire_id_transaction_status(transaction_id, 'aprobado', session.get('user_db_id'), 
+            'CORRECCIÓN MANUAL: Transacción inconsistente corregida por admin')
+        
+        # Registrar en transacciones generales para mantener consistencia
+        pin_info = f"ID: {trans['player_id']} - Jugador: (corregido)"
+        conn.execute('''
+            INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (trans['usuario_id'], trans['numero_control'], pin_info, 
+              trans['transaccion_id'], trans['paquete_nombre'] or 'FF ID', trans['monto']))
+        
+        # Registrar profit
+        try:
+            admin_ids_env = os.environ.get('ADMIN_USER_IDS', '').strip()
+            admin_ids = [int(x.strip()) for x in admin_ids_env.split(',') if x.strip().isdigit()]
+            is_admin_target = trans['usuario_id'] in admin_ids
+            record_profit_for_transaction(conn, trans['usuario_id'], is_admin_target, 'freefire_id', 
+                trans['paquete_id'], 1, abs(trans['monto']), trans['transaccion_id'])
+        except Exception:
+            pass
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"[FreeFire ID] Transacción {transaction_id} corregida manualmente por admin {session.get('user_db_id')}")
+        
+        return jsonify({'success': True, 'message': 'Transacción corregida exitosamente'})
+        
+    except Exception as e:
+        logger.error(f"[FreeFire ID] Error corrigiendo transacción: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/admin/reject_freefire_id/<int:transaction_id>', methods=['POST'])
 def reject_freefire_id_transaction(transaction_id):
