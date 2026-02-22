@@ -4936,60 +4936,15 @@ def validar_freefire_id():
             return redirect('/juego/freefire_id?compra=exitosa')
         
         else:
-            # === FALLO: Verificar si el PIN realmente falló antes de reembolsar ===
+            # === FALLO: Devolver PIN al stock y reembolsar saldo ===
             error_msg = redeem_result.message if redeem_result else 'Error desconocido en la redención'
             logger.error(
-                f"[FreeFire ID] Redencion reportada como fallida: {error_msg} | "
+                f"[FreeFire ID] Redencion fallida: {error_msg} | "
                 f"usuario_id={user_id} player_id={player_id} package_id={package_id} precio={precio} | "
                 f"pin={pin_codigo} numero_control={transaction_data.get('numero_control')} transaccion_id={transaction_data.get('transaccion_id')}"
             )
             
-            # === VERIFICACIÓN CRÍTICA: Antes de reembolsar, verificar si el PIN ya fue usado ===
-            pin_already_used = verify_pin_already_redeemed(pin_codigo, player_id, redeemer_config)
-            
-            if pin_already_used:
-                # === CASO CRÍTICO: El PIN fue redimido pero hubo error de comunicación ===
-                logger.critical(
-                    f"[FreeFire ID] PIN REDIMIDO PERO ERROR DE COMUNICACIÓN - NO REEMBOLSAR | "
-                    f"usuario_id={user_id} player_id={player_id} pin={pin_codigo} | "
-                    f"El cliente recibió los diamantes pero el sistema reportó fallo"
-                )
-                
-                # Marcar como aprobado manualmente ya que el cliente recibió el producto
-                update_freefire_id_transaction_status(transaction_data['id'], 'aprobado', user_id, 
-                    f'CORRECCIÓN: PIN redimido exitosamente pero error de comunicación. Cliente ya recibió diamantes.')
-                
-                # Registrar en transacciones generales para mantener consistencia
-                conn = get_db_connection()
-                pin_info = f"ID: {player_id} - Jugador: (verificado)"
-                conn.execute('''
-                    INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (user_id, transaction_data['numero_control'], pin_info, 
-                      transaction_data['transaccion_id'], package_info.get('nombre', 'FF ID'), -precio))
-                
-                # Registrar profit
-                try:
-                    admin_ids_env = os.environ.get('ADMIN_USER_IDS', '').strip()
-                    admin_ids = [int(x.strip()) for x in admin_ids_env.split(',') if x.strip().isdigit()]
-                    is_admin_target = user_id in admin_ids
-                    record_profit_for_transaction(conn, user_id, is_admin_target, 'freefire_id', package_id, 1, precio, transaction_data['transaccion_id'])
-                except Exception:
-                    pass
-                
-                conn.commit()
-                
-                # Registrar venta semanal
-                if not is_admin:
-                    register_weekly_sale('freefire_id', package_id, package_info.get('nombre', 'FF ID'), precio, 1)
-                
-                flash('Tu recarga fue procesada exitosamente. Los diamantes ya fueron agregados a tu cuenta.', 'success')
-                return redirect('/juego/freefire_id?compra=exitosa')
-            
-            # === CASO NORMAL: El PIN realmente falló, proceder con reembolso ===
-            logger.info(f"[FreeFire ID] PIN no fue redimido, procediendo con reembolso estándar")
-            
-            # Devolver PIN al inventario (solo si no fue usado)
+            # Devolver PIN al inventario
             try:
                 conn = get_db_connection()
                 conn.execute('''
@@ -5014,7 +4969,7 @@ def validar_freefire_id():
             # Actualizar transacción como rechazada
             update_freefire_id_transaction_status(transaction_data['id'], 'rechazado', user_id, f'Auto-redención fallida: {error_msg}')
             
-            flash(f'Error al procesar la recarga automática. Tu saldo ha sido devuelto. Detalle: {error_msg}', 'error')
+            flash(f'La recarga falló. Tu saldo ha sido devuelto. Puedes intentar nuevamente con otro PIN. Error: {error_msg}', 'error')
             return redirect('/juego/freefire_id')
         
     except Exception as e:
