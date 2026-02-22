@@ -5502,7 +5502,7 @@ def approve_freefire_id_transaction(transaction_id):
                 return redirect('/')
             
             if not redeem_result.success:
-                # Si la redención falló, devolver el pin al inventario
+                # Si la redención falló, devolver el pin al inventario y NO aprobar la transacción
                 try:
                     conn2 = get_db_connection()
                     conn2.execute('''
@@ -5511,10 +5511,11 @@ def approve_freefire_id_transaction(transaction_id):
                     ''', (paquete_id, pin_codigo))
                     conn2.commit()
                     conn2.close()
+                    logger.warning(f"[FreeFire ID] Reintento fallido - PIN {pin_codigo[:8]}... devuelto al stock, transacción {transaction_id} mantiene estado pendiente")
                 except:
                     pass
                 conn.close()
-                flash(f'Redencion automatica fallida: {redeem_result.message}. Pin devuelto al inventario.', 'error')
+                flash(f'Redención automática fallida: {redeem_result.message}. PIN devuelto al inventario. La transacción permanece pendiente para revisión manual.', 'error')
                 return redirect('/')
             
             pin_usado = pin_codigo
@@ -6804,8 +6805,21 @@ def validar_freefire():
         if pin_disponible:
             pines_obtenidos.append(pin_disponible['pin_codigo'])
         else:
-            # Si no se pueden obtener todos los pines, devolver error
-            flash('Error al obtener todos los pines solicitados.', 'error')
+            # Si no se pueden obtener todos los pines, devolver los ya obtenidos al stock
+            if pines_obtenidos:
+                logger.warning(f"[FreeFire Global] Solo se obtuvieron {len(pines_obtenidos)}/{cantidad} PINs, devolviendo al stock")
+                try:
+                    conn_return = get_db_connection()
+                    for pin_codigo in pines_obtenidos:
+                        conn_return.execute('''
+                            INSERT INTO pines_freefire_global (monto_id, pin_codigo, usado)
+                            VALUES (?, ?, FALSE)
+                        ''', (monto_id, pin_codigo))
+                    conn_return.commit()
+                    conn_return.close()
+                except Exception:
+                    pass
+            flash('Stock insuficiente para completar la cantidad solicitada. Intente con una cantidad menor.', 'error')
             return redirect('/juego/freefire')
     
     # Generar datos de la transacción
@@ -6865,7 +6879,22 @@ def validar_freefire():
         
     except Exception as e:
         conn.rollback()
-        flash('Error al procesar la transacción. Intente nuevamente.', 'error')
+        # CRÍTICO: Devolver los PINs al stock si la transacción falló
+        logger.error(f"[FreeFire Global] Error en transacción, devolviendo {len(pines_obtenidos)} PINs al stock: {str(e)}")
+        try:
+            conn_return = get_db_connection()
+            for pin_codigo in pines_obtenidos:
+                conn_return.execute('''
+                    INSERT INTO pines_freefire_global (monto_id, pin_codigo, usado)
+                    VALUES (?, ?, FALSE)
+                ''', (monto_id, pin_codigo))
+            conn_return.commit()
+            conn_return.close()
+            logger.info(f"[FreeFire Global] {len(pines_obtenidos)} PINs devueltos al stock exitosamente")
+        except Exception as return_error:
+            logger.error(f"[FreeFire Global] Error devolviendo PINs al stock: {str(return_error)}")
+        
+        flash('Error al procesar la transacción. Los PINs han sido devueltos al stock. Intente nuevamente.', 'error')
         return redirect('/juego/freefire')
     finally:
         conn.close()
