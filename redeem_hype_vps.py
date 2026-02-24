@@ -34,7 +34,7 @@ def redeem_pin_vps(pin_code, player_id, config=None):
     if not player_id or not str(player_id).strip().isdigit():
         return PinRedeemResult(False, "Player ID inválido (debe ser numérico)", pin_code, player_id)
 
-    country = cfg.get("pais") or cfg.get("country") or "Venezuela"
+    country = cfg.get("pais") or cfg.get("country") or "Chile"
 
     payload = {
         "pin_key": str(pin_code).strip(),
