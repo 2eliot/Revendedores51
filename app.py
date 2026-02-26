@@ -277,6 +277,26 @@ def init_db():
             cursor.execute("ALTER TABLE transacciones ADD COLUMN duracion_segundos REAL")
         except Exception:
             pass
+        
+        # Tabla historial_compras: registro permanente independiente de transacciones
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS historial_compras (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                usuario_id INTEGER NOT NULL,
+                monto REAL NOT NULL,
+                fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
+                paquete_nombre TEXT,
+                pin TEXT,
+                tipo_evento TEXT DEFAULT 'compra',
+                duracion_segundos REAL,
+                saldo_antes REAL DEFAULT 0,
+                saldo_despues REAL DEFAULT 0,
+                FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_historial_fecha ON historial_compras(fecha DESC)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_historial_usuario ON historial_compras(usuario_id, fecha DESC)')
+        
         # Columna sin_ganancia: cuentas marcadas no generan profit, no suman a saldo activo, no compiten en top
         try:
             cursor.execute("ALTER TABLE usuarios ADD COLUMN sin_ganancia BOOLEAN DEFAULT 0")
@@ -883,6 +903,19 @@ def get_db_connection():
     conn = sqlite3.connect(DATABASE)
     conn.row_factory = sqlite3.Row
     return conn
+
+def registrar_historial_compra(usuario_id, monto, paquete_nombre, pin='', tipo_evento='compra', duracion_segundos=None, saldo_antes=0, saldo_despues=0):
+    """Registra una compra en el historial permanente (no se borra con transacciones)"""
+    try:
+        conn = get_db_connection()
+        conn.execute('''
+            INSERT INTO historial_compras (usuario_id, monto, paquete_nombre, pin, tipo_evento, duracion_segundos, saldo_antes, saldo_despues)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (usuario_id, monto, paquete_nombre, pin, tipo_evento, duracion_segundos, saldo_antes, saldo_despues))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error registrando historial_compra: {e}")
 
 def convert_to_venezuela_time(utc_datetime_str):
     """Convierte una fecha UTC a la zona horaria de Venezuela (UTC-4)"""
@@ -4130,6 +4163,11 @@ def validar_freefire_latam():
                 VALUES (?, ?, ?, ?, ?, ?)
             ''', (user_id, numero_control, pines_texto, transaccion_id, paquete_nombre, monto_transaccion))
             
+            # Registrar en historial permanente
+            new_saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+            _saldo_despues = new_saldo_row['saldo'] if new_saldo_row else 0
+            registrar_historial_compra(user_id, abs(monto_transaccion), paquete_nombre, pines_texto, 'compra', None, _saldo_despues + abs(monto_transaccion), _saldo_despues)
+            
             # Actualizar gastos mensuales persistentes (para top clientes)
             if not is_admin:
                 try:
@@ -4642,6 +4680,12 @@ def approve_bloodstriker_transaction(transaction_id):
                 bs_transaction['paquete_nombre'],
                 bs_transaction['monto']
             ))
+            # Registrar en historial permanente
+            _bs_precio = abs(bs_transaction['monto'])
+            _bs_saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (bs_transaction['usuario_id'],)).fetchone()
+            _bs_saldo = _bs_saldo_row['saldo'] if _bs_saldo_row else 0
+            registrar_historial_compra(bs_transaction['usuario_id'], _bs_precio, bs_transaction['paquete_nombre'], f"ID: {bs_transaction['player_id']}", 'compra', None, _bs_saldo + _bs_precio, _bs_saldo)
+            
             # Persistir profit (legacy) para Blood Striker (cantidad=1)
             try:
                 admin_ids_env = os.environ.get('ADMIN_USER_IDS', '').strip()
@@ -4914,6 +4958,11 @@ def validar_freefire_id():
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (user_id, transaction_data['numero_control'], pin_info, 
                   transaction_data['transaccion_id'], package_info.get('nombre', 'FF ID'), -precio, _redeem_duration))
+            
+            # Registrar en historial permanente
+            _ff_saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+            _ff_saldo = _ff_saldo_row['saldo'] if _ff_saldo_row else 0
+            registrar_historial_compra(user_id, precio, package_info.get('nombre', 'FF ID'), pin_info, 'compra', _redeem_duration, _ff_saldo + precio, _ff_saldo)
             
             # Registrar profit
             try:
@@ -5502,6 +5551,12 @@ def approve_freefire_id_transaction(transaction_id):
             fi_transaction['paquete_nombre'],
             fi_transaction['monto']
         ))
+        # Registrar en historial permanente
+        _fi_precio = abs(fi_transaction['monto'])
+        _fi_saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (fi_transaction['usuario_id'],)).fetchone()
+        _fi_saldo = _fi_saldo_row['saldo'] if _fi_saldo_row else 0
+        registrar_historial_compra(fi_transaction['usuario_id'], _fi_precio, fi_transaction['paquete_nombre'], f"ID: {fi_transaction['player_id']}", 'compra', None, _fi_saldo + _fi_precio, _fi_saldo)
+        
         # Persistir profit (legacy)
         try:
             admin_ids_env = os.environ.get('ADMIN_USER_IDS', '').strip()
@@ -5605,6 +5660,12 @@ def fix_freefire_id_transaction():
             VALUES (?, ?, ?, ?, ?, ?)
         ''', (trans['usuario_id'], trans['numero_control'], pin_info, 
               trans['transaccion_id'], trans['paquete_nombre'] or 'FF ID', trans['monto']))
+        
+        # Registrar en historial permanente
+        _corr_precio = abs(trans['monto'])
+        _corr_saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (trans['usuario_id'],)).fetchone()
+        _corr_saldo = _corr_saldo_row['saldo'] if _corr_saldo_row else 0
+        registrar_historial_compra(trans['usuario_id'], _corr_precio, trans['paquete_nombre'] or 'FF ID', pin_info, 'compra', None, _corr_saldo + _corr_precio, _corr_saldo)
         
         # Registrar profit
         try:
@@ -6465,11 +6526,17 @@ def clean_old_transactions():
             WHERE fecha < ? AND estado != 'pendiente'
         ''', (fecha_limite_str,)).rowcount
         
+        # Eliminar historial_compras más antiguo de 3 días (mismo rango que la visualización en Costo)
+        fecha_limite_hist = (datetime.now() - timedelta(days=3)).strftime('%Y-%m-%d %H:%M:%S')
+        deleted_hist = conn.execute('''
+            DELETE FROM historial_compras WHERE fecha < ?
+        ''', (fecha_limite_hist,)).rowcount
+        
         conn.commit()
         
-        total_deleted = deleted_normal + deleted_bs
+        total_deleted = deleted_normal + deleted_bs + deleted_hist
         if total_deleted > 0:
-            print(f"🧹 Limpieza automática diaria: {total_deleted} transacciones antiguas eliminadas ({deleted_normal} normales, {deleted_bs} Blood Striker)")
+            print(f"🧹 Limpieza automática diaria: {total_deleted} registros antiguos eliminados ({deleted_normal} transacciones, {deleted_bs} Blood Striker, {deleted_hist} historial_compras)")
         
         # Guardar fecha de última limpieza
         try:
@@ -6811,6 +6878,11 @@ def validar_freefire():
             INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto)
             VALUES (?, ?, ?, ?, ?, ?)
         ''', (user_id, numero_control, pines_texto, transaccion_id, paquete_nombre, monto_transaccion))
+        
+        # Registrar en historial permanente
+        _g_saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+        _g_saldo = _g_saldo_row['saldo'] if _g_saldo_row else 0
+        registrar_historial_compra(user_id, abs(monto_transaccion), paquete_nombre, pines_texto, 'compra', None, _g_saldo + abs(monto_transaccion), _g_saldo)
         
         # Actualizar gastos mensuales persistentes (para top clientes)
         if not is_admin:
@@ -7454,6 +7526,10 @@ def api_simple_endpoint():
             INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto)
             VALUES (?, ?, ?, ?, ?, ?)
         ''', (user['id'], numero_control, pins_texto, transaccion_id, paquete_nombre, -precio_total))
+        
+        # Registrar en historial permanente
+        registrar_historial_compra(user['id'], precio_total, paquete_nombre, pins_texto, 'compra', None, saldo_actual, nuevo_saldo)
+        
         # Persistir profit (legacy) también para compras vía API
         try:
             admin_ids_env = os.environ.get('ADMIN_USER_IDS', '').strip()
@@ -7641,6 +7717,9 @@ def api_v1_ejecutar_recarga():
         )
         conn.commit()
         conn.close()
+        # Registrar en historial permanente
+        _api_precio = float(package_info.get('precio', 0))
+        registrar_historial_compra(admin_uid, _api_precio, paquete_nombre, f"ID: {player_id}", 'compra', None, 0, 0)
     except Exception as e:
         # No bloquear la respuesta si falla el registro
         logger.error(f'[api/v1/ejecutar-recarga] Error registrando transacción: {e}')
@@ -7690,21 +7769,21 @@ def admin_costos_summary():
 
         conn = get_db_connection()
 
-        # Gasto hoy (monto < 0 = compras)
+        # Gasto hoy (desde historial permanente)
         r_hoy = conn.execute(
-            "SELECT COALESCE(SUM(ABS(monto)), 0) as total, COUNT(*) as cnt FROM transacciones WHERE usuario_id = ? AND DATE(fecha, '-4 hours') = ? AND monto < 0",
+            "SELECT COALESCE(SUM(monto), 0) as total, COUNT(*) as cnt FROM historial_compras WHERE usuario_id = ? AND DATE(fecha, '-4 hours') = ?",
             (admin_id, today_str)
         ).fetchone()
 
         # Gasto semanal
         r_sem = conn.execute(
-            "SELECT COALESCE(SUM(ABS(monto)), 0) as total, COUNT(*) as cnt FROM transacciones WHERE usuario_id = ? AND DATE(fecha, '-4 hours') >= ? AND monto < 0",
+            "SELECT COALESCE(SUM(monto), 0) as total, COUNT(*) as cnt FROM historial_compras WHERE usuario_id = ? AND DATE(fecha, '-4 hours') >= ?",
             (admin_id, week_start)
         ).fetchone()
 
         # Gasto mensual
         r_mes = conn.execute(
-            "SELECT COALESCE(SUM(ABS(monto)), 0) as total, COUNT(*) as cnt FROM transacciones WHERE usuario_id = ? AND DATE(fecha, '-4 hours') >= ? AND monto < 0",
+            "SELECT COALESCE(SUM(monto), 0) as total, COUNT(*) as cnt FROM historial_compras WHERE usuario_id = ? AND DATE(fecha, '-4 hours') >= ?",
             (admin_id, month_start)
         ).fetchone()
 
@@ -7755,23 +7834,24 @@ def admin_get_costos_day(day):
         # Filtro admin_only: si viene ?admin_only=1, solo mostrar compras del admin
         admin_only = request.args.get('admin_only') == '1'
         admin_id = _get_admin_user_id() if admin_only else None
-        user_filter = f'AND t.usuario_id = {admin_id}' if admin_id else ''
+        user_filter_h = f'AND h.usuario_id = {admin_id}' if admin_id else ''
         user_filter_cb = f'AND cb.usuario_id = {admin_id}' if admin_id else ''
         user_filter_fi = f'AND fi.usuario_id = {admin_id}' if admin_id else ''
         user_filter_rb = f'AND rb.usuario_id = {admin_id}' if admin_id else ''
 
-        # 1. Compras normales (monto negativo en transacciones)
+        # 1. Compras desde historial permanente (no se borra con transacciones)
         q_compras = f'''
             SELECT 
-                t.id, t.usuario_id, t.monto, t.fecha,
-                t.paquete_nombre, t.pin, t.duracion_segundos,
+                h.id, h.usuario_id, h.monto, h.fecha,
+                h.paquete_nombre, h.pin, h.duracion_segundos,
                 u.nombre as usuario_nombre, u.apellido as usuario_apellido, 
                 u.correo as usuario_correo, u.telefono as usuario_telefono,
                 u.saldo as saldo_actual,
-                'compra' as tipo_evento
-            FROM transacciones t
-            JOIN usuarios u ON t.usuario_id = u.id
-            WHERE DATE(t.fecha, '-4 hours') = ? AND t.monto < 0 {user_filter}
+                h.tipo_evento,
+                h.saldo_antes as h_saldo_antes, h.saldo_despues as h_saldo_despues
+            FROM historial_compras h
+            JOIN usuarios u ON h.usuario_id = u.id
+            WHERE DATE(h.fecha, '-4 hours') = ? {user_filter_h}
         '''
 
         # 2. Créditos añadidos (creditos_billetera)
@@ -7782,7 +7862,8 @@ def admin_get_costos_day(day):
                 u.nombre as usuario_nombre, u.apellido as usuario_apellido,
                 u.correo as usuario_correo, u.telefono as usuario_telefono,
                 u.saldo as saldo_actual,
-                'credito' as tipo_evento
+                'credito' as tipo_evento,
+                NULL as h_saldo_antes, NULL as h_saldo_despues
             FROM creditos_billetera cb
             JOIN usuarios u ON cb.usuario_id = u.id
             WHERE DATE(cb.fecha, '-4 hours') = ? {user_filter_cb}
@@ -7797,7 +7878,8 @@ def admin_get_costos_day(day):
                 u.nombre as usuario_nombre, u.apellido as usuario_apellido,
                 u.correo as usuario_correo, u.telefono as usuario_telefono,
                 u.saldo as saldo_actual,
-                'reembolso' as tipo_evento
+                'reembolso' as tipo_evento,
+                NULL as h_saldo_antes, NULL as h_saldo_despues
             FROM transacciones_freefire_id fi
             JOIN usuarios u ON fi.usuario_id = u.id
             WHERE DATE(fi.fecha, '-4 hours') = ? AND fi.estado = 'rechazado' {user_filter_fi}
@@ -7813,7 +7895,8 @@ def admin_get_costos_day(day):
                 u.nombre as usuario_nombre, u.apellido as usuario_apellido,
                 u.correo as usuario_correo, u.telefono as usuario_telefono,
                 u.saldo as saldo_actual,
-                'binance' as tipo_evento
+                'binance' as tipo_evento,
+                NULL as h_saldo_antes, NULL as h_saldo_despues
             FROM recargas_binance rb
             JOIN usuarios u ON rb.usuario_id = u.id
             WHERE DATE(COALESCE(rb.fecha_completada, rb.fecha_creacion), '-4 hours') = ? AND rb.estado = 'completada' {user_filter_rb}
@@ -7841,7 +7924,6 @@ def admin_get_costos_day(day):
             monto_raw = trans['monto']
             
             if tipo == 'credito':
-                # Crédito: saldo_antes se puede sacar de creditos_billetera.saldo_anterior
                 saldo_anterior_row = conn.execute(
                     'SELECT saldo_anterior FROM creditos_billetera WHERE id = ?', (trans['id'],)
                 ).fetchone()
@@ -7850,32 +7932,24 @@ def admin_get_costos_day(day):
                 monto_display = monto_raw
                 tipo_compra = '💳 Crédito añadido'
             elif tipo == 'binance':
-                # Recarga Binance: monto positivo (monto_solicitado + bonus)
                 saldo_despues = trans['saldo_actual'] or 0
                 saldo_antes = round(saldo_despues - monto_raw, 2)
                 monto_display = monto_raw
                 tipo_compra = '🪙 Recarga Binance'
             elif tipo == 'reembolso':
-                # Reembolso: cobro + devolución inmediata = efecto neto 0
-                # Calcular saldo en ese momento desde transacciones
                 saldo_posterior = conn.execute(
                     'SELECT COALESCE(SUM(monto), 0) FROM transacciones WHERE usuario_id = ? AND fecha > ?',
                     (trans['usuario_id'], fecha_str)
                 ).fetchone()[0] or 0
                 saldo_actual = trans['saldo_actual'] or 0
                 saldo_despues = saldo_actual - saldo_posterior
-                saldo_antes = saldo_despues  # net zero: se cobró y devolvió
+                saldo_antes = saldo_despues  # net zero
                 monto_display = abs(monto_raw)
                 tipo_compra = '⚠️ FF ID Fallida (reembolso)'
             else:
-                # Compra normal
-                saldo_posterior = conn.execute(
-                    'SELECT COALESCE(SUM(monto), 0) FROM transacciones WHERE usuario_id = ? AND fecha > ?',
-                    (trans['usuario_id'], fecha_str)
-                ).fetchone()[0] or 0
-                saldo_actual = trans['saldo_actual'] or 0
-                saldo_despues = saldo_actual - saldo_posterior
-                saldo_antes = saldo_despues - monto_raw  # monto es negativo
+                # Compra desde historial_compras: usar saldo guardado directamente
+                saldo_antes = trans['h_saldo_antes'] or 0
+                saldo_despues = trans['h_saldo_despues'] or 0
                 monto_display = abs(monto_raw)
                 tipo_compra = 'Recarga por ID' if 'ID:' in (trans['pin'] or '') else 'PIN'
             
@@ -7944,28 +8018,32 @@ def admin_get_user_costos_detail(day, user_id):
             conn.close()
             return jsonify({'success': False, 'error': 'Usuario no encontrado'})
         
-        # Compras normales
+        # Compras desde historial permanente
         q1 = '''
-            SELECT t.id, t.monto, t.fecha, t.paquete_nombre, t.pin, 'compra' as tipo_evento, t.duracion_segundos
-            FROM transacciones t
-            WHERE t.usuario_id = ? AND DATE(t.fecha, '-4 hours') = ? AND t.monto < 0
+            SELECT h.id, h.monto, h.fecha, h.paquete_nombre, h.pin, h.tipo_evento, h.duracion_segundos,
+                h.saldo_antes as h_saldo_antes, h.saldo_despues as h_saldo_despues
+            FROM historial_compras h
+            WHERE h.usuario_id = ? AND DATE(h.fecha, '-4 hours') = ?
         '''
         # Créditos
         q2 = '''
-            SELECT cb.id, cb.monto, cb.fecha, 'Crédito añadido' as paquete_nombre, '' as pin, 'credito' as tipo_evento, NULL as duracion_segundos
+            SELECT cb.id, cb.monto, cb.fecha, 'Crédito añadido' as paquete_nombre, '' as pin, 'credito' as tipo_evento, NULL as duracion_segundos,
+                NULL as h_saldo_antes, NULL as h_saldo_despues
             FROM creditos_billetera cb
             WHERE cb.usuario_id = ? AND DATE(cb.fecha, '-4 hours') = ?
         '''
         # Reembolsos FF ID
         q3 = '''
-            SELECT fi.id, fi.monto, fi.fecha, 'FF ID Fallida (reembolso)' as paquete_nombre, fi.player_id as pin, 'reembolso' as tipo_evento, NULL as duracion_segundos
+            SELECT fi.id, fi.monto, fi.fecha, 'FF ID Fallida (reembolso)' as paquete_nombre, fi.player_id as pin, 'reembolso' as tipo_evento, NULL as duracion_segundos,
+                NULL as h_saldo_antes, NULL as h_saldo_despues
             FROM transacciones_freefire_id fi
             WHERE fi.usuario_id = ? AND DATE(fi.fecha, '-4 hours') = ? AND fi.estado = 'rechazado'
         '''
         # Recargas Binance completadas
         q4 = '''
             SELECT rb.id, (rb.monto_solicitado + rb.bonus) as monto, COALESCE(rb.fecha_completada, rb.fecha_creacion) as fecha,
-                'Recarga Binance' as paquete_nombre, rb.codigo_referencia as pin, 'binance' as tipo_evento, NULL as duracion_segundos
+                'Recarga Binance' as paquete_nombre, rb.codigo_referencia as pin, 'binance' as tipo_evento, NULL as duracion_segundos,
+                NULL as h_saldo_antes, NULL as h_saldo_despues
             FROM recargas_binance rb
             WHERE rb.usuario_id = ? AND DATE(COALESCE(rb.fecha_completada, rb.fecha_creacion), '-4 hours') = ? AND rb.estado = 'completada'
         '''
@@ -7993,7 +8071,6 @@ def admin_get_user_costos_detail(day, user_id):
                 saldo_antes = round(saldo_despues - monto_raw, 2)
                 monto_display = monto_raw
             elif tipo == 'reembolso':
-                # Cobro + devolución inmediata = efecto neto 0
                 saldo_posterior = conn.execute(
                     'SELECT COALESCE(SUM(monto), 0) FROM transacciones WHERE usuario_id = ? AND fecha > ?',
                     (user_id, fecha_str)
@@ -8002,12 +8079,9 @@ def admin_get_user_costos_detail(day, user_id):
                 saldo_antes = saldo_despues  # net zero
                 monto_display = abs(monto_raw)
             else:
-                saldo_posterior = conn.execute(
-                    'SELECT COALESCE(SUM(monto), 0) FROM transacciones WHERE usuario_id = ? AND fecha > ?',
-                    (user_id, fecha_str)
-                ).fetchone()[0] or 0
-                saldo_despues = saldo_actual - saldo_posterior
-                saldo_antes = saldo_despues - monto_raw
+                # Compra desde historial_compras: usar saldo guardado
+                saldo_antes = trans['h_saldo_antes'] or 0
+                saldo_despues = trans['h_saldo_despues'] or 0
                 monto_display = abs(monto_raw)
             
             purchases.append({
