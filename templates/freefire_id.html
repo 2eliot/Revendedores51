@@ -116,9 +116,14 @@
         }
         submitted = true;
         btn.disabled = true;
-        btn.textContent = 'Procesando...';
         btn.style.background = '#28a745';
         btn.style.opacity = '1';
+        var seconds = 0;
+        btn.textContent = 'Procesando... 0s';
+        var timer = setInterval(function() {
+          seconds++;
+          btn.textContent = 'Procesando... ' + seconds + 's';
+        }, 1000);
       });
     })();
     </script>

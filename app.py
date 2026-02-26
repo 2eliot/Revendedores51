@@ -273,6 +273,10 @@ def init_db():
             cursor.execute("ALTER TABLE transacciones ADD COLUMN paquete_nombre TEXT")
         except Exception:
             pass
+        try:
+            cursor.execute("ALTER TABLE transacciones ADD COLUMN duracion_segundos REAL")
+        except Exception:
+            pass
         # Columna sin_ganancia: cuentas marcadas no generan profit, no suman a saldo activo, no compiten en top
         try:
             cursor.execute("ALTER TABLE usuarios ADD COLUMN sin_ganancia BOOLEAN DEFAULT 0")
@@ -4881,15 +4885,18 @@ def validar_freefire_id():
             except Exception:
                 pass
         
-        # 5. Ejecutar redención automática
+        # 5. Ejecutar redención automática (medir duración)
+        import time as _time
         redeemer_config = get_redeemer_config_from_db(get_db_connection)
         
         redeem_result = None
+        _redeem_start = _time.time()
         try:
             redeem_result = redeem_pin_vps(pin_codigo, player_id, redeemer_config)
         except Exception as e:
             logger.error(f"[FreeFire ID] Error en redencion automatica (VPS): {str(e)}")
             redeem_result = None
+        _redeem_duration = round(_time.time() - _redeem_start, 1)
         
         # 6. Evaluar resultado
         if redeem_result and redeem_result.success:
@@ -4899,14 +4906,14 @@ def validar_freefire_id():
             # Actualizar estado de transacción a aprobado
             update_freefire_id_transaction_status(transaction_data['id'], 'aprobado', user_id)
             
-            # Registrar en transacciones generales
+            # Registrar en transacciones generales (con duración de redención)
             conn = get_db_connection()
             pin_info = f"ID: {player_id} - Jugador: {player_name}"
             conn.execute('''
-                INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto, duracion_segundos)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (user_id, transaction_data['numero_control'], pin_info, 
-                  transaction_data['transaccion_id'], package_info.get('nombre', 'FF ID'), -precio))
+                  transaction_data['transaccion_id'], package_info.get('nombre', 'FF ID'), -precio, _redeem_duration))
             
             # Registrar profit
             try:
@@ -7757,7 +7764,7 @@ def admin_get_costos_day(day):
         q_compras = f'''
             SELECT 
                 t.id, t.usuario_id, t.monto, t.fecha,
-                t.paquete_nombre, t.pin,
+                t.paquete_nombre, t.pin, t.duracion_segundos,
                 u.nombre as usuario_nombre, u.apellido as usuario_apellido, 
                 u.correo as usuario_correo, u.telefono as usuario_telefono,
                 u.saldo as saldo_actual,
@@ -7771,7 +7778,7 @@ def admin_get_costos_day(day):
         q_creditos = f'''
             SELECT 
                 cb.id, cb.usuario_id, cb.monto, cb.fecha,
-                'Crédito añadido' as paquete_nombre, '' as pin,
+                'Crédito añadido' as paquete_nombre, '' as pin, NULL as duracion_segundos,
                 u.nombre as usuario_nombre, u.apellido as usuario_apellido,
                 u.correo as usuario_correo, u.telefono as usuario_telefono,
                 u.saldo as saldo_actual,
@@ -7786,7 +7793,7 @@ def admin_get_costos_day(day):
             SELECT 
                 fi.id, fi.usuario_id, fi.monto, fi.fecha,
                 'FF ID Fallida (reembolso)' as paquete_nombre, 
-                fi.player_id as pin,
+                fi.player_id as pin, NULL as duracion_segundos,
                 u.nombre as usuario_nombre, u.apellido as usuario_apellido,
                 u.correo as usuario_correo, u.telefono as usuario_telefono,
                 u.saldo as saldo_actual,
@@ -7802,7 +7809,7 @@ def admin_get_costos_day(day):
                 rb.id, rb.usuario_id, (rb.monto_solicitado + rb.bonus) as monto, 
                 COALESCE(rb.fecha_completada, rb.fecha_creacion) as fecha,
                 'Recarga Binance' as paquete_nombre, 
-                rb.codigo_referencia as pin,
+                rb.codigo_referencia as pin, NULL as duracion_segundos,
                 u.nombre as usuario_nombre, u.apellido as usuario_apellido,
                 u.correo as usuario_correo, u.telefono as usuario_telefono,
                 u.saldo as saldo_actual,
@@ -7849,14 +7856,15 @@ def admin_get_costos_day(day):
                 monto_display = monto_raw
                 tipo_compra = '🪙 Recarga Binance'
             elif tipo == 'reembolso':
-                # Reembolso: el monto en fi es negativo (descuento), pero se devolvió
+                # Reembolso: cobro + devolución inmediata = efecto neto 0
+                # Calcular saldo en ese momento desde transacciones
                 saldo_posterior = conn.execute(
                     'SELECT COALESCE(SUM(monto), 0) FROM transacciones WHERE usuario_id = ? AND fecha > ?',
                     (trans['usuario_id'], fecha_str)
                 ).fetchone()[0] or 0
                 saldo_actual = trans['saldo_actual'] or 0
                 saldo_despues = saldo_actual - saldo_posterior
-                saldo_antes = saldo_despues + abs(monto_raw)  # tenía menos antes del reembolso
+                saldo_antes = saldo_despues  # net zero: se cobró y devolvió
                 monto_display = abs(monto_raw)
                 tipo_compra = '⚠️ FF ID Fallida (reembolso)'
             else:
@@ -7871,6 +7879,7 @@ def admin_get_costos_day(day):
                 monto_display = abs(monto_raw)
                 tipo_compra = 'Recarga por ID' if 'ID:' in (trans['pin'] or '') else 'PIN'
             
+            duracion = trans['duracion_segundos']
             purchases.append({
                 'id': trans['id'],
                 'usuario_id': trans['usuario_id'],
@@ -7886,7 +7895,8 @@ def admin_get_costos_day(day):
                 'saldo_antes': round(saldo_antes, 2),
                 'saldo_despues': round(saldo_despues, 2),
                 'pin_codigo': trans['pin'],
-                'player_id': None
+                'player_id': None,
+                'duracion_segundos': duracion
             })
         
         conn.close()
@@ -7936,26 +7946,26 @@ def admin_get_user_costos_detail(day, user_id):
         
         # Compras normales
         q1 = '''
-            SELECT t.id, t.monto, t.fecha, t.paquete_nombre, t.pin, 'compra' as tipo_evento
+            SELECT t.id, t.monto, t.fecha, t.paquete_nombre, t.pin, 'compra' as tipo_evento, t.duracion_segundos
             FROM transacciones t
             WHERE t.usuario_id = ? AND DATE(t.fecha, '-4 hours') = ? AND t.monto < 0
         '''
         # Créditos
         q2 = '''
-            SELECT cb.id, cb.monto, cb.fecha, 'Crédito añadido' as paquete_nombre, '' as pin, 'credito' as tipo_evento
+            SELECT cb.id, cb.monto, cb.fecha, 'Crédito añadido' as paquete_nombre, '' as pin, 'credito' as tipo_evento, NULL as duracion_segundos
             FROM creditos_billetera cb
             WHERE cb.usuario_id = ? AND DATE(cb.fecha, '-4 hours') = ?
         '''
         # Reembolsos FF ID
         q3 = '''
-            SELECT fi.id, fi.monto, fi.fecha, 'FF ID Fallida (reembolso)' as paquete_nombre, fi.player_id as pin, 'reembolso' as tipo_evento
+            SELECT fi.id, fi.monto, fi.fecha, 'FF ID Fallida (reembolso)' as paquete_nombre, fi.player_id as pin, 'reembolso' as tipo_evento, NULL as duracion_segundos
             FROM transacciones_freefire_id fi
             WHERE fi.usuario_id = ? AND DATE(fi.fecha, '-4 hours') = ? AND fi.estado = 'rechazado'
         '''
         # Recargas Binance completadas
         q4 = '''
             SELECT rb.id, (rb.monto_solicitado + rb.bonus) as monto, COALESCE(rb.fecha_completada, rb.fecha_creacion) as fecha,
-                'Recarga Binance' as paquete_nombre, rb.codigo_referencia as pin, 'binance' as tipo_evento
+                'Recarga Binance' as paquete_nombre, rb.codigo_referencia as pin, 'binance' as tipo_evento, NULL as duracion_segundos
             FROM recargas_binance rb
             WHERE rb.usuario_id = ? AND DATE(COALESCE(rb.fecha_completada, rb.fecha_creacion), '-4 hours') = ? AND rb.estado = 'completada'
         '''
@@ -7983,12 +7993,13 @@ def admin_get_user_costos_detail(day, user_id):
                 saldo_antes = round(saldo_despues - monto_raw, 2)
                 monto_display = monto_raw
             elif tipo == 'reembolso':
+                # Cobro + devolución inmediata = efecto neto 0
                 saldo_posterior = conn.execute(
                     'SELECT COALESCE(SUM(monto), 0) FROM transacciones WHERE usuario_id = ? AND fecha > ?',
                     (user_id, fecha_str)
                 ).fetchone()[0] or 0
                 saldo_despues = saldo_actual - saldo_posterior
-                saldo_antes = saldo_despues + abs(monto_raw)
+                saldo_antes = saldo_despues  # net zero
                 monto_display = abs(monto_raw)
             else:
                 saldo_posterior = conn.execute(
@@ -8008,7 +8019,8 @@ def admin_get_user_costos_detail(day, user_id):
                 'saldo_antes': round(saldo_antes, 2),
                 'saldo_despues': round(saldo_despues, 2),
                 'pin_codigo': trans['pin'],
-                'player_id': None
+                'player_id': None,
+                'duracion_segundos': trans['duracion_segundos']
             })
         
         conn.close()
