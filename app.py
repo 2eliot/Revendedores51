@@ -904,16 +904,13 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-def registrar_historial_compra(usuario_id, monto, paquete_nombre, pin='', tipo_evento='compra', duracion_segundos=None, saldo_antes=0, saldo_despues=0):
-    """Registra una compra en el historial permanente (no se borra con transacciones)"""
+def registrar_historial_compra(conn_existente, usuario_id, monto, paquete_nombre, pin='', tipo_evento='compra', duracion_segundos=None, saldo_antes=0, saldo_despues=0):
+    """Registra una compra en el historial permanente (no se borra con transacciones). Usa la conexión existente para evitar bloqueo."""
     try:
-        conn = get_db_connection()
-        conn.execute('''
+        conn_existente.execute('''
             INSERT INTO historial_compras (usuario_id, monto, paquete_nombre, pin, tipo_evento, duracion_segundos, saldo_antes, saldo_despues)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (usuario_id, monto, paquete_nombre, pin, tipo_evento, duracion_segundos, saldo_antes, saldo_despues))
-        conn.commit()
-        conn.close()
     except Exception as e:
         logger.error(f"Error registrando historial_compra: {e}")
 
@@ -4166,7 +4163,7 @@ def validar_freefire_latam():
             # Registrar en historial permanente
             new_saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
             _saldo_despues = new_saldo_row['saldo'] if new_saldo_row else 0
-            registrar_historial_compra(user_id, abs(monto_transaccion), paquete_nombre, pines_texto, 'compra', None, _saldo_despues + abs(monto_transaccion), _saldo_despues)
+            registrar_historial_compra(conn, user_id, abs(monto_transaccion), paquete_nombre, pines_texto, 'compra', None, _saldo_despues + abs(monto_transaccion), _saldo_despues)
             
             # Actualizar gastos mensuales persistentes (para top clientes)
             if not is_admin:
@@ -4684,7 +4681,7 @@ def approve_bloodstriker_transaction(transaction_id):
             _bs_precio = abs(bs_transaction['monto'])
             _bs_saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (bs_transaction['usuario_id'],)).fetchone()
             _bs_saldo = _bs_saldo_row['saldo'] if _bs_saldo_row else 0
-            registrar_historial_compra(bs_transaction['usuario_id'], _bs_precio, bs_transaction['paquete_nombre'], f"ID: {bs_transaction['player_id']}", 'compra', None, _bs_saldo + _bs_precio, _bs_saldo)
+            registrar_historial_compra(conn, bs_transaction['usuario_id'], _bs_precio, bs_transaction['paquete_nombre'], f"ID: {bs_transaction['player_id']}", 'compra', None, _bs_saldo + _bs_precio, _bs_saldo)
             
             # Persistir profit (legacy) para Blood Striker (cantidad=1)
             try:
@@ -4962,7 +4959,7 @@ def validar_freefire_id():
             # Registrar en historial permanente
             _ff_saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
             _ff_saldo = _ff_saldo_row['saldo'] if _ff_saldo_row else 0
-            registrar_historial_compra(user_id, precio, package_info.get('nombre', 'FF ID'), pin_info, 'compra', _redeem_duration, _ff_saldo + precio, _ff_saldo)
+            registrar_historial_compra(conn, user_id, precio, package_info.get('nombre', 'FF ID'), pin_info, 'compra', _redeem_duration, _ff_saldo + precio, _ff_saldo)
             
             # Registrar profit
             try:
@@ -5555,7 +5552,7 @@ def approve_freefire_id_transaction(transaction_id):
         _fi_precio = abs(fi_transaction['monto'])
         _fi_saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (fi_transaction['usuario_id'],)).fetchone()
         _fi_saldo = _fi_saldo_row['saldo'] if _fi_saldo_row else 0
-        registrar_historial_compra(fi_transaction['usuario_id'], _fi_precio, fi_transaction['paquete_nombre'], f"ID: {fi_transaction['player_id']}", 'compra', None, _fi_saldo + _fi_precio, _fi_saldo)
+        registrar_historial_compra(conn, fi_transaction['usuario_id'], _fi_precio, fi_transaction['paquete_nombre'], f"ID: {fi_transaction['player_id']}", 'compra', None, _fi_saldo + _fi_precio, _fi_saldo)
         
         # Persistir profit (legacy)
         try:
@@ -5665,7 +5662,7 @@ def fix_freefire_id_transaction():
         _corr_precio = abs(trans['monto'])
         _corr_saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (trans['usuario_id'],)).fetchone()
         _corr_saldo = _corr_saldo_row['saldo'] if _corr_saldo_row else 0
-        registrar_historial_compra(trans['usuario_id'], _corr_precio, trans['paquete_nombre'] or 'FF ID', pin_info, 'compra', None, _corr_saldo + _corr_precio, _corr_saldo)
+        registrar_historial_compra(conn, trans['usuario_id'], _corr_precio, trans['paquete_nombre'] or 'FF ID', pin_info, 'compra', None, _corr_saldo + _corr_precio, _corr_saldo)
         
         # Registrar profit
         try:
@@ -6882,7 +6879,7 @@ def validar_freefire():
         # Registrar en historial permanente
         _g_saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
         _g_saldo = _g_saldo_row['saldo'] if _g_saldo_row else 0
-        registrar_historial_compra(user_id, abs(monto_transaccion), paquete_nombre, pines_texto, 'compra', None, _g_saldo + abs(monto_transaccion), _g_saldo)
+        registrar_historial_compra(conn, user_id, abs(monto_transaccion), paquete_nombre, pines_texto, 'compra', None, _g_saldo + abs(monto_transaccion), _g_saldo)
         
         # Actualizar gastos mensuales persistentes (para top clientes)
         if not is_admin:
@@ -7528,7 +7525,7 @@ def api_simple_endpoint():
         ''', (user['id'], numero_control, pins_texto, transaccion_id, paquete_nombre, -precio_total))
         
         # Registrar en historial permanente
-        registrar_historial_compra(user['id'], precio_total, paquete_nombre, pins_texto, 'compra', None, saldo_actual, nuevo_saldo)
+        registrar_historial_compra(conn, user['id'], precio_total, paquete_nombre, pins_texto, 'compra', None, saldo_actual, nuevo_saldo)
         
         # Persistir profit (legacy) también para compras vía API
         try:
@@ -7715,11 +7712,11 @@ def api_v1_ejecutar_recarga():
                VALUES (?, ?, ?, ?, ?, ?)''',
             (admin_uid, numero_control, pin_code, transaccion_id, paquete_nombre, -float(package_info.get('precio', 0)))
         )
+        # Registrar en historial permanente (antes de cerrar conn)
+        _api_precio = float(package_info.get('precio', 0))
+        registrar_historial_compra(conn, admin_uid, _api_precio, paquete_nombre, f"ID: {player_id}", 'compra', None, 0, 0)
         conn.commit()
         conn.close()
-        # Registrar en historial permanente
-        _api_precio = float(package_info.get('precio', 0))
-        registrar_historial_compra(admin_uid, _api_precio, paquete_nombre, f"ID: {player_id}", 'compra', None, 0, 0)
     except Exception as e:
         # No bloquear la respuesta si falla el registro
         logger.error(f'[api/v1/ejecutar-recarga] Error registrando transacción: {e}')
