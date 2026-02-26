@@ -7650,6 +7650,385 @@ def api_v1_ejecutar_recarga():
         'transaccion_id': transaccion_id,
     })
 
+# ==================== ENDPOINTS PARA PESTAÑA COSTO ====================
+
+# Identificar admin por correo
+ADMIN_CORREO = os.environ.get('ADMIN_EMAIL', 'admin@inefable.com')
+
+def _get_admin_user_id():
+    conn = get_db_connection()
+    row = conn.execute('SELECT id FROM usuarios WHERE correo = ?', (ADMIN_CORREO,)).fetchone()
+    conn.close()
+    return row['id'] if row else None
+
+@app.route('/admin/costos/admin-summary')
+def admin_costos_summary():
+    """Resumen de gastos del admin: hoy, semanal, mensual"""
+    if not session.get('is_admin'):
+        return jsonify({'success': False, 'error': 'Acceso denegado'})
+    try:
+        from datetime import datetime, timedelta, timezone
+        admin_id = _get_admin_user_id()
+        if not admin_id:
+            return jsonify({'success': False, 'error': 'Admin no encontrado'})
+
+        utc_now = datetime.now(timezone.utc)
+        local_now = utc_now - timedelta(hours=4)
+        today_str = local_now.strftime('%Y-%m-%d')
+        # Inicio de semana (lunes)
+        weekday = local_now.weekday()  # 0=lunes
+        week_start = (local_now - timedelta(days=weekday)).strftime('%Y-%m-%d')
+        # Inicio de mes
+        month_start = local_now.replace(day=1).strftime('%Y-%m-%d')
+
+        conn = get_db_connection()
+
+        # Gasto hoy (monto < 0 = compras)
+        r_hoy = conn.execute(
+            "SELECT COALESCE(SUM(ABS(monto)), 0) as total, COUNT(*) as cnt FROM transacciones WHERE usuario_id = ? AND DATE(fecha, '-4 hours') = ? AND monto < 0",
+            (admin_id, today_str)
+        ).fetchone()
+
+        # Gasto semanal
+        r_sem = conn.execute(
+            "SELECT COALESCE(SUM(ABS(monto)), 0) as total, COUNT(*) as cnt FROM transacciones WHERE usuario_id = ? AND DATE(fecha, '-4 hours') >= ? AND monto < 0",
+            (admin_id, week_start)
+        ).fetchone()
+
+        # Gasto mensual
+        r_mes = conn.execute(
+            "SELECT COALESCE(SUM(ABS(monto)), 0) as total, COUNT(*) as cnt FROM transacciones WHERE usuario_id = ? AND DATE(fecha, '-4 hours') >= ? AND monto < 0",
+            (admin_id, month_start)
+        ).fetchone()
+
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'gasto_hoy': r_hoy['total'],
+            'compras_hoy': r_hoy['cnt'],
+            'gasto_semanal': r_sem['total'],
+            'compras_semanal': r_sem['cnt'],
+            'gasto_mensual': r_mes['total'],
+            'compras_mensual': r_mes['cnt']
+        })
+    except Exception as e:
+        print(f"Error en admin_costos_summary: {e}")
+        import traceback; traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/admin/costos/<day>')
+def admin_get_costos_day(day):
+    """Obtener compras de usuarios para un día específico (today, yesterday, daybefore o YYYY-MM-DD)"""
+    if not session.get('is_admin'):
+        return jsonify({'success': False, 'error': 'Acceso denegado'})
+    
+    try:
+        from datetime import datetime, timedelta, timezone
+        # Las fechas en BD son UTC (CURRENT_TIMESTAMP). Ajustar a UTC-4 para Venezuela.
+        utc_now = datetime.now(timezone.utc)
+        local_now = utc_now - timedelta(hours=4)
+        today_str = local_now.strftime('%Y-%m-%d')
+
+        if day == 'today':
+            target_str = today_str
+        elif day == 'yesterday':
+            target_str = (local_now - timedelta(days=1)).strftime('%Y-%m-%d')
+        elif day == 'daybefore':
+            target_str = (local_now - timedelta(days=2)).strftime('%Y-%m-%d')
+        else:
+            try:
+                datetime.strptime(day, '%Y-%m-%d')
+                target_str = day
+            except ValueError:
+                return jsonify({'success': False, 'error': 'Formato inválido'})
+
+        conn = get_db_connection()
+
+        # Filtro admin_only: si viene ?admin_only=1, solo mostrar compras del admin
+        admin_only = request.args.get('admin_only') == '1'
+        admin_id = _get_admin_user_id() if admin_only else None
+        user_filter = f'AND t.usuario_id = {admin_id}' if admin_id else ''
+        user_filter_cb = f'AND cb.usuario_id = {admin_id}' if admin_id else ''
+        user_filter_fi = f'AND fi.usuario_id = {admin_id}' if admin_id else ''
+        user_filter_rb = f'AND rb.usuario_id = {admin_id}' if admin_id else ''
+
+        # 1. Compras normales (monto negativo en transacciones)
+        q_compras = f'''
+            SELECT 
+                t.id, t.usuario_id, t.monto, t.fecha,
+                t.paquete_nombre, t.pin,
+                u.nombre as usuario_nombre, u.apellido as usuario_apellido, 
+                u.correo as usuario_correo, u.telefono as usuario_telefono,
+                u.saldo as saldo_actual,
+                'compra' as tipo_evento
+            FROM transacciones t
+            JOIN usuarios u ON t.usuario_id = u.id
+            WHERE DATE(t.fecha, '-4 hours') = ? AND t.monto < 0 {user_filter}
+        '''
+
+        # 2. Créditos añadidos (creditos_billetera)
+        q_creditos = f'''
+            SELECT 
+                cb.id, cb.usuario_id, cb.monto, cb.fecha,
+                'Crédito añadido' as paquete_nombre, '' as pin,
+                u.nombre as usuario_nombre, u.apellido as usuario_apellido,
+                u.correo as usuario_correo, u.telefono as usuario_telefono,
+                u.saldo as saldo_actual,
+                'credito' as tipo_evento
+            FROM creditos_billetera cb
+            JOIN usuarios u ON cb.usuario_id = u.id
+            WHERE DATE(cb.fecha, '-4 hours') = ? {user_filter_cb}
+        '''
+
+        # 3. Recargas FF ID fallidas/rechazadas (reembolso)
+        q_fallidas = f'''
+            SELECT 
+                fi.id, fi.usuario_id, fi.monto, fi.fecha,
+                'FF ID Fallida (reembolso)' as paquete_nombre, 
+                fi.player_id as pin,
+                u.nombre as usuario_nombre, u.apellido as usuario_apellido,
+                u.correo as usuario_correo, u.telefono as usuario_telefono,
+                u.saldo as saldo_actual,
+                'reembolso' as tipo_evento
+            FROM transacciones_freefire_id fi
+            JOIN usuarios u ON fi.usuario_id = u.id
+            WHERE DATE(fi.fecha, '-4 hours') = ? AND fi.estado = 'rechazado' {user_filter_fi}
+        '''
+
+        # 4. Recargas Binance completadas
+        q_binance = f'''
+            SELECT 
+                rb.id, rb.usuario_id, (rb.monto_solicitado + rb.bonus) as monto, 
+                COALESCE(rb.fecha_completada, rb.fecha_creacion) as fecha,
+                'Recarga Binance' as paquete_nombre, 
+                rb.codigo_referencia as pin,
+                u.nombre as usuario_nombre, u.apellido as usuario_apellido,
+                u.correo as usuario_correo, u.telefono as usuario_telefono,
+                u.saldo as saldo_actual,
+                'binance' as tipo_evento
+            FROM recargas_binance rb
+            JOIN usuarios u ON rb.usuario_id = u.id
+            WHERE DATE(COALESCE(rb.fecha_completada, rb.fecha_creacion), '-4 hours') = ? AND rb.estado = 'completada' {user_filter_rb}
+        '''
+
+        # UNION ALL de las 4 fuentes, ordenado por fecha desc
+        query = f'''
+            SELECT * FROM (
+                {q_compras}
+                UNION ALL
+                {q_creditos}
+                UNION ALL
+                {q_fallidas}
+                UNION ALL
+                {q_binance}
+            ) ORDER BY fecha DESC
+        '''
+
+        transactions = conn.execute(query, (target_str, target_str, target_str, target_str)).fetchall()
+        
+        purchases = []
+        for trans in transactions:
+            fecha_str = str(trans['fecha'])
+            tipo = trans['tipo_evento']
+            monto_raw = trans['monto']
+            
+            if tipo == 'credito':
+                # Crédito: saldo_antes se puede sacar de creditos_billetera.saldo_anterior
+                saldo_anterior_row = conn.execute(
+                    'SELECT saldo_anterior FROM creditos_billetera WHERE id = ?', (trans['id'],)
+                ).fetchone()
+                saldo_antes = (saldo_anterior_row['saldo_anterior'] or 0) if saldo_anterior_row else 0
+                saldo_despues = round(saldo_antes + monto_raw, 2)
+                monto_display = monto_raw
+                tipo_compra = '💳 Crédito añadido'
+            elif tipo == 'binance':
+                # Recarga Binance: monto positivo (monto_solicitado + bonus)
+                saldo_despues = trans['saldo_actual'] or 0
+                saldo_antes = round(saldo_despues - monto_raw, 2)
+                monto_display = monto_raw
+                tipo_compra = '🪙 Recarga Binance'
+            elif tipo == 'reembolso':
+                # Reembolso: el monto en fi es negativo (descuento), pero se devolvió
+                saldo_posterior = conn.execute(
+                    'SELECT COALESCE(SUM(monto), 0) FROM transacciones WHERE usuario_id = ? AND fecha > ?',
+                    (trans['usuario_id'], fecha_str)
+                ).fetchone()[0] or 0
+                saldo_actual = trans['saldo_actual'] or 0
+                saldo_despues = saldo_actual - saldo_posterior
+                saldo_antes = saldo_despues + abs(monto_raw)  # tenía menos antes del reembolso
+                monto_display = abs(monto_raw)
+                tipo_compra = '⚠️ FF ID Fallida (reembolso)'
+            else:
+                # Compra normal
+                saldo_posterior = conn.execute(
+                    'SELECT COALESCE(SUM(monto), 0) FROM transacciones WHERE usuario_id = ? AND fecha > ?',
+                    (trans['usuario_id'], fecha_str)
+                ).fetchone()[0] or 0
+                saldo_actual = trans['saldo_actual'] or 0
+                saldo_despues = saldo_actual - saldo_posterior
+                saldo_antes = saldo_despues - monto_raw  # monto es negativo
+                monto_display = abs(monto_raw)
+                tipo_compra = 'Recarga por ID' if 'ID:' in (trans['pin'] or '') else 'PIN'
+            
+            purchases.append({
+                'id': trans['id'],
+                'usuario_id': trans['usuario_id'],
+                'usuario_nombre': trans['usuario_nombre'],
+                'usuario_apellido': trans['usuario_apellido'],
+                'usuario_correo': trans['usuario_correo'],
+                'usuario_telefono': trans['usuario_telefono'] or '',
+                'monto': round(monto_display, 2),
+                'fecha': fecha_str,
+                'paquete_nombre': trans['paquete_nombre'] or 'Compra',
+                'tipo_compra': tipo_compra,
+                'tipo_evento': tipo,
+                'saldo_antes': round(saldo_antes, 2),
+                'saldo_despues': round(saldo_despues, 2),
+                'pin_codigo': trans['pin'],
+                'player_id': None
+            })
+        
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'purchases': purchases,
+            'date': target_str
+        })
+        
+    except Exception as e:
+        print(f"Error en admin_get_costos_day: {e}")
+        import traceback; traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/admin/costos/<day>/user/<int:user_id>')
+def admin_get_user_costos_detail(day, user_id):
+    """Obtener historial de compras de un usuario para un día específico"""
+    if not session.get('is_admin'):
+        return jsonify({'success': False, 'error': 'Acceso denegado'})
+    
+    try:
+        from datetime import datetime, timedelta, timezone
+        utc_now = datetime.now(timezone.utc)
+        local_now = utc_now - timedelta(hours=4)
+        today_str = local_now.strftime('%Y-%m-%d')
+
+        if day == 'today':
+            target_str = today_str
+        elif day == 'yesterday':
+            target_str = (local_now - timedelta(days=1)).strftime('%Y-%m-%d')
+        elif day == 'daybefore':
+            target_str = (local_now - timedelta(days=2)).strftime('%Y-%m-%d')
+        else:
+            try:
+                datetime.strptime(day, '%Y-%m-%d')
+                target_str = day
+            except ValueError:
+                return jsonify({'success': False, 'error': 'Formato inválido'})
+        
+        conn = get_db_connection()
+        
+        user = conn.execute('SELECT * FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+        if not user:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Usuario no encontrado'})
+        
+        # Compras normales
+        q1 = '''
+            SELECT t.id, t.monto, t.fecha, t.paquete_nombre, t.pin, 'compra' as tipo_evento
+            FROM transacciones t
+            WHERE t.usuario_id = ? AND DATE(t.fecha, '-4 hours') = ? AND t.monto < 0
+        '''
+        # Créditos
+        q2 = '''
+            SELECT cb.id, cb.monto, cb.fecha, 'Crédito añadido' as paquete_nombre, '' as pin, 'credito' as tipo_evento
+            FROM creditos_billetera cb
+            WHERE cb.usuario_id = ? AND DATE(cb.fecha, '-4 hours') = ?
+        '''
+        # Reembolsos FF ID
+        q3 = '''
+            SELECT fi.id, fi.monto, fi.fecha, 'FF ID Fallida (reembolso)' as paquete_nombre, fi.player_id as pin, 'reembolso' as tipo_evento
+            FROM transacciones_freefire_id fi
+            WHERE fi.usuario_id = ? AND DATE(fi.fecha, '-4 hours') = ? AND fi.estado = 'rechazado'
+        '''
+        # Recargas Binance completadas
+        q4 = '''
+            SELECT rb.id, (rb.monto_solicitado + rb.bonus) as monto, COALESCE(rb.fecha_completada, rb.fecha_creacion) as fecha,
+                'Recarga Binance' as paquete_nombre, rb.codigo_referencia as pin, 'binance' as tipo_evento
+            FROM recargas_binance rb
+            WHERE rb.usuario_id = ? AND DATE(COALESCE(rb.fecha_completada, rb.fecha_creacion), '-4 hours') = ? AND rb.estado = 'completada'
+        '''
+        query = f'SELECT * FROM ({q1} UNION ALL {q2} UNION ALL {q3} UNION ALL {q4}) ORDER BY fecha DESC'
+        
+        transactions = conn.execute(query, (user_id, target_str, user_id, target_str, user_id, target_str, user_id, target_str)).fetchall()
+        
+        saldo_actual = user['saldo'] or 0
+        
+        purchases = []
+        for trans in transactions:
+            fecha_str = str(trans['fecha'])
+            tipo = trans['tipo_evento']
+            monto_raw = trans['monto']
+            
+            if tipo == 'credito':
+                saldo_ant_row = conn.execute(
+                    'SELECT saldo_anterior FROM creditos_billetera WHERE id = ?', (trans['id'],)
+                ).fetchone()
+                saldo_antes = (saldo_ant_row['saldo_anterior'] or 0) if saldo_ant_row else 0
+                saldo_despues = round(saldo_antes + monto_raw, 2)
+                monto_display = monto_raw
+            elif tipo == 'binance':
+                saldo_despues = saldo_actual
+                saldo_antes = round(saldo_despues - monto_raw, 2)
+                monto_display = monto_raw
+            elif tipo == 'reembolso':
+                saldo_posterior = conn.execute(
+                    'SELECT COALESCE(SUM(monto), 0) FROM transacciones WHERE usuario_id = ? AND fecha > ?',
+                    (user_id, fecha_str)
+                ).fetchone()[0] or 0
+                saldo_despues = saldo_actual - saldo_posterior
+                saldo_antes = saldo_despues + abs(monto_raw)
+                monto_display = abs(monto_raw)
+            else:
+                saldo_posterior = conn.execute(
+                    'SELECT COALESCE(SUM(monto), 0) FROM transacciones WHERE usuario_id = ? AND fecha > ?',
+                    (user_id, fecha_str)
+                ).fetchone()[0] or 0
+                saldo_despues = saldo_actual - saldo_posterior
+                saldo_antes = saldo_despues - monto_raw
+                monto_display = abs(monto_raw)
+            
+            purchases.append({
+                'id': trans['id'],
+                'monto': round(monto_display, 2),
+                'fecha_hora': fecha_str,
+                'tipo': tipo,
+                'paquete_nombre': trans['paquete_nombre'] or 'Compra',
+                'saldo_antes': round(saldo_antes, 2),
+                'saldo_despues': round(saldo_despues, 2),
+                'pin_codigo': trans['pin'],
+                'player_id': None
+            })
+        
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'usuario': {
+                'id': user['id'],
+                'nombre': user['nombre'],
+                'apellido': user['apellido'],
+                'correo': user['correo']
+            },
+            'purchases': purchases
+        })
+        
+    except Exception as e:
+        print(f"Error en admin_get_user_costos_detail: {e}")
+        import traceback; traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)})
+
 
 if __name__ == '__main__':
     app.run(debug=True)

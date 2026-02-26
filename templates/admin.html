@@ -53,9 +53,10 @@
         <button class="side-tab-button" onclick="showTab('estadisticas')" aria-label="Estadísticas">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg></span><span class="label">Estadísticas</span>
         </button>
-        <button class="side-tab-button" onclick="showTab('redeemer')" aria-label="Redeemer">
-          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></span><span class="label">Redeemer</span>
+        <button class="side-tab-button" onclick="showTab('costo')" aria-label="Costo">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32l1.41-1.41"/><circle cx="12" cy="12" r="5"/><path d="M12 7v5l3 3"/></svg></span><span class="label">Costo</span>
         </button>
+        <!-- Redeemer oculto - se usa VPS externo -->
         <a class="side-tab-button" href="/" aria-label="Volver al Inicio" style="text-decoration:none;">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7"/><path d="M9 22V12h6v10"/></svg></span><span class="label">Inicio</span>
         </a>
@@ -187,6 +188,74 @@
             <div class="card-body" id="profit-config-games">
               <!-- Secciones por juego se inyectan aquí -->
               <small>Nota: el costo se usa para calcular la ganancia. En esquema legacy se guarda en <code>precios_compra</code>; en canónico en <code>package_cost_config</code>.</small>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Pestaña de Costo -->
+      <div id="tab-costo" class="tab-content">
+        <section class="costo-section">
+          <h2>💰 Costos y Compras de Usuarios</h2>
+          <p style="color:#888;margin-bottom:20px;">Historial de compras diarias de usuarios activos con detalles de saldo antes/después.</p>
+          
+          <!-- Sub-tabs: Usuarios / Admin -->
+          <div style="display:flex;gap:8px;margin-bottom:16px;">
+            <button type="button" class="costo-subtab active" data-subtab="usuarios" style="padding:8px 16px;font-size:13px;background:#00d4aa;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:bold;">Usuarios</button>
+            <button type="button" class="costo-subtab" data-subtab="admin" style="padding:8px 16px;font-size:13px;background:#333;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;">Admin</button>
+          </div>
+
+          <!-- Sub-tab Usuarios -->
+          <div id="costo-subtab-usuarios">
+            <div class="card">
+              <div class="card-header">
+                <h3>📋 Compras por Día</h3>
+                <div style="display:flex;align-items:center;gap:12px;">
+                  <div class="day-pagination" style="display:flex;gap:8px;">
+                    <button type="button" class="day-btn active" data-day="today" style="padding:6px 12px;font-size:12px;background:#00d4aa;color:#000;border:none;border-radius:4px;cursor:pointer;">Hoy</button>
+                    <button type="button" class="day-btn" data-day="yesterday" style="padding:6px 12px;font-size:12px;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer;">Ayer</button>
+                    <button type="button" class="day-btn" data-day="daybefore" style="padding:6px 12px;font-size:12px;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer;">Antes de ayer</button>
+                  </div>
+                  <button type="button" id="refresh-current" class="btn btn-secondary" style="padding:4px 12px;font-size:12px;">🔄</button>
+                </div>
+              </div>
+              <div class="card-body">
+                <div id="current-purchases-list">
+                  <div style="text-align:center;padding:20px;color:#888;">Cargando...</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Sub-tab Admin -->
+          <div id="costo-subtab-admin" style="display:none;">
+            <div class="card" style="margin-bottom:16px;">
+              <div class="card-header">
+                <h3>📊 Resumen de Gastos Admin</h3>
+              </div>
+              <div class="card-body">
+                <div id="admin-cost-summary" style="display:flex;gap:16px;flex-wrap:wrap;">
+                  <div style="text-align:center;padding:20px;color:#888;width:100%;">Cargando...</div>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <h3>📋 Compras Admin</h3>
+                <div style="display:flex;align-items:center;gap:12px;">
+                  <div class="day-pagination-admin" style="display:flex;gap:8px;">
+                    <button type="button" class="day-btn-admin active" data-day="today" style="padding:6px 12px;font-size:12px;background:#00d4aa;color:#000;border:none;border-radius:4px;cursor:pointer;">Hoy</button>
+                    <button type="button" class="day-btn-admin" data-day="yesterday" style="padding:6px 12px;font-size:12px;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer;">Ayer</button>
+                    <button type="button" class="day-btn-admin" data-day="daybefore" style="padding:6px 12px;font-size:12px;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer;">Antes de ayer</button>
+                  </div>
+                  <button type="button" id="refresh-admin" class="btn btn-secondary" style="padding:4px 12px;font-size:12px;">🔄</button>
+                </div>
+              </div>
+              <div class="card-body">
+                <div id="admin-purchases-list">
+                  <div style="text-align:center;padding:20px;color:#888;">Cargando...</div>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -721,9 +790,11 @@
           .find(b => b.textContent.trim().toLowerCase().includes(tabName));
         if (sideBtn) sideBtn.classList.add('active');
       }
-      // Cargar datos de estadísticas al abrir la pestaña
+      // Cargar datos específicos al abrir pestañas
       if (tabName === 'estadisticas') {
         loadAdminStats();
+      } else if (tabName === 'costo') {
+        loadCostoData();
       }
     }
 
@@ -1004,6 +1075,324 @@
 
       } catch (e) {
         console.error('Error cargando estadísticas', e);
+      }
+    }
+
+    // Funciones para la pestaña Costo
+    let currentDay = 'today';
+    let currentAdminDay = 'today';
+    let costoListenersAdded = false;
+    
+    async function loadCostoData() {
+      if (!costoListenersAdded) {
+        costoListenersAdded = true;
+        
+        // Sub-tabs Usuarios/Admin
+        document.querySelectorAll('.costo-subtab').forEach(btn => {
+          btn.addEventListener('click', function() {
+            document.querySelectorAll('.costo-subtab').forEach(b => {
+              b.classList.remove('active'); b.style.background = '#333'; b.style.color = '#fff';
+            });
+            this.classList.add('active'); this.style.background = '#00d4aa'; this.style.color = '#000';
+            const tab = this.getAttribute('data-subtab');
+            document.getElementById('costo-subtab-usuarios').style.display = tab === 'usuarios' ? 'block' : 'none';
+            document.getElementById('costo-subtab-admin').style.display = tab === 'admin' ? 'block' : 'none';
+            if (tab === 'admin') { loadAdminCostoData(); }
+          });
+        });
+        
+        // Botones de día - Usuarios
+        document.querySelectorAll('.day-btn').forEach(btn => {
+          btn.addEventListener('click', function() {
+            document.querySelectorAll('.day-btn').forEach(b => {
+              b.classList.remove('active'); b.style.background = '#333'; b.style.color = '#fff';
+            });
+            this.classList.add('active'); this.style.background = '#00d4aa'; this.style.color = '#000';
+            currentDay = this.getAttribute('data-day');
+            loadDayPurchases(currentDay);
+          });
+        });
+        
+        // Botones de día - Admin
+        document.querySelectorAll('.day-btn-admin').forEach(btn => {
+          btn.addEventListener('click', function() {
+            document.querySelectorAll('.day-btn-admin').forEach(b => {
+              b.classList.remove('active'); b.style.background = '#333'; b.style.color = '#fff';
+            });
+            this.classList.add('active'); this.style.background = '#00d4aa'; this.style.color = '#000';
+            currentAdminDay = this.getAttribute('data-day');
+            loadAdminPurchases(currentAdminDay);
+          });
+        });
+        
+        document.getElementById('refresh-current')?.addEventListener('click', () => loadDayPurchases(currentDay));
+        document.getElementById('refresh-admin')?.addEventListener('click', () => { loadAdminCostoData(); });
+      }
+      
+      await loadDayPurchases(currentDay);
+    }
+    
+    async function loadAdminCostoData() {
+      await loadAdminSummary();
+      await loadAdminPurchases(currentAdminDay);
+    }
+    
+    async function loadAdminSummary() {
+      const container = document.getElementById('admin-cost-summary');
+      if (!container) return;
+      container.innerHTML = '<div style="text-align:center;padding:20px;color:#888;width:100%;">Cargando...</div>';
+      try {
+        const response = await fetch('/admin/costos/admin-summary');
+        const data = await response.json();
+        if (!data.success) { container.innerHTML = '<div style="color:#ff6b6b;">Error</div>'; return; }
+        
+        container.innerHTML = `
+          <div style="flex:1;min-width:200px;background:#0d0d1a;border-radius:8px;padding:16px;text-align:center;">
+            <div style="color:#888;font-size:12px;margin-bottom:4px;">Gasto Hoy</div>
+            <div style="color:#ff9800;font-size:24px;font-weight:bold;">$${data.gasto_hoy.toFixed(2)}</div>
+            <div style="color:#888;font-size:11px;">${data.compras_hoy} compras</div>
+          </div>
+          <div style="flex:1;min-width:200px;background:#0d0d1a;border-radius:8px;padding:16px;text-align:center;">
+            <div style="color:#888;font-size:12px;margin-bottom:4px;">Gasto Semanal</div>
+            <div style="color:#ff6b6b;font-size:24px;font-weight:bold;">$${data.gasto_semanal.toFixed(2)}</div>
+            <div style="color:#888;font-size:11px;">${data.compras_semanal} compras</div>
+          </div>
+          <div style="flex:1;min-width:200px;background:#0d0d1a;border-radius:8px;padding:16px;text-align:center;">
+            <div style="color:#888;font-size:12px;margin-bottom:4px;">Gasto Mensual</div>
+            <div style="color:#ff6b6b;font-size:24px;font-weight:bold;">$${data.gasto_mensual.toFixed(2)}</div>
+            <div style="color:#888;font-size:11px;">${data.compras_mensual} compras</div>
+          </div>
+        `;
+      } catch (e) {
+        console.error('Error admin summary:', e);
+        container.innerHTML = '<div style="color:#ff6b6b;">Error al cargar resumen</div>';
+      }
+    }
+    
+    async function loadAdminPurchases(day) {
+      const container = document.getElementById('admin-purchases-list');
+      if (!container) return;
+      container.innerHTML = '<div style="text-align:center;padding:20px;color:#888;">Cargando...</div>';
+      try {
+        const response = await fetch(`/admin/costos/${day}?admin_only=1`);
+        const data = await response.json();
+        if (!data.success || data.purchases.length === 0) {
+          const dayNames = { 'today': 'hoy', 'yesterday': 'ayer', 'daybefore': 'antes de ayer' };
+          container.innerHTML = `<div style="text-align:center;padding:20px;color:#888;">No hay compras admin para ${dayNames[day] || day}</div>`;
+          return;
+        }
+        let html = '';
+        data.purchases.forEach(p => {
+          const tipo = p.tipo_evento || 'compra';
+          let montoColor = '#ff9800', montoSign = '-';
+          if (tipo === 'credito' || tipo === 'binance') { montoColor = '#51cf66'; montoSign = '+'; }
+          else if (tipo === 'reembolso') { montoColor = '#ff6b6b'; montoSign = '↩'; }
+          
+          html += `
+            <div style="background:#0d0d1a;border-radius:6px;padding:12px;margin-bottom:8px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                  <div style="color:#fff;font-weight:bold;margin-bottom:2px;">${p.paquete_nombre}</div>
+                  <div style="color:#888;font-size:12px;">${p.tipo_compra} | ${p.fecha}</div>
+                </div>
+                <div style="text-align:right;">
+                  <div style="color:${montoColor};font-weight:bold;font-size:16px;">${montoSign}$${p.monto.toFixed(2)}</div>
+                  <div style="color:#888;font-size:11px;">$${p.saldo_antes.toFixed(2)} → $${p.saldo_despues.toFixed(2)}</div>
+                </div>
+              </div>
+            </div>
+          `;
+        });
+        container.innerHTML = html;
+      } catch (e) {
+        console.error('Error admin purchases:', e);
+        container.innerHTML = '<div style="color:#ff6b6b;">Error al cargar</div>';
+      }
+    }
+    
+    async function loadDayPurchases(day) {
+      console.log(`Cargando compras para: ${day}`);
+      const container = document.getElementById('current-purchases-list');
+      if (!container) {
+        console.error('Container no encontrado');
+        return;
+      }
+      
+      container.innerHTML = '<div style="text-align:center;padding:20px;color:#888;">Cargando...</div>';
+      
+      try {
+        console.log(`Haciendo fetch a /admin/costos/${day}`);
+        const response = await fetch(`/admin/costos/${day}`);
+        console.log(`Response status: ${response.status}`);
+        const data = await response.json();
+        console.log(`Data recibida:`, data);
+        
+        if (!data.success || data.purchases.length === 0) {
+          const dayNames = {
+            'today': 'hoy',
+            'yesterday': 'ayer',
+            'daybefore': 'antes de ayer'
+          };
+          container.innerHTML = `<div style="text-align:center;padding:20px;color:#888;">No hay compras registradas para ${dayNames[day] || day}</div>`;
+          return;
+        }
+        
+        // Agrupar por usuario
+        const userMap = {};
+        data.purchases.forEach(p => {
+          const uid = p.usuario_id;
+          if (!userMap[uid]) {
+            userMap[uid] = {
+              usuario_id: uid,
+              usuario_nombre: p.usuario_nombre,
+              usuario_apellido: p.usuario_apellido,
+              usuario_correo: p.usuario_correo,
+              usuario_telefono: p.usuario_telefono,
+              eventos: [],
+              total_gastado: 0,
+              total_recibido: 0,
+              ultima_fecha: p.fecha
+            };
+          }
+          userMap[uid].eventos.push(p);
+          const tipo = p.tipo_evento || 'compra';
+          if (tipo === 'compra') userMap[uid].total_gastado += p.monto;
+          else userMap[uid].total_recibido += p.monto;
+          // Fecha más reciente
+          if (p.fecha > userMap[uid].ultima_fecha) userMap[uid].ultima_fecha = p.fecha;
+        });
+        
+        // Ordenar usuarios por última actividad (más reciente primero)
+        const users = Object.values(userMap).sort((a, b) => b.ultima_fecha.localeCompare(a.ultima_fecha));
+        
+        let html = '';
+        users.forEach(u => {
+          const numEventos = u.eventos.length;
+          // Primera del día (la más antigua) y última (la más reciente)
+          const primera = u.eventos[u.eventos.length - 1]; // más antigua
+          const ultima = u.eventos[0]; // más reciente
+          const saldoAntes = primera.saldo_antes;
+          const saldoDespues = ultima.saldo_despues;
+          
+          // Última compra (evento más reciente)
+          const ultimaCompra = ultima.paquete_nombre;
+          const ultimoMonto = ultima.monto;
+          const ultimoTipo = ultima.tipo_evento || 'compra';
+          let montoSign = '-'; let montoColor = '#ff9800';
+          if (ultimoTipo === 'credito' || ultimoTipo === 'binance') { montoSign = '+'; montoColor = '#51cf66'; }
+          else if (ultimoTipo === 'reembolso') { montoSign = '↩'; montoColor = '#ff6b6b'; }
+          
+          html += `
+            <div class="costo-user-card" style="background:#1a1a2e;border-radius:8px;padding:16px;margin-bottom:12px;border:1px solid #333;">
+              <div style="display:flex;justify-content:space-between;align-items:start;gap:16px;">
+                <div style="flex:1;">
+                  <div style="font-weight:bold;color:#00d4aa;margin-bottom:6px;">
+                    ${u.usuario_nombre} ${u.usuario_apellido}
+                    <span style="font-size:12px;color:#888;margin-left:8px;">ID: ${u.usuario_id}</span>
+                  </div>
+                  <div style="color:#fff;font-size:13px;margin-bottom:4px;">${ultimaCompra} <span style="color:${montoColor};">${montoSign}$${ultimoMonto.toFixed(2)}</span></div>
+                  <div style="display:flex;gap:10px;align-items:center;">
+                    <span style="color:#888;">Saldo:</span>
+                    <span style="color:#ff6b6b;">$${saldoAntes.toFixed(2)}</span>
+                    <span style="color:#888;">→</span>
+                    <span style="color:#51cf66;">$${saldoDespues.toFixed(2)}</span>
+                  </div>
+                </div>
+                <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+                  <div style="color:#888;font-size:12px;">${numEventos} movimiento${numEventos > 1 ? 's' : ''}</div>
+                  <button type="button" onclick="showUserPurchaseDetail(${u.usuario_id}, '${day}')" class="btn btn-primary" style="padding:6px 14px;font-size:12px;">
+                    📋 Ver
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+        });
+        
+        container.innerHTML = html;
+        
+      } catch (error) {
+        console.error(`Error cargando compras de ${day}:`, error);
+        container.innerHTML = '<div style="text-align:center;padding:20px;color:#ff6b6b;">Error al cargar datos</div>';
+      }
+    }
+
+    
+    async function showUserPurchaseDetail(userId, day) {
+      try {
+        const response = await fetch(`/admin/costos/${day}/user/${userId}`);
+        const data = await response.json();
+        
+        if (!data.success) {
+          alert('No se pudieron cargar los detalles');
+          return;
+        }
+        
+        let detailHtml = `
+          <div style="background:#1a1a2e;border-radius:8px;padding:20px;border:1px solid #333;max-width:600px;margin:0 auto;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+              <h3 style="margin:0;color:#00d4aa;">📋 Historial de Compras</h3>
+              <button onclick="this.closest('.modal-overlay').remove()" style="background:none;border:none;color:#fff;font-size:20px;cursor:pointer;">×</button>
+            </div>
+            <div style="margin-bottom:12px;">
+              <strong style="color:#fff;">${data.usuario.nombre} ${data.usuario.apellido}</strong><br>
+              <span style="color:#888;">ID: ${data.usuario.id} | ${data.usuario.correo}</span>
+            </div>
+            <div style="max-height:400px;overflow-y:auto;">
+        `;
+        
+        data.purchases.forEach(p => {
+          let tipoIcon = '📌';
+          let montoPrefix = '-';
+          let montoColor = '#ff9800';
+          if (p.tipo === 'credito') { tipoIcon = '💳'; montoPrefix = '+'; montoColor = '#51cf66'; }
+          else if (p.tipo === 'binance') { tipoIcon = '🪙'; montoPrefix = '+'; montoColor = '#f0b90b'; }
+          else if (p.tipo === 'reembolso') { tipoIcon = '⚠️'; montoPrefix = '↩'; montoColor = '#ff6b6b'; }
+          else if (p.tipo === 'compra' && (p.pin_codigo || '').includes('ID:')) { tipoIcon = '🎮'; }
+          
+          detailHtml += `
+            <div style="background:#0d0d1a;border-radius:6px;padding:12px;margin-bottom:8px;">
+              <div style="display:flex;justify-content:space-between;align-items:start;">
+                <div>
+                  <div style="color:#fff;font-weight:bold;margin-bottom:4px;">${tipoIcon} ${p.paquete_nombre}</div>
+                  <div style="color:#888;font-size:12px;">${p.fecha_hora}</div>
+                  ${p.player_id ? `<div style="color:#888;font-size:12px;">Player ID: ${p.player_id}</div>` : ''}
+                  ${(p.pin_codigo && p.pin_codigo.length > 2) ? `<div style="color:#888;font-size:12px;">PIN: ${p.pin_codigo.substring(0,20)}...</div>` : ''}
+                </div>
+                <div style="text-align:right;">
+                  <div style="color:${montoColor};font-weight:bold;">${montoPrefix}$${p.monto.toFixed(2)}</div>
+                  <div style="color:#888;font-size:11px;">$${p.saldo_antes.toFixed(2)} → $${p.saldo_despues.toFixed(2)}</div>
+                </div>
+              </div>
+            </div>
+          `;
+        });
+        
+        detailHtml += `
+            </div>
+          </div>
+        `;
+        
+        // Crear modal overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.style.cssText = `
+          position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+          background: rgba(0,0,0,0.8); z-index: 9999;
+          display: flex; align-items: center; justify-content: center;
+          padding: 20px;
+        `;
+        overlay.innerHTML = detailHtml;
+        document.body.appendChild(overlay);
+        
+        // Cerrar al hacer clic fuera
+        overlay.addEventListener('click', (e) => {
+          if (e.target === overlay) overlay.remove();
+        });
+        
+      } catch (error) {
+        console.error('Error cargando detalles:', error);
+        alert('Error al cargar detalles del usuario');
       }
     }
     
