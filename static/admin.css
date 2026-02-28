@@ -191,6 +191,97 @@ body {
   padding: 6px 10px;
   font-size: 0.85rem;
 }
+.profit-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.profit-panel-header .profit-title {
+  font-weight: 600;
+  color: #333;
+}
+
+.profit-panel-header .profit-total {
+  font-weight: 500;
+  color: #28a745;
+}
+
+.profit-switches {
+  display: inline-flex;
+  background: #f1f3f5;
+  padding: 2px;
+  border-radius: 999px;
+  gap: 2px;
+}
+
+.profit-switch-btn {
+  border: none;
+  background: transparent;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  color: #555;
+}
+
+.profit-switch-btn.active {
+  background: #007bff;
+  color: #fff;
+}
+
+.profit-panel-body {
+  margin-top: 8px;
+  background: #f8f9fa;
+  border-radius: 12px;
+  padding: 10px 6px;
+  min-height: 140px;
+}
+
+.profit-days-row {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 4px;
+  padding-bottom: 4px;
+}
+
+.profit-day {
+  min-width: 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  font-size: 0.75rem;
+  color: #555;
+  height: 90px;
+}
+
+.profit-amount-label {
+  font-size: 0.65rem;
+  color: #888;
+  margin-bottom: 2px;
+}
+
+.profit-bar {
+  width: 14px;
+  border-radius: 999px;
+  margin-bottom: 4px;
+}
+
+.profit-day-label {
+  font-size: 0.7rem;
+  color: #444;
+}
+
+@media (max-width: 600px) {
+  .profit-panel-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
 
 .users-table-container {
   overflow-x: auto;
@@ -2506,6 +2597,23 @@ body {
 .toggle-group .toggle.active {
   background: #0d6efd;
   color: #fff;
+}
+
+/* Ajustes móviles extra para panel de profit diario */
+@media (max-width: 600px) {
+  body {
+    overflow-x: hidden;
+  }
+  .profit-panel-body {
+    padding: 8px 4px;
+    overflow-x: auto;
+  }
+  .profit-days-row {
+    max-width: 100%;
+  }
+  .profit-day {
+    min-width: 24px;
+  }
 }
 
 /* Ultra pequeño: <=320px */

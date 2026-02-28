@@ -6054,7 +6054,24 @@ def admin_profitability():
     
     try:
         profit_analysis = get_profit_analysis()
-        return render_template('admin_profitability.html', profit_analysis=profit_analysis)
+        # Calcular profit diario del mes actual
+        from datetime import datetime
+        import calendar
+        from admin_stats import compute_legacy_profit_by_day
+        conn = get_db_connection()
+        now = datetime.now()
+        year = now.year
+        month = now.month
+        first_day = f"{year}-{month:02d}-01"
+        last_day = f"{year}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
+        # Usar compute_legacy_profit_by_day para obtener lista de dicts
+        daily_list = compute_legacy_profit_by_day(conn, first_day, last_day)
+        # Convertir a dict: {día:int: profit:float}
+        daily_profit = {int(item['day'][-2:]): item['profit'] for item in daily_list if 'day' in item and item['day'][-2:].isdigit()}
+        conn.close()
+        # Calcular total_profit para el mes actual
+        total_profit = sum(daily_profit.values())
+        return render_template('admin_profitability.html', profit_analysis=profit_analysis, daily_profit=daily_profit, total_profit=total_profit)
     except Exception as e:
         flash(f'Error al obtener análisis de rentabilidad: {str(e)}', 'error')
         return redirect('/admin')

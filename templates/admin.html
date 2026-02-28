@@ -6,6 +6,7 @@
   <title>Panel de Administrador</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}">
   <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
   <!-- Mensajes flash -->
@@ -159,25 +160,23 @@
             </div>
           </div>
 
-          <div class="grid-2" style="margin-top:16px; display:grid; grid-template-columns: 1fr; gap:16px;">
-            <div class="card">
-              <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
-                <h3 style="margin:0;">Profit diario</h3>
-                <div style="display:flex;align-items:center;gap:12px;">
-                  <div style="font-weight:600;">Total: <span id="profit-total-display">$0.00</span></div>
-                  <div class="toggle-group">
-                    <button type="button" id="btn-month-current" class="toggle active">Mes actual</button>
-                    <button type="button" id="btn-month-prev" class="toggle">Mes anterior</button>
-                  </div>
+          <div class="row g-3 mt-1" style="margin-top:16px;">
+            <div class="col-12 col-md-4">
+              <div class="p-3 bg-dark text-white rounded">
+                <div class="small text-secondary">Profit diario</div>
+                <div class="fs-5">Total: <span id="profit-total-display">$0.00</span></div>
+                <div class="mt-2 profit-switches">
+                  <button type="button" id="btn-month-current" class="profit-switch-btn active">Mes actual</button>
+                  <button type="button" id="btn-month-prev" class="profit-switch-btn">Mes anterior</button>
                 </div>
               </div>
-              <div class="card-body">
-                <div class="bar-chart-wrap">
-                  <div id="profit-yaxis" class="bar-chart-yaxis"></div>
-                  <div id="profit-labels" class="bar-chart-labels"></div>
-                  <div id="profit-chart" class="bar-chart"></div>
+            </div>
+            <div class="col-12 col-md-8">
+              <div class="p-3 bg-dark text-white rounded">
+                <div class="small text-secondary mb-2" id="profit-range-label">Profit diario por día del mes</div>
+                <div class="chart-container" style="height:180px;">
+                  <canvas id="profitDailyChart"></canvas>
                 </div>
-                <div class="bar-chart-xlabels" id="profit-chart-xlabels"></div>
               </div>
             </div>
           </div>
@@ -378,6 +377,14 @@
                 <button type="submit" class="btn btn-create-news">📰 Publicar Noticia</button>
               </form>
               <script>
+                  function showTab(tabName) {
+                    document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+                    const target = document.getElementById('tab-' + tabName);
+                    if (target) target.classList.add('active');
+                    document.querySelectorAll('.side-tab-button').forEach(btn => btn.classList.remove('active'));
+                    const btn = Array.from(document.querySelectorAll('.side-tab-button')).find(b => b.textContent.toLowerCase().includes(tabName));
+                    if (btn) btn.classList.add('active');
+                  }
               function previewNewsImage(input) {
                 const placeholder = document.getElementById('image-upload-placeholder');
                 const preview = document.getElementById('image-preview');
@@ -782,6 +789,13 @@
       const target = document.getElementById('tab-' + tabName);
       if (target) target.classList.add('active');
 
+      // Recordar pestaña activa en almacenamiento local
+      try {
+        localStorage.setItem('adminActiveTab', tabName);
+      } catch (e) {
+        console.warn('No se pudo guardar pestaña activa', e);
+      }
+
       // Activar el botón que llamó (si existe)
       if (event && event.target) {
         event.target.classList.add('active');
@@ -873,11 +887,9 @@
 
         // Gasto diario (removido de UI)
 
-        // Timeseries: Profit diario como barras con toggle
+        // Timeseries: Profit diario como barras simples y responsivas
         const dataCurr = (ts?.timeseries?.profit_daily_month||[]).map(x => ({ day: x.day, value: Number(x.profit||0) }));
         const dataPrev = (ts?.timeseries?.profit_daily_prev_month||[]).map(x => ({ day: x.day, value: Number(x.profit||0) }));
-        const chart = document.getElementById('profit-chart');
-        const xlabels = document.getElementById('profit-chart-xlabels');
         const totalEl = document.getElementById('profit-total-display');
         const btnCurr = document.getElementById('btn-month-current');
         const btnPrev = document.getElementById('btn-month-prev');
@@ -895,7 +907,6 @@
             const ym = `${y}-${String(m+1).padStart(2,'0')}`;
             return Array.from({length: dim}, (_,i)=>({ day: `${ym}-${String(i+1).padStart(2,'0')}`, value: 0 }));
           }
-          // Inferir año/mes desde el primer elemento (formato YYYY-MM-DD)
           const [yy, mm] = String(dataset[0].day||'').split('-');
           const y = parseInt(yy||`${new Date().getFullYear()}`,10);
           const m = parseInt(mm||`${new Date().getMonth()+1}`,10) - 1;
@@ -908,147 +919,131 @@
           });
         }
 
-        function animateCountUp(element, targetValue, duration) {
-          const startValue = 0;
-          const startTime = performance.now();
-          const isInteger = Number.isInteger(targetValue);
-          
-          function update(currentTime) {
-            const elapsed = currentTime - startTime;
-            const progress = Math.min(elapsed / duration, 1);
-            
-            // Easing function for smooth animation
-            const easeOutQuart = 1 - Math.pow(1 - progress, 4);
-            const currentValue = startValue + (targetValue * easeOutQuart);
-            
-            // Update text with formatted value
-            if (currentValue > 0) {
-              element.textContent = isInteger ? `$${Math.round(currentValue)}` : `$${currentValue.toFixed(1)}`;
-            }
-            
-            // Show element with animation
-            if (progress > 0.1) {
-              element.classList.add('show');
-            }
-            
-            // Continue animation
-            if (progress < 1) {
-              requestAnimationFrame(update);
-            } else {
-              // Final value
-              element.textContent = isInteger ? `$${Math.round(targetValue)}` : `$${targetValue.toFixed(1)}`;
-              element.classList.add('show');
-            }
-          }
-          
-          requestAnimationFrame(update);
-        }
+        const profitValueLabelsPlugin = {
+          id: 'profitValueLabels',
+          afterDatasetsDraw(chart, args, pluginOptions) {
+            const { ctx } = chart;
+            const dataset = chart.data.datasets[0];
+            const meta = chart.getDatasetMeta(0);
+            if (!dataset || !meta) return;
 
-        function renderBars(dataset) {
-          if (!chart || !xlabels) return;
-          chart.innerHTML = '';
-          xlabels.innerHTML = '';
-          const labelsContainer = document.getElementById('profit-labels');
-          if (labelsContainer) labelsContainer.innerHTML = '';
-          const monthData = normalizeToMonthDataset(dataset);
-          // Recorte inteligente del final: usar el día de hoy si es el mes actual, o el último día con datos > 0.
-          let visibleData = monthData;
-          try {
-            const first = monthData[0]?.day || '';
-            const [yy, mm] = String(first).split('-');
-            const today = new Date();
-            const sameMonth = today.getFullYear() === Number(yy) && (today.getMonth() + 1) === Number(mm);
-            // Encontrar último índice con valor > 0
-            let lastIdx = -1;
-            for (let i = monthData.length - 1; i >= 0; i--) {
-              if (Number(monthData[i].value || 0) > 0) { lastIdx = i; break; }
-            }
-            let cut = monthData.length;
-            if (sameMonth) {
-              cut = Math.min(monthData.length, Math.max(today.getDate(), 1));
-            }
-            if (lastIdx >= 0) {
-              cut = Math.max(Math.min(cut, lastIdx + 1), 7); // al menos 7 días visibles
-            } else if (sameMonth) {
-              cut = Math.max(Math.min(cut, today.getDate()), 7);
-            }
-            visibleData = monthData.slice(0, cut);
-          } catch (e) {
-            // fallback: dejar monthData completo
-            visibleData = monthData;
-          }
-          const narrow = window.innerWidth < 520;
-          const max = Math.max(1, ...visibleData.map(d => d.value));
-          // Pintar barras SOLO para los datos visibles recortados
-          visibleData.forEach((d, idx) => {
-            const bar = document.createElement('div');
-            bar.className = 'bar';
-            // Escala lineal: la altura es proporcional al valor respecto al máximo
-            const h = (d.value / max) * 100;
-            bar.style.height = `${h}%`;
-            bar.title = `${d.day}: $${d.value.toFixed(2)}`;
-            chart.appendChild(bar);
-          });
-          // Etiquetas de valor arriba de las barras
-          if (labelsContainer) {
-            visibleData.forEach((d, idx) => {
-              const label = document.createElement('div');
-              // Mostrar valor formateado, solo si hay ganancia
-              if (d.value > 0) {
-                label.textContent = '$0';
-                label.title = `${d.day}: $${d.value.toFixed(2)}`;
-                // Animar el número hacia arriba
-                animateCountUp(label, d.value, 250); // 250ms para sincronizar con barras
-              } else {
-                label.textContent = '';
-                label.title = `${d.day}: $0.00`;
-                label.classList.add('show'); // Mostrar inmediatamente si es $0
-              }
-              labelsContainer.appendChild(label);
+            ctx.save();
+            ctx.font = '11px Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+
+            meta.data.forEach((bar, index) => {
+              const value = dataset.data[index];
+              if (value == null) return;
+              const x = bar.x;
+              const y = bar.y - 3;
+              const text = '$' + Number(value).toFixed(0);
+
+              // Solo texto verde llamativo
+              ctx.fillStyle = '#4ade80';
+              ctx.fillText(text, x, y);
             });
+
+            ctx.restore();
           }
-          // Etiquetas de día: usar mismos datos que las barras para alineación exacta
-          visibleData.forEach((d, idx) => {
-            const xl = document.createElement('div');
-            try {
-              const parts = String(d.day).split('-');
-              const dayNum = parts.length === 3 ? parseInt(parts[2], 10) : (idx + 1);
-              xl.textContent = String(dayNum);
-            } catch (e) {
-              xl.textContent = String(idx + 1);
-            }
-            xlabels.appendChild(xl);
+        };
+
+        let profitDailyChart = null;
+
+        function renderProfitChart(dataset) {
+          const canvas = document.getElementById('profitDailyChart');
+          if (!canvas) return;
+          const ctx = canvas.getContext('2d');
+          const labels = dataset.map((item) => {
+            const parts = String(item.day).split('-');
+            return parts.length === 3 ? parseInt(parts[2], 10) : '';
           });
-          const total = visibleData.reduce((a,b)=>a+b.value,0);
-          totalEl.textContent = `$${total.toFixed(2)}`;
+          const values = dataset.map((item) => Number(item.value || 0));
+
+          if (profitDailyChart) {
+            profitDailyChart.data.labels = labels;
+            profitDailyChart.data.datasets[0].data = values;
+            profitDailyChart.update();
+            return;
+          }
+
+          profitDailyChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+              labels: labels,
+              datasets: [{
+                label: 'Ganancia diaria ($)',
+                data: values,
+                backgroundColor: '#22c55e',
+                borderColor: '#16a34a',
+                borderWidth: 1,
+                borderRadius: 4,
+                maxBarThickness: 22,
+              }],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: {
+                x: {
+                  grid: { display: false },
+                  ticks: { color: '#6b7280', maxRotation: 0, autoSkip: true },
+                },
+                y: {
+                  beginAtZero: true,
+                  grid: { color: 'rgba(148,163,184,0.2)' },
+                  ticks: {
+                    color: '#6b7280',
+                    callback: (value) => '$' + value,
+                  },
+                },
+              },
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx) => `Ganancia diaria ($): ${ctx.parsed.y.toFixed(2)}`,
+                  },
+                },
+              },
+            },
+          });
         }
 
         function setActive(which) {
+          const dataset = which === 'curr' ? normalizeToMonthDataset(dataCurr) : normalizeToMonthDataset(dataPrev);
+          renderProfitChart(dataset);
+          const total = dataset.reduce((a, b) => a + (b.value || 0), 0);
+          totalEl.textContent = `$${total.toFixed(2)}`;
+
+          // Recordar elección de mes (actual / anterior)
+          try {
+            localStorage.setItem('adminProfitWhich', which);
+          } catch (e) {
+            console.warn('No se pudo guardar selección de profit diario', e);
+          }
+
           if (which === 'curr') {
-            btnCurr.classList.add('active');
-            btnPrev.classList.remove('active');
-            renderBars(dataCurr);
+            btnCurr?.classList.add('active');
+            btnPrev?.classList.remove('active');
           } else {
-            btnPrev.classList.add('active');
-            btnCurr.classList.remove('active');
-            renderBars(dataPrev);
+            btnPrev?.classList.add('active');
+            btnCurr?.classList.remove('active');
           }
         }
 
-        // Sincronizar scroll horizontal entre barras y etiquetas
-        function syncScrollContainers() {
-          if (!chart || !xlabels) return;
-          // Mantener sincronía al desplazar cualquiera de los dos contenedores
-          chart.addEventListener('scroll', () => { xlabels.scrollLeft = chart.scrollLeft; });
-          xlabels.addEventListener('scroll', () => { chart.scrollLeft = xlabels.scrollLeft; });
+        // Inicial por defecto: mes actual y listeners
+        let initialWhich = 'curr';
+        try {
+          const savedWhich = localStorage.getItem('adminProfitWhich');
+          if (savedWhich === 'prev' || savedWhich === 'curr') {
+            initialWhich = savedWhich;
+          }
+        } catch (e) {
+          console.warn('No se pudo leer selección guardada de profit diario', e);
         }
 
-        // Inicializar
-        syncScrollContainers();
-        setActive('curr');
-
-        // Inicial por defecto: mes actual
-        setActive('curr');
+        setActive(initialWhich);
         btnCurr?.addEventListener('click', ()=> setActive('curr'));
         btnPrev?.addEventListener('click', ()=> setActive('prev'));
 
@@ -1202,7 +1197,6 @@
         const response = await fetch('/admin/costos/admin-summary');
         const data = await response.json();
         if (!data.success) { container.innerHTML = '<div style="color:#ff6b6b;">Error</div>'; return; }
-        
         container.innerHTML = `
           <div style="flex:1;min-width:200px;background:#0d0d1a;border-radius:8px;padding:16px;text-align:center;">
             <div style="color:#888;font-size:12px;margin-bottom:4px;">Gasto Hoy</div>
@@ -1453,7 +1447,17 @@
         alert('Error al cargar detalles del usuario');
       }
     }
-    
+    // Restaurar pestaña activa al cargar la página
+    document.addEventListener('DOMContentLoaded', function() {
+      let initialTab = 'usuarios';
+      try {
+        const savedTab = localStorage.getItem('adminActiveTab');
+        if (savedTab) initialTab = savedTab;
+      } catch (e) {
+        console.warn('No se pudo leer pestaña activa guardada', e);
+      }
+      showTab(initialTab);
+    });
   </script>
 </body>
 </html>
