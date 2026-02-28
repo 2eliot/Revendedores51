@@ -294,10 +294,16 @@ body {
   .table th, .table td { word-break: break-word; white-space: normal; }
 
   /* Compactar gráfico de barras (Profit diario) en móvil */
+  .bar-chart-labels { font-size: 8px; gap: 1px; padding: 0 6px 2px 6px; height: 12px; }
   .bar-chart { gap: 1px; padding: 6px; }
   .bar-chart-xlabels { font-size: 8px; gap: 1px; padding: 0 6px; }
   .bar-chart .bar { flex: 1 1 0; min-width: 0; }
   .bar-chart-xlabels > div { flex: 1 1 0; min-width: 0; }
+  .bar-chart-labels > div { flex: 1 1 0; min-width: 0; }
+  .bar-chart-labels > div.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
   .users-grid { gap: 8px; padding: 8px; }
   .user-card { padding: 8px; gap: 8px; }
   .user-name { font-size: 0.9rem; }
@@ -2418,6 +2424,30 @@ body {
 }
 
 /* ====== Profit diario: barras verdes (estilo tubos) ====== */
+.bar-chart-labels {
+  display: flex;
+  gap: 2px;
+  padding: 0 8px 4px 8px;
+  font-size: 10px;
+  color: #2ecc71;
+  font-weight: 600;
+  text-align: center;
+  height: 16px;
+}
+.bar-chart-labels > div {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: all 0.25s ease;
+  opacity: 0;
+  transform: translateY(4px);
+}
+.bar-chart-labels > div.show {
+  opacity: 1;
+  transform: translateY(0);
+}
 .bar-chart {
   position: relative;
   width: 100%;

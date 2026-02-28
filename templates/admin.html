@@ -174,6 +174,7 @@
               <div class="card-body">
                 <div class="bar-chart-wrap">
                   <div id="profit-yaxis" class="bar-chart-yaxis"></div>
+                  <div id="profit-labels" class="bar-chart-labels"></div>
                   <div id="profit-chart" class="bar-chart"></div>
                 </div>
                 <div class="bar-chart-xlabels" id="profit-chart-xlabels"></div>
@@ -907,10 +908,48 @@
           });
         }
 
+        function animateCountUp(element, targetValue, duration) {
+          const startValue = 0;
+          const startTime = performance.now();
+          const isInteger = Number.isInteger(targetValue);
+          
+          function update(currentTime) {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            
+            // Easing function for smooth animation
+            const easeOutQuart = 1 - Math.pow(1 - progress, 4);
+            const currentValue = startValue + (targetValue * easeOutQuart);
+            
+            // Update text with formatted value
+            if (currentValue > 0) {
+              element.textContent = isInteger ? `$${Math.round(currentValue)}` : `$${currentValue.toFixed(1)}`;
+            }
+            
+            // Show element with animation
+            if (progress > 0.1) {
+              element.classList.add('show');
+            }
+            
+            // Continue animation
+            if (progress < 1) {
+              requestAnimationFrame(update);
+            } else {
+              // Final value
+              element.textContent = isInteger ? `$${Math.round(targetValue)}` : `$${targetValue.toFixed(1)}`;
+              element.classList.add('show');
+            }
+          }
+          
+          requestAnimationFrame(update);
+        }
+
         function renderBars(dataset) {
           if (!chart || !xlabels) return;
           chart.innerHTML = '';
           xlabels.innerHTML = '';
+          const labelsContainer = document.getElementById('profit-labels');
+          if (labelsContainer) labelsContainer.innerHTML = '';
           const monthData = normalizeToMonthDataset(dataset);
           // Recorte inteligente del final: usar el día de hoy si es el mes actual, o el último día con datos > 0.
           let visibleData = monthData;
@@ -950,7 +989,25 @@
             bar.title = `${d.day}: $${d.value.toFixed(2)}`;
             chart.appendChild(bar);
           });
-          // Etiquetas: usar mismos datos que las barras para alineación exacta
+          // Etiquetas de valor arriba de las barras
+          if (labelsContainer) {
+            visibleData.forEach((d, idx) => {
+              const label = document.createElement('div');
+              // Mostrar valor formateado, solo si hay ganancia
+              if (d.value > 0) {
+                label.textContent = '$0';
+                label.title = `${d.day}: $${d.value.toFixed(2)}`;
+                // Animar el número hacia arriba
+                animateCountUp(label, d.value, 250); // 250ms para sincronizar con barras
+              } else {
+                label.textContent = '';
+                label.title = `${d.day}: $0.00`;
+                label.classList.add('show'); // Mostrar inmediatamente si es $0
+              }
+              labelsContainer.appendChild(label);
+            });
+          }
+          // Etiquetas de día: usar mismos datos que las barras para alineación exacta
           visibleData.forEach((d, idx) => {
             const xl = document.createElement('div');
             try {
