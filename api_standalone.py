@@ -3,10 +3,16 @@ import sqlite3
 import hashlib
 import os
 import secrets
+import sys
 from datetime import timedelta, datetime
 import pytz
 from werkzeug.security import generate_password_hash, check_password_hash
 import threading
+
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
 
 # Crear aplicación Flask para API
 api_app = Flask(__name__)

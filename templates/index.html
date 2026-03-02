@@ -40,6 +40,8 @@
           {% if games_active.freefire_id %}
           <li><a href="/juego/freefire_id">Free Fire ID</a></li>
           {% endif %}
+          <li style="border-top:1px solid #000000; margin:6px 0;"></li>
+          <li><a href="/billetera">Recargar Usuario</a></li>
         </ul>
       </div>
     </div>
@@ -57,11 +59,13 @@
         </svg>
       </div>
       
-      <!-- Botón de Noticias (solo para usuarios normales y cuando hay notificaciones) -->
-      {% if not session.get('is_admin') and total_notification_count > 0 %}
+      <!-- Botón de Noticias (siempre visible para usuarios normales; solo el badge depende del contador) -->
+      {% if not session.get('is_admin') %}
       <div class="news-icon-container" onclick="window.location.href='/notificaciones'">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 106 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+        {% if total_notification_count > 0 %}
         <div class="news-notification-badge">{{ total_notification_count }}</div>
+        {% endif %}
       </div>
       {% endif %}
       

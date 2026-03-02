@@ -39,22 +39,22 @@
     <!-- Layout con sidebar lateral -->
     <div class="admin-shell">
       <aside class="admin-sidebar">
-        <button class="side-tab-button active" onclick="showTab('usuarios')" aria-label="Usuarios">
+        <button class="side-tab-button active" data-tab="usuarios" onclick="showTab('usuarios', event)" aria-label="Usuarios">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="label">Usuarios</span>
         </button>
-        <button class="side-tab-button" onclick="showTab('pines')" aria-label="Pines">
+        <button class="side-tab-button" data-tab="pines" onclick="showTab('pines', event)" aria-label="Pines">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3l5 5-7 7-4 1 1-4 7-7z"/><path d="M2 22l6-6"/></svg></span><span class="label">Pines</span>
         </button>
-        <button class="side-tab-button" onclick="showTab('precios')" aria-label="Precios">
+        <button class="side-tab-button" data-tab="precios" onclick="showTab('precios', event)" aria-label="Precios">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><span class="label">Precios</span>
         </button>
-        <button class="side-tab-button" onclick="showTab('noticias')" aria-label="Noticias">
+        <button class="side-tab-button" data-tab="noticias" onclick="showTab('noticias', event)" aria-label="Noticias">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19h16a2 2 0 0 0 2-2V5H6a2 2 0 0 0-2 2z"/><path d="M16 3v4a2 2 0 0 0 2 2h4"/><path d="M8 11h8"/><path d="M8 15h8"/></svg></span><span class="label">Noticias</span>
         </button>
-        <button class="side-tab-button" onclick="showTab('estadisticas')" aria-label="Estadísticas">
+        <button class="side-tab-button" data-tab="estadisticas" onclick="showTab('estadisticas', event)" aria-label="Estadísticas">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg></span><span class="label">Estadísticas</span>
         </button>
-        <button class="side-tab-button" onclick="showTab('costo')" aria-label="Costo">
+        <button class="side-tab-button" data-tab="costo" onclick="showTab('costo', event)" aria-label="Costo">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32l1.41-1.41"/><circle cx="12" cy="12" r="5"/><path d="M12 7v5l3 3"/></svg></span><span class="label">Costo</span>
         </button>
         <!-- Redeemer oculto - se usa VPS externo -->
@@ -377,14 +377,6 @@
                 <button type="submit" class="btn btn-create-news">📰 Publicar Noticia</button>
               </form>
               <script>
-                  function showTab(tabName) {
-                    document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
-                    const target = document.getElementById('tab-' + tabName);
-                    if (target) target.classList.add('active');
-                    document.querySelectorAll('.side-tab-button').forEach(btn => btn.classList.remove('active'));
-                    const btn = Array.from(document.querySelectorAll('.side-tab-button')).find(b => b.textContent.toLowerCase().includes(tabName));
-                    if (btn) btn.classList.add('active');
-                  }
               function previewNewsImage(input) {
                 const placeholder = document.getElementById('image-upload-placeholder');
                 const preview = document.getElementById('image-preview');
@@ -776,7 +768,7 @@
     }
 
     // Sistema de pestañas
-    function showTab(tabName) {
+    function showTab(tabName, evt) {
       // Ocultar todas las pestañas
       const tabContents = document.querySelectorAll('.tab-content');
       tabContents.forEach(tab => tab.classList.remove('active'));
@@ -789,20 +781,20 @@
       const target = document.getElementById('tab-' + tabName);
       if (target) target.classList.add('active');
 
-      // Recordar pestaña activa en almacenamiento local
+      // Guardar pestaña activa en el hash de la URL (sin localStorage)
       try {
-        localStorage.setItem('adminActiveTab', tabName);
+        window.location.hash = 'tab=' + tabName;
       } catch (e) {
-        console.warn('No se pudo guardar pestaña activa', e);
+        console.warn('No se pudo actualizar el hash de pestaña', e);
       }
 
       // Activar el botón que llamó (si existe)
-      if (event && event.target) {
-        event.target.classList.add('active');
+      if (evt && evt.currentTarget) {
+        evt.currentTarget.classList.add('active');
       } else {
-        // Activar manualmente el botón de sidebar correspondiente
+        // Activar manualmente el botón de sidebar correspondiente usando data-tab
         const sideBtn = Array.from(document.querySelectorAll('.side-tab-button'))
-          .find(b => b.textContent.trim().toLowerCase().includes(tabName));
+          .find(b => b.getAttribute('data-tab') === tabName);
         if (sideBtn) sideBtn.classList.add('active');
       }
       // Cargar datos específicos al abrir pestañas
@@ -1447,14 +1439,13 @@
         alert('Error al cargar detalles del usuario');
       }
     }
-    // Restaurar pestaña activa al cargar la página
+    // Restaurar pestaña activa al cargar la página usando el hash de la URL
     document.addEventListener('DOMContentLoaded', function() {
       let initialTab = 'usuarios';
-      try {
-        const savedTab = localStorage.getItem('adminActiveTab');
-        if (savedTab) initialTab = savedTab;
-      } catch (e) {
-        console.warn('No se pudo leer pestaña activa guardada', e);
+      const hash = window.location.hash || '';
+      const match = hash.match(/tab=([a-zA-Z0-9_-]+)/);
+      if (match && match[1]) {
+        initialTab = match[1];
       }
       showTab(initialTab);
     });
