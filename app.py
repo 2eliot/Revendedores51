@@ -1011,6 +1011,24 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
     for transaction in transactions:
         transaction_dict = dict(transaction)
         monto = abs(transaction['monto'])  # Usar valor absoluto para comparar
+
+        # Marcar transacciones de Free Fire ID (completadas) por prefijo de transaccion_id
+        try:
+            txid = str(transaction_dict.get('transaccion_id') or '')
+            if txid.startswith('FFID-'):
+                transaction_dict['is_freefire_id'] = True
+                transaction_dict['estado'] = transaction_dict.get('estado') or 'completado'
+
+                # Extraer player_id / player_name desde el texto guardado en `pin`
+                raw_pin_info = str(transaction_dict.get('pin') or '')
+                m_id = re.search(r"ID:\s*([0-9]{4,})", raw_pin_info)
+                if m_id:
+                    transaction_dict['player_id'] = m_id.group(1)
+                m_name = re.search(r"Jugador:\s*([^\n\r\-]+)", raw_pin_info)
+                if m_name:
+                    transaction_dict['player_name'] = m_name.group(1).strip()
+        except Exception:
+            pass
         
         # Si la transacción ya trae paquete_nombre, úsalo y sigue
         if transaction_dict.get('paquete_nombre'):

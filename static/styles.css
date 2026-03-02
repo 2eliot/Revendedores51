@@ -402,6 +402,21 @@ body {
   border-radius: 6px;
   margin-bottom: 0.5rem;
   border-bottom: 2px solid rgba(255,255,255,0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  position: relative;
+}
+
+.tx-header-date {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.85;
 }
 
 /* Contenedor de transacciones simplificado */
@@ -428,6 +443,74 @@ body {
 .transaction-card-simple:hover {
   box-shadow: 0 4px 16px rgba(0,0,0,0.4);
   background: rgba(255,255,255,0.08);
+}
+
+.ffid-voucher {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 10px;
+  padding: 14px;
+  margin-top: 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.freefire-id-transaction .ffid-voucher {
+  margin-left: -0.75rem;
+  margin-right: -0.75rem;
+}
+
+.ffid-voucher-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(0,0,0,0.25);
+  margin-bottom: 12px;
+}
+
+.freefire-id-transaction .ffid-voucher-status {
+  justify-content: center;
+}
+
+.ffid-voucher-status-label {
+  color: rgba(255,255,255,0.75);
+  font-weight: 700;
+}
+
+.ffid-voucher-status-value {
+  font-weight: 800;
+  color: #4dd9ac;
+  background: rgba(77, 217, 172, 0.12);
+  border: 1px solid rgba(77, 217, 172, 0.35);
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.92em;
+}
+
+.ffid-voucher-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ffid-voucher-line {
+  color: rgba(255,255,255,0.92);
+  font-size: 0.95em;
+}
+
+.ffid-player-name {
+  color: #28a745;
+  font-weight: 800;
+}
+
+.ffid-voucher-amount {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.80);
+  font-size: 0.92em;
 }
 
 /* Fila principal de la transacción */

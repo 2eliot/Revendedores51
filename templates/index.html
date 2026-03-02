@@ -138,9 +138,15 @@
           {% elif '💎' in transaction.paquete or 'Free Fire' in transaction.paquete or 'Tarjeta' in transaction.paquete %}
             {% set juego = 'Free Fire' %}
           {% endif %}
-          <div class="transaction-header">{{ juego }}</div>
+          <div class="transaction-header">
+            {{ juego }}
+            {% if transaction.get('is_freefire_id') %}
+            <span class="tx-header-date">{{ transaction.fecha.split(' ')[0] }} {{ transaction.fecha.split(' ')[1].split('.')[0] }}</span>
+            {% endif %}
+          </div>
           <div class="transaction-row">
             <div class="transaction-main">
+              {% if not transaction.get('is_freefire_id') %}
               <div class="user-simple" style="margin-bottom:4px;">
                 {% if session.get('is_admin') %}
                   ID: {{ transaction.usuario_id }} - {{ transaction.nombre }} {{ transaction.apellido }}
@@ -148,25 +154,38 @@
                   {{ transaction.nombre }} {{ transaction.apellido }}
                 {% endif %}
               </div>
+              {% endif %}
               <div class="control-status">
+                {% if not transaction.get('is_freefire_id') %}
                 <span class="control-num">{{ transaction.numero_control }}</span>
-                {% if transaction.get('is_bloodstriker') or transaction.get('is_freefire_id') %}
+                {% endif %}
+                {% if not transaction.get('is_freefire_id') %}
+                  {% if transaction.get('is_bloodstriker') %}
+                    {% if (transaction.get('estado') or '')|lower == 'pendiente' %}
                 <span class="status-simple">⏳</span>
-                {% else %}
+                    {% else %}
                 <span class="status-simple">✅</span>
+                    {% endif %}
+                  {% else %}
+                <span class="status-simple">✅</span>
+                  {% endif %}
                 {% endif %}
               </div>
+              {% if not transaction.get('is_freefire_id') %}
               <div class="package-cost">
                 <span class="package">{{ transaction.paquete }}</span>
                 <span class="cost">${{ "%.2f"|format(transaction.monto|abs) }}</span>
               </div>
+              {% endif %}
             </div>
             
             <!-- En el panel derecho ahora va la FECHA/HORA -->
+            {% if not transaction.get('is_freefire_id') %}
             <div class="transaction-pin">
               <span class="date-simple">{{ transaction.fecha.split(' ')[0] }} {{ transaction.fecha.split(' ')[1].split('.')[0] }}</span>
             </div>
-            {% if transaction.get('is_bloodstriker') and session.get('is_admin') %}
+            {% endif %}
+            {% if transaction.get('is_bloodstriker') and session.get('is_admin') and (transaction.get('estado') or '')|lower == 'pendiente' %}
             <!-- Botones para transacciones de Blood Striker (solo admin) -->
             <div class="transaction-actions">
               <form method="POST" action="/admin/approve_bloodstriker/{{ transaction.id }}" style="display: inline;">
@@ -177,7 +196,7 @@
               </form>
             </div>
             {% endif %}
-            {% if transaction.get('is_freefire_id') and session.get('is_admin') %}
+            {% if transaction.get('is_freefire_id') and session.get('is_admin') and (transaction.get('estado') or '')|lower == 'pendiente' %}
             <!-- Botones para transacciones de Free Fire ID (solo admin) -->
             <div class="transaction-actions">
               <form method="POST" action="/admin/approve_freefire_id/{{ transaction.id }}" style="display: inline;">
@@ -190,6 +209,34 @@
             {% endif %}
           </div>
           <div class="transaction-footer">
+            {% if transaction.get('is_freefire_id') %}
+            <div class="ffid-voucher">
+              <div class="ffid-voucher-status">
+                <span class="ffid-voucher-status-label">Estado:</span>
+                {% if (transaction.get('estado') or '')|lower == 'pendiente' %}
+                <span class="ffid-voucher-status-value">⏳ PENDIENTE</span>
+                {% else %}
+                <span class="ffid-voucher-status-value">✅ COMPLETADO</span>
+                {% endif %}
+              </div>
+              <div class="ffid-voucher-details">
+                <div class="ffid-voucher-line"><strong>Paquete:</strong> {{ transaction.paquete }}</div>
+                {% if transaction.get('player_name') %}
+                <div class="ffid-voucher-line"><strong>Jugador:</strong> <span class="ffid-player-name">{{ transaction.player_name }}</span></div>
+                {% endif %}
+                {% if transaction.get('player_id') %}
+                <div class="ffid-voucher-line"><strong>ID de Jugador:</strong> {{ transaction.player_id }}</div>
+                {% endif %}
+                <div class="ffid-voucher-line"><strong>Número de Control:</strong> {{ transaction.numero_control }}</div>
+                <div class="ffid-voucher-amount"><strong>Monto:</strong> ${{ "%.2f"|format(transaction.monto|abs) }}</div>
+                {% if session.get('is_admin') %}
+                <div class="ffid-voucher-line"><strong>Usuario:</strong> ID: {{ transaction.usuario_id }} - {{ transaction.nombre }} {{ transaction.apellido }}</div>
+                {% else %}
+                <div class="ffid-voucher-line"><strong>Usuario:</strong> {{ transaction.nombre }} {{ transaction.apellido }}</div>
+                {% endif %}
+              </div>
+            </div>
+            {% else %}
             <!-- En el footer ahora van los PINES (unificado para 1 o más) -->
             {% set pines_list = transaction.pin.split('\n') if '\n' in transaction.pin else [transaction.pin] %}
             <div class="multiple-pins">
@@ -206,6 +253,7 @@
               <button class="copy-all-btn-simple" data-allpins="{{ transaction.pin }}" onclick="copyAllTransactionPins(this.getAttribute('data-allpins'))">📋 Todos</button>
               {% endif %}
             </div>
+            {% endif %}
           </div>
         </div>
         {% endfor %}
