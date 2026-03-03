@@ -28,16 +28,16 @@
       <div id="menu-juegos" class="menu-juegos">
         <p class="menu-title">🎮 Juegos</p>
         <ul>
-          {% if games_active.freefire %}
+          {% if games_active.freefire or session.get('is_admin') %}
           <li><a href="/juego/freefire_latam">Free Fire Latam</a></li>
           {% endif %}
-          {% if games_active.freefire_global %}
+          {% if games_active.freefire_global or session.get('is_admin') %}
           <li><a href="/juego/freefire">Free Fire</a></li>
           {% endif %}
-          {% if games_active.bloodstriker %}
+          {% if games_active.bloodstriker or session.get('is_admin') %}
           <li><a href="/juego/bloodstriker">Blood Striker</a></li>
           {% endif %}
-          {% if games_active.freefire_id %}
+          {% if games_active.freefire_id or session.get('is_admin') %}
           <li><a href="/juego/freefire_id">Free Fire ID</a></li>
           {% endif %}
           <li style="border-top:1px solid #000000; margin:6px 0;"></li>

@@ -57,6 +57,9 @@
         <button class="side-tab-button" data-tab="costo" onclick="showTab('costo', event)" aria-label="Costo">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32l1.41-1.41"/><circle cx="12" cy="12" r="5"/><path d="M12 7v5l3 3"/></svg></span><span class="label">Costo</span>
         </button>
+        <button class="side-tab-button" data-tab="gameclub" onclick="showTab('gameclub', event)" aria-label="GameClub">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10H7z"/><path d="M4 4h4"/><path d="M16 4h4"/><path d="M4 20h4"/><path d="M16 20h4"/></svg></span><span class="label">GameClub</span>
+        </button>
         <!-- Redeemer oculto - se usa VPS externo -->
         <a class="side-tab-button" href="/" aria-label="Volver al Inicio" style="text-decoration:none;">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7"/><path d="M9 22V12h6v10"/></svg></span><span class="label">Inicio</span>
@@ -131,6 +134,42 @@
           <p>No hay usuarios registrados en el sistema.</p>
         </div>
       {% endif %}
+        </section>
+      </div>
+
+      <!-- Pestaña GameClub -->
+      <div id="tab-gameclub" class="tab-content">
+        <section class="stats-admin-section">
+          <h2>🎮 GameClub - Catálogo</h2>
+          <p style="color:#888;margin-bottom:14px;">Lista los productos de GamePoint Club para que puedas identificar <code>productid</code>, campos requeridos y paquetes (<code>packageid</code>).</p>
+
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+            <button type="button" class="btn btn-secondary" onclick="loadGameClubProducts()">Cargar productos</button>
+            <div id="gameclub-status" style="color:#aaa;font-size:13px;"></div>
+          </div>
+
+          <div class="card" style="margin-top:10px;">
+            <div class="card-header"><h3>Productos</h3></div>
+            <div class="card-body">
+              <div class="table-responsive">
+                <table class="table" style="width:100%; min-width: 320px;">
+                  <thead>
+                    <tr><th>ID</th><th>Nombre</th><th></th></tr>
+                  </thead>
+                  <tbody id="gameclub-products-body">
+                    <tr><td colspan="3" style="color:#888;">Presiona "Cargar productos".</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:14px;">
+            <div class="card-header"><h3>Detalle</h3></div>
+            <div class="card-body" id="gameclub-detail" style="color:#ddd;font-size:13px;">
+              Selecciona un producto para ver sus campos y paquetes.
+            </div>
+          </div>
         </section>
       </div>
       
@@ -270,10 +309,10 @@
         <div class="pin-selector-row">
           <label for="pin_game_selector" class="pin-selector-label">🎮 Juego:</label>
           <select id="pin_game_selector" class="pin-selector">
-            {% if games_active.freefire %}
+            {% if games_active.freefire or session.get('is_admin') %}
             <option value="freefire_latam" selected>Free Fire Latam</option>
             {% endif %}
-            {% if games_active.freefire_global %}
+            {% if games_active.freefire_global or session.get('is_admin') %}
             <option value="freefire_global">Free Fire</option>
             {% endif %}
           </select>
@@ -1174,6 +1213,79 @@
       }
       
       await loadDayPurchases(currentDay);
+    }
+
+    async function loadGameClubProducts() {
+      const statusEl = document.getElementById('gameclub-status');
+      const bodyEl = document.getElementById('gameclub-products-body');
+      const detailEl = document.getElementById('gameclub-detail');
+      if (!statusEl || !bodyEl || !detailEl) return;
+      statusEl.textContent = 'Cargando...';
+      detailEl.textContent = 'Selecciona un producto para ver sus campos y paquetes.';
+      detailEl.style.whiteSpace = '';
+      bodyEl.innerHTML = '<tr><td colspan="3" style="color:#888;">Cargando...</td></tr>';
+      try {
+        const res = await fetch('/admin/gameclub/products', { method: 'GET', headers: { 'Accept': 'application/json' } });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          statusEl.textContent = data.error || 'Error cargando productos.';
+          bodyEl.innerHTML = '<tr><td colspan="3" style="color:#ff7777;">No se pudo cargar.</td></tr>';
+          return;
+        }
+        const list = (data.data && data.data.detail) ? data.data.detail : [];
+        statusEl.textContent = `OK: ${list.length} productos.`;
+        if (!list.length) {
+          bodyEl.innerHTML = '<tr><td colspan="3" style="color:#888;">No hay productos.</td></tr>';
+          return;
+        }
+        bodyEl.innerHTML = '';
+        list.forEach(p => {
+          const tr = document.createElement('tr');
+          const tdId = document.createElement('td');
+          tdId.textContent = p.id;
+          const tdName = document.createElement('td');
+          tdName.textContent = p.name;
+          const tdBtn = document.createElement('td');
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'btn btn-secondary';
+          btn.textContent = 'Ver detalle';
+          btn.style.padding = '6px 10px';
+          btn.style.fontSize = '12px';
+          btn.onclick = () => loadGameClubProductDetail(p.id);
+          tdBtn.appendChild(btn);
+          tr.appendChild(tdId);
+          tr.appendChild(tdName);
+          tr.appendChild(tdBtn);
+          bodyEl.appendChild(tr);
+        });
+      } catch (e) {
+        statusEl.textContent = 'Error inesperado.';
+        bodyEl.innerHTML = '<tr><td colspan="3" style="color:#ff7777;">Error.</td></tr>';
+      }
+    }
+
+    async function loadGameClubProductDetail(productId) {
+      const statusEl = document.getElementById('gameclub-status');
+      const detailEl = document.getElementById('gameclub-detail');
+      if (!statusEl || !detailEl) return;
+      statusEl.textContent = `Cargando detalle ${productId}...`;
+      detailEl.textContent = 'Cargando...';
+      detailEl.style.whiteSpace = 'pre-wrap';
+      try {
+        const res = await fetch(`/admin/gameclub/product/${productId}`, { method: 'GET', headers: { 'Accept': 'application/json' } });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          statusEl.textContent = data.error || 'Error cargando detalle.';
+          detailEl.textContent = data.error || 'Error.';
+          return;
+        }
+        statusEl.textContent = 'Detalle cargado.';
+        detailEl.textContent = JSON.stringify(data.data, null, 2);
+      } catch (e) {
+        statusEl.textContent = 'Error inesperado.';
+        detailEl.textContent = 'Error.';
+      }
     }
     
     async function loadAdminCostoData() {

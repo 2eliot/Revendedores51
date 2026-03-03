@@ -26,6 +26,7 @@ import sqlite3
 import pytz
 from datetime import datetime
 import hashlib
+import base64
 import os
 import secrets
 from datetime import timedelta, datetime
@@ -45,6 +46,104 @@ import random
 import string
 from admin_stats import bp as admin_stats_bp
 from update_monthly_spending import update_monthly_spending
+
+
+def _b64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode('utf-8').rstrip('=')
+
+
+def _jwt_hs256(payload: dict, secret: str) -> str:
+    header = {"alg": "HS256", "typ": "JWT"}
+    header_b64 = _b64url_encode(json.dumps(header, separators=(',', ':'), ensure_ascii=False).encode('utf-8'))
+    payload_b64 = _b64url_encode(json.dumps(payload, separators=(',', ':'), ensure_ascii=False).encode('utf-8'))
+    signing_input = f"{header_b64}.{payload_b64}".encode('utf-8')
+    sig = hmac_module.new(secret.encode('utf-8'), signing_input, hashlib.sha256).digest()
+    sig_b64 = _b64url_encode(sig)
+    return f"{header_b64}.{payload_b64}.{sig_b64}"
+
+
+def _gameclub_config():
+    base_url = (os.environ.get('GAMECLUB_BASE_URL') or 'https://api.gamepointclub.net').strip().rstrip('/')
+    partnerid = (os.environ.get('GAMECLUB_PARTNERID') or '').strip()
+    secret = (os.environ.get('GAMECLUB_SECRET') or '').strip()
+    return base_url, partnerid, secret
+
+
+def _gameclub_build_proxies():
+    """Construye dict proxies para requests desde env vars.
+
+    Soporta:
+    - GAMECLUB_PROXY: host:port:user:pass  (o URL completa)
+    - GAMECLUB_PROXY_HTTP / GAMECLUB_PROXY_HTTPS
+    """
+    def normalize_proxy(val: str):
+        if not val:
+            return None
+        v = str(val).strip()
+        if not v:
+            return None
+        if '://' in v:
+            return v
+        parts = v.split(':')
+        if len(parts) == 4:
+            host, port, user, pwd = parts
+            return f"http://{user}:{pwd}@{host}:{port}"
+        if len(parts) == 2:
+            host, port = parts
+            return f"http://{host}:{port}"
+        return v
+
+    raw = os.environ.get('GAMECLUB_PROXY')
+    http_raw = os.environ.get('GAMECLUB_PROXY_HTTP') or raw
+    https_raw = os.environ.get('GAMECLUB_PROXY_HTTPS') or raw
+    http_p = normalize_proxy(http_raw)
+    https_p = normalize_proxy(https_raw)
+    proxies = {}
+    if http_p:
+        proxies['http'] = http_p
+    if https_p:
+        proxies['https'] = https_p
+    return proxies or None
+
+
+def _gameclub_post(endpoint_path: str, payload: dict):
+    base_url, partnerid, secret = _gameclub_config()
+    if not partnerid or not secret:
+        return None, {
+            'code': 400,
+            'message': 'GameClub no configurado: faltan GAMECLUB_PARTNERID o GAMECLUB_SECRET'
+        }
+
+    ts = int(time_module.time())
+    full_payload = dict(payload or {})
+    full_payload.setdefault('timestamp', ts)
+
+    jwt_token = _jwt_hs256(full_payload, secret)
+    url = f"{base_url}/{endpoint_path.lstrip('/')}"
+    headers = {
+        'Content-Type': 'application/json',
+        'partnerid': partnerid,
+        'Accept': 'application/json,text/plain,*/*',
+        'User-Agent': os.environ.get('GAMECLUB_USER_AGENT') or 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+    }
+    body = {'payload': jwt_token}
+    try:
+        proxies = _gameclub_build_proxies()
+        res = requests.post(url, json=body, headers=headers, timeout=25, proxies=proxies)
+        try:
+            data = res.json()
+        except Exception:
+            data = {'code': res.status_code, 'message': res.text}
+        return res, data
+    except Exception as e:
+        return None, {'code': 500, 'message': f'Error conectando a GameClub: {str(e)}'}
+
+
+def _gameclub_get_token():
+    _, data = _gameclub_post('merchant/token', {})
+    if (data or {}).get('code') == 200 and (data or {}).get('token'):
+        return data.get('token'), None
+    return None, data
 
 
 def _generate_batch_id():
@@ -2614,6 +2713,17 @@ def get_price_by_id(monto_id):
     conn.close()
     return price['precio'] if price else 0
 
+
+def get_price_by_id_any(monto_id):
+    """Obtiene el precio de un paquete específico (incluye inactivos)"""
+    conn = get_db_connection()
+    price = conn.execute('''
+        SELECT precio FROM precios_paquetes
+        WHERE id = ?
+    ''', (monto_id,)).fetchone()
+    conn.close()
+    return price['precio'] if price else 0
+
 def update_package_price(package_id, new_price):
     """Actualiza el precio de un paquete"""
     conn = get_db_connection_optimized()
@@ -2695,6 +2805,17 @@ def get_bloodstriker_price_by_id(package_id):
     price = conn.execute('''
         SELECT precio FROM precios_bloodstriker 
         WHERE id = ? AND activo = TRUE
+    ''', (package_id,)).fetchone()
+    conn.close()
+    return price['precio'] if price else 0
+
+
+def get_bloodstriker_price_by_id_any(package_id):
+    """Obtiene el precio de un paquete específico de Blood Striker (incluye inactivos)"""
+    conn = get_db_connection()
+    price = conn.execute('''
+        SELECT precio FROM precios_bloodstriker
+        WHERE id = ?
     ''', (package_id,)).fetchone()
     conn.close()
     return price['precio'] if price else 0
@@ -2877,6 +2998,17 @@ def get_freefire_id_price_by_id(package_id):
     price = conn.execute('''
         SELECT precio FROM precios_freefire_id 
         WHERE id = ? AND activo = TRUE
+    ''', (package_id,)).fetchone()
+    conn.close()
+    return price['precio'] if price else 0
+
+
+def get_freefire_id_price_by_id_any(package_id):
+    """Obtiene el precio de un paquete específico de Free Fire ID (incluye inactivos)"""
+    conn = get_db_connection()
+    price = conn.execute('''
+        SELECT precio FROM precios_freefire_id
+        WHERE id = ?
     ''', (package_id,)).fetchone()
     conn.close()
     return price['precio'] if price else 0
@@ -3360,6 +3492,40 @@ def admin_panel():
                          noticias=noticias,
                          games_active=games_active,
                          redeemer_config=redeemer_config)
+
+
+@app.route('/admin/gameclub/products', methods=['GET'])
+def admin_gameclub_products():
+    if not session.get('is_admin'):
+        return jsonify({'success': False, 'error': 'Acceso denegado'}), 403
+
+    token, err = _gameclub_get_token()
+    if not token:
+        msg = (err or {}).get('message') if isinstance(err, dict) else None
+        return jsonify({'success': False, 'error': msg or 'No se pudo obtener token de GameClub', 'raw': err}), 400
+
+    _, data = _gameclub_post('product/list', {'token': token})
+    if (data or {}).get('code') != 200:
+        return jsonify({'success': False, 'error': (data or {}).get('message') or 'Error consultando product/list', 'raw': data}), 400
+
+    return jsonify({'success': True, 'data': data})
+
+
+@app.route('/admin/gameclub/product/<int:product_id>', methods=['GET'])
+def admin_gameclub_product_detail(product_id: int):
+    if not session.get('is_admin'):
+        return jsonify({'success': False, 'error': 'Acceso denegado'}), 403
+
+    token, err = _gameclub_get_token()
+    if not token:
+        msg = (err or {}).get('message') if isinstance(err, dict) else None
+        return jsonify({'success': False, 'error': msg or 'No se pudo obtener token de GameClub', 'raw': err}), 400
+
+    _, data = _gameclub_post('product/detail', {'token': token, 'productid': product_id})
+    if (data or {}).get('code') != 200:
+        return jsonify({'success': False, 'error': (data or {}).get('message') or 'Error consultando product/detail', 'raw': data}), 400
+
+    return jsonify({'success': True, 'data': data})
 
 @app.route('/admin/add_credit', methods=['POST'])
 def admin_add_credit():
@@ -4055,6 +4221,13 @@ def cancelar_recarga():
 def validar_freefire_latam():
     if 'usuario' not in session:
         return redirect('/auth')
+
+    is_admin = session.get('is_admin', False)
+    if not is_admin:
+        ga = get_games_active()
+        if not ga.get('freefire', False):
+            flash('Este juego está desactivado temporalmente.', 'error')
+            return redirect('/')
     
     monto_id = request.form.get('monto')
     cantidad = request.form.get('cantidad')
@@ -4074,7 +4247,10 @@ def validar_freefire_latam():
         return redirect('/juego/freefire_latam')
     
     # Obtener precio dinámico de la base de datos
-    precio_unitario = get_price_by_id(monto_id)
+    if session.get('is_admin'):
+        precio_unitario = get_price_by_id_any(monto_id)
+    else:
+        precio_unitario = get_price_by_id(monto_id)
     precio_total = precio_unitario * cantidad
     
     # Obtener información del paquete usando cache
@@ -4259,6 +4435,13 @@ def validar_freefire_latam():
 def freefire_latam():
     if 'usuario' not in session:
         return redirect('/auth')
+
+    is_admin = session.get('is_admin', False)
+    if not is_admin:
+        ga = get_games_active()
+        if not ga.get('freefire', False):
+            flash('Este juego está desactivado temporalmente.', 'error')
+            return redirect('/')
     
     # Actualizar saldo desde la base de datos
     user_id = session.get('user_db_id')
@@ -4295,8 +4478,20 @@ def freefire_latam():
                 'total_available': local_count > 0,  # Solo disponible si hay stock local
             }
     
-    # Obtener precios dinámicos
-    prices = get_package_info_with_prices()
+    # Obtener precios
+    if is_admin:
+        prices = {}
+        for row in get_all_prices():
+            try:
+                prices[int(row['id'])] = {
+                    'nombre': row['nombre'],
+                    'precio': row['precio'],
+                    'descripcion': row.get('descripcion') if hasattr(row, 'get') else row['descripcion']
+                }
+            except Exception:
+                continue
+    else:
+        prices = get_package_info_with_prices()
     
     # Verificar si hay una compra exitosa para mostrar (solo una vez)
     compra_exitosa = False
@@ -4313,6 +4508,7 @@ def freefire_latam():
                          stock=stock,
                          prices=prices,
                          compra_exitosa=compra_exitosa,
+                         is_admin=is_admin,
                          games_active=get_games_active(),
                          **compra_data)  # Desempaquetar los datos de la compra
 
@@ -4321,6 +4517,13 @@ def freefire_latam():
 def bloodstriker():
     if 'usuario' not in session:
         return redirect('/auth')
+
+    is_admin = session.get('is_admin', False)
+    if not is_admin:
+        ga = get_games_active()
+        if not ga.get('bloodstriker', False):
+            flash('Este juego está desactivado temporalmente.', 'error')
+            return redirect('/')
     
     # Actualizar saldo desde la base de datos
     user_id = session.get('user_db_id')
@@ -4332,7 +4535,19 @@ def bloodstriker():
         conn.close()
     
     # Obtener precios dinámicos de Blood Striker
-    prices = get_bloodstriker_prices()
+    if is_admin:
+        prices = {}
+        for row in get_all_bloodstriker_prices():
+            try:
+                prices[int(row['id'])] = {
+                    'nombre': row['nombre'],
+                    'precio': row['precio'],
+                    'descripcion': row.get('descripcion') if hasattr(row, 'get') else row['descripcion']
+                }
+            except Exception:
+                continue
+    else:
+        prices = get_bloodstriker_prices()
     
     # Verificar si hay una compra exitosa para mostrar (solo una vez)
     compra_exitosa = False
@@ -4348,6 +4563,7 @@ def bloodstriker():
                          balance=session.get('saldo', 0),
                          prices=prices,
                          compra_exitosa=compra_exitosa,
+                         is_admin=is_admin,
                          games_active=get_games_active(),
                          **compra_data)
 
@@ -4355,6 +4571,13 @@ def bloodstriker():
 def validar_bloodstriker():
     if 'usuario' not in session:
         return redirect('/auth')
+
+    is_admin = session.get('is_admin', False)
+    if not is_admin:
+        ga = get_games_active()
+        if not ga.get('bloodstriker', False):
+            flash('Este juego está desactivado temporalmente.', 'error')
+            return redirect('/')
     
     package_id = request.form.get('monto')
     player_id = request.form.get('player_id')
@@ -4368,7 +4591,10 @@ def validar_bloodstriker():
     is_admin = session.get('is_admin', False)
     
     # Obtener precio dinámico de la base de datos
-    precio = get_bloodstriker_price_by_id(package_id)
+    if is_admin:
+        precio = get_bloodstriker_price_by_id_any(package_id)
+    else:
+        precio = get_bloodstriker_price_by_id(package_id)
     
     # Obtener información del paquete usando cache
     packages_info = get_bloodstriker_prices_cached()
@@ -4814,6 +5040,13 @@ def reject_bloodstriker_transaction(transaction_id):
 def freefire_id():
     if 'usuario' not in session:
         return redirect('/auth')
+
+    is_admin = session.get('is_admin', False)
+    if not is_admin:
+        ga = get_games_active()
+        if not ga.get('freefire_id', False):
+            flash('Este juego está desactivado temporalmente.', 'error')
+            return redirect('/')
     
     user_id = session.get('user_db_id')
     if user_id:
@@ -4823,7 +5056,19 @@ def freefire_id():
             session['saldo'] = user['saldo']
         conn.close()
     
-    prices = get_freefire_id_prices()
+    if is_admin:
+        prices = {}
+        for row in get_all_freefire_id_prices():
+            try:
+                prices[int(row['id'])] = {
+                    'nombre': row['nombre'],
+                    'precio': row['precio'],
+                    'descripcion': row.get('descripcion') if hasattr(row, 'get') else row['descripcion']
+                }
+            except Exception:
+                continue
+    else:
+        prices = get_freefire_id_prices()
     
     compra_exitosa = False
     compra_data = {}
@@ -4837,6 +5082,7 @@ def freefire_id():
                          balance=session.get('saldo', 0),
                          prices=prices,
                          compra_exitosa=compra_exitosa,
+                         is_admin=is_admin,
                          games_active=get_games_active(),
                          **compra_data)
 
@@ -4844,6 +5090,13 @@ def freefire_id():
 def validar_freefire_id():
     if 'usuario' not in session:
         return redirect('/auth')
+
+    is_admin = session.get('is_admin', False)
+    if not is_admin:
+        ga = get_games_active()
+        if not ga.get('freefire_id', False):
+            flash('Este juego está desactivado temporalmente.', 'error')
+            return redirect('/')
     
     package_id = request.form.get('monto')
     player_id = request.form.get('player_id')
@@ -6744,11 +6997,29 @@ def get_all_freefire_global_prices():
     conn.close()
     return prices
 
+
+def get_freefire_global_price_by_id_any(monto_id):
+    """Obtiene el precio de un paquete específico de Free Fire Global (incluye inactivos)"""
+    conn = get_db_connection()
+    price = conn.execute('''
+        SELECT precio FROM precios_freefire_global
+        WHERE id = ?
+    ''', (monto_id,)).fetchone()
+    conn.close()
+    return price['precio'] if price else 0
+
 # Rutas para Free Fire Global (nuevo juego)
 @app.route('/juego/freefire')
 def freefire():
     if 'usuario' not in session:
         return redirect('/auth')
+
+    is_admin = session.get('is_admin', False)
+    if not is_admin:
+        ga = get_games_active()
+        if not ga.get('freefire_global', False):
+            flash('Este juego está desactivado temporalmente.', 'error')
+            return redirect('/')
     
     # Actualizar saldo desde la base de datos
     user_id = session.get('user_db_id')
@@ -6760,7 +7031,19 @@ def freefire():
         conn.close()
     
     # Obtener precios dinámicos de Free Fire Global
-    prices = get_freefire_global_prices()
+    if is_admin:
+        prices = {}
+        for row in get_all_freefire_global_prices():
+            try:
+                prices[int(row['id'])] = {
+                    'nombre': row['nombre'],
+                    'precio': row['precio'],
+                    'descripcion': row.get('descripcion') if hasattr(row, 'get') else row['descripcion']
+                }
+            except Exception:
+                continue
+    else:
+        prices = get_freefire_global_prices()
     # Obtener stock disponible por paquete (Free Fire Global)
     stock_freefire_global = get_pin_stock_freefire_global_optimized()
     
@@ -6779,6 +7062,7 @@ def freefire():
                          prices=prices,
                          stock_freefire_global=stock_freefire_global,
                          compra_exitosa=compra_exitosa,
+                         is_admin=is_admin,
                          games_active=get_games_active(),
                          **compra_data)
 
@@ -6786,6 +7070,13 @@ def freefire():
 def validar_freefire():
     if 'usuario' not in session:
         return redirect('/auth')
+
+    is_admin = session.get('is_admin', False)
+    if not is_admin:
+        ga = get_games_active()
+        if not ga.get('freefire_global', False):
+            flash('Este juego está desactivado temporalmente.', 'error')
+            return redirect('/')
     
     monto_id = request.form.get('monto')
     cantidad = request.form.get('cantidad', '1')
@@ -6810,7 +7101,10 @@ def validar_freefire():
     is_admin = session.get('is_admin', False)
     
     # Obtener precio dinámico de la base de datos
-    precio_unitario = get_freefire_global_price_by_id(monto_id)
+    if is_admin:
+        precio_unitario = get_freefire_global_price_by_id_any(monto_id)
+    else:
+        precio_unitario = get_freefire_global_price_by_id(monto_id)
     precio_total = precio_unitario * cantidad
     
     # Obtener información del paquete usando cache
