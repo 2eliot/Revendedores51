@@ -1173,6 +1173,22 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
                 m_name = re.search(r"Jugador:\s*([^\n\r\-]+)", raw_pin_info)
                 if m_name:
                     transaction_dict['player_name'] = m_name.group(1).strip()
+
+            elif txid.startswith('BS-'):
+                transaction_dict['is_bloodstriker'] = True
+                transaction_dict['estado'] = transaction_dict.get('estado') or 'completado'
+
+                # Extraer player_id / player_name / gamepoint_ref desde el texto guardado en `pin`
+                raw_pin_info = str(transaction_dict.get('pin') or '')
+                m_id = re.search(r"ID:\s*([0-9]{4,})", raw_pin_info)
+                if m_id:
+                    transaction_dict['player_id'] = m_id.group(1)
+                m_name = re.search(r"Jugador:\s*([^\n\r\-]+)", raw_pin_info)
+                if m_name:
+                    transaction_dict['player_name'] = m_name.group(1).strip()
+                m_ref = re.search(r"Ref:\s*(\S+)", raw_pin_info)
+                if m_ref:
+                    transaction_dict['gamepoint_ref'] = m_ref.group(1).strip()
         except Exception:
             pass
         
