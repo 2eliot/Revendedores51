@@ -4746,23 +4746,27 @@ def validar_bloodstriker():
         
         validation_token = validate_data['validation_token']
         
+        # 3.1 Extraer ingamename desde order/validate (GamePoint lo devuelve aquí)
+        ingame_name = (validate_data or {}).get('ingamename') or (validate_data or {}).get('playername') or (validate_data or {}).get('username') or ''
+        logger.info(f"[BloodStrike] order/validate response keys: {list((validate_data or {}).keys())} | ingamename='{ingame_name}' | player_id={player_id}")
+        
         # 4. Crear orden (order/create) — la compra real
         merchant_code = 'BS-' + secrets.token_hex(6).upper()
         create_data = _gameclub_order_create(gc_token, validation_token, gp_package_id, merchant_code)
         create_code = (create_data or {}).get('code')
         reference_no = (create_data or {}).get('referenceno', '')
 
-        # 4.1 Intentar obtener ingame name / item desde inquiry (si ya existe)
-        inquiry_data = None
-        ingame_name = ''
+        # 4.1 Si no obtuvimos nombre en validate, intentar desde inquiry como fallback
         item_name = ''
         try:
             if reference_no:
                 inquiry_data = _gameclub_order_inquiry(gc_token, reference_no)
-                ingame_name = (inquiry_data or {}).get('ingamename') or ''
+                if not ingame_name:
+                    ingame_name = (inquiry_data or {}).get('ingamename') or ''
                 item_name = (inquiry_data or {}).get('item') or ''
+                logger.info(f"[BloodStrike] order/inquiry response keys: {list((inquiry_data or {}).keys())} | ingamename='{ingame_name}' | item='{item_name}'")
         except Exception:
-            inquiry_data = None
+            pass
         
         _bs_duration = round(_time.time() - _bs_start, 1)
         
