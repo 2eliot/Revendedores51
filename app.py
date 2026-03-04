@@ -5048,8 +5048,10 @@ def admin_update_bloodstriker_name():
 
 def _bloodstrike_sync_prices_internal(deactivate_missing=False, deactivate_unmapped=False):
     """Sincroniza precios de Blood Strike desde GamePoint Club (función interna, sin request context).
+    Mantiene la ganancia por paquete: ganancia = precio_venta_actual - costo_actual.
+    Nuevo precio = nuevo_costo + ganancia_existente.
     Retorna dict con resultado o error."""
-    profit_usd = float(os.environ.get('BLOODSTRIKE_PROFIT_USD', '0.11'))
+    default_profit_usd = float(os.environ.get('BLOODSTRIKE_PROFIT_USD', '0.11'))
     myr_to_usd = float(os.environ.get('BLOODSTRIKE_MYR_TO_USD_RATE', '0.2357'))
     product_id = int(os.environ.get('BLOODSTRIKE_PRODUCT_ID', '155'))
     
@@ -5074,9 +5076,14 @@ def _bloodstrike_sync_prices_internal(deactivate_missing=False, deactivate_unmap
         except Exception:
             continue
     
-    # 3. Leer paquetes locales actuales
+    # 3. Leer paquetes locales actuales con su costo de compra
     conn = get_db_connection()
     local_packages = conn.execute('SELECT id, nombre, precio, gamepoint_package_id FROM precios_bloodstriker ORDER BY id').fetchall()
+    
+    # Cargar costos actuales desde precios_compra
+    local_costs = {}
+    for row in conn.execute("SELECT paquete_id, precio_compra FROM precios_compra WHERE juego = 'bloodstriker'").fetchall():
+        local_costs[int(row['paquete_id'])] = float(row['precio_compra'])
     
     # Crear mapeo gamepoint_package_id -> local row
     gp_to_local = {}
@@ -5106,24 +5113,34 @@ def _bloodstrike_sync_prices_internal(deactivate_missing=False, deactivate_unmap
         gp_id = int(gp_pkg['id'])
         gp_name = gp_pkg.get('name', '')
         gp_price_myr = float(gp_pkg.get('price', 0))
-        costo_usd = round(gp_price_myr * myr_to_usd, 4)
-        nuevo_precio_venta = round(costo_usd + profit_usd, 2)
+        nuevo_costo_usd = round(gp_price_myr * myr_to_usd, 4)
         
         local = gp_to_local.get(gp_id)
-        entry = {
-            'gamepoint_id': gp_id,
-            'gamepoint_name': gp_name,
-            'gamepoint_price_myr': gp_price_myr,
-            'costo_usd': round(costo_usd, 4),
-            'profit_usd': profit_usd,
-            'nuevo_precio_venta_usd': nuevo_precio_venta,
-        }
         
         if local:
-            entry['local_id'] = local['id']
-            entry['local_nombre'] = local['nombre']
-            entry['precio_anterior'] = local['precio']
-            entry['cambio'] = round(nuevo_precio_venta - local['precio'], 4)
+            # Calcular ganancia actual de ESTE paquete: precio_venta - costo_compra
+            costo_actual = local_costs.get(local['id'], 0)
+            if costo_actual > 0:
+                ganancia_paquete = round(local['precio'] - costo_actual, 4)
+            else:
+                # Si no hay costo registrado aún, usar default
+                ganancia_paquete = default_profit_usd
+            
+            nuevo_precio_venta = round(nuevo_costo_usd + ganancia_paquete, 2)
+            
+            entry = {
+                'gamepoint_id': gp_id,
+                'gamepoint_name': gp_name,
+                'gamepoint_price_myr': gp_price_myr,
+                'costo_usd_anterior': round(costo_actual, 4),
+                'costo_usd_nuevo': round(nuevo_costo_usd, 4),
+                'ganancia_paquete': round(ganancia_paquete, 4),
+                'nuevo_precio_venta_usd': nuevo_precio_venta,
+                'local_id': local['id'],
+                'local_nombre': local['nombre'],
+                'precio_anterior': local['precio'],
+                'cambio': round(nuevo_precio_venta - local['precio'], 4),
+            }
             
             conn.execute(
                 'UPDATE precios_bloodstriker SET precio = ?, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = ?',
@@ -5131,12 +5148,21 @@ def _bloodstrike_sync_prices_internal(deactivate_missing=False, deactivate_unmap
             )
             conn.execute(
                 'UPDATE precios_compra SET precio_compra = ? WHERE juego = ? AND paquete_id = ?',
-                (costo_usd, 'bloodstriker', local['id'])
+                (nuevo_costo_usd, 'bloodstriker', local['id'])
             )
             updated += 1
         else:
-            entry['local_id'] = None
-            entry['nota'] = 'Sin mapeo local (gamepoint_package_id no asignado a ningún paquete)'
+            nuevo_precio_venta = round(nuevo_costo_usd + default_profit_usd, 2)
+            entry = {
+                'gamepoint_id': gp_id,
+                'gamepoint_name': gp_name,
+                'gamepoint_price_myr': gp_price_myr,
+                'costo_usd_nuevo': round(nuevo_costo_usd, 4),
+                'ganancia_paquete': default_profit_usd,
+                'nuevo_precio_venta_usd': nuevo_precio_venta,
+                'local_id': None,
+                'nota': 'Sin mapeo local (gamepoint_package_id no asignado a ningún paquete)',
+            }
         
         report.append(entry)
     
@@ -5152,7 +5178,7 @@ def _bloodstrike_sync_prices_internal(deactivate_missing=False, deactivate_unmap
     return {
         'success': True,
         'product_id': product_id,
-        'profit_usd': profit_usd,
+        'default_profit_usd': default_profit_usd,
         'myr_to_usd_rate': myr_to_usd,
         'packages_updated': updated,
         'total_gamepoint_packages': len(gp_packages),
