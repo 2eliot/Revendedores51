@@ -155,7 +155,7 @@ def admin_create_game():
         'pattern_msg': data.get('campo_id_pattern_msg', ''),
     }
     # Dual ID (e.g. Mobile Legends Zone ID)
-    if data.get('dual_id') in (True, 'true', '1', 'on'):
+    if data.get('dual_id') in (True, 'true', '1', 'on') or data.get('campo_id2_label'):
         campos['campo_id2'] = {
             'enabled': True,
             'label': data.get('campo_id2_label', 'Zone ID'),
@@ -165,7 +165,7 @@ def admin_create_game():
             'pattern_msg': data.get('campo_id2_pattern_msg', ''),
         }
     # Server selector
-    if data.get('servidor_enabled') in (True, 'true', '1', 'on'):
+    if data.get('servidor_enabled') in (True, 'true', '1', 'on') or data.get('campo_servidor') in (True, 'true', '1', 'on'):
         opciones_raw = data.get('servidor_opciones', '')
         opciones = [o.strip() for o in opciones_raw.split(',') if o.strip()] if isinstance(opciones_raw, str) else opciones_raw
         campos['servidor'] = {
@@ -199,8 +199,8 @@ def admin_create_game():
 
     if request.is_json:
         return jsonify({'success': True, 'game_id': game_id, 'slug': slug})
-    flash(f'Juego "{nombre}" creado exitosamente.', 'success')
-    return redirect('/admin/dynamic-games')
+    flash(f'Juego "{nombre}" creado. Ahora añade paquetes en la pestaña Precios.', 'success')
+    return redirect('/admin#tab=precios')
 
 
 @bp.route('/admin/dynamic-games/<int:game_id>/update', methods=['POST'])
@@ -415,6 +415,68 @@ def admin_gp_catalog(game_id):
 
     packages = (detail or {}).get('package', [])
     return jsonify({'success': True, 'packages': packages})
+
+
+# ---------------------------------------------------------------------------
+# ADMIN: Mapping for GameClub tab (same pattern as Blood Strike)
+# ---------------------------------------------------------------------------
+
+@bp.route('/admin/dynamic-games/<int:game_id>/gamepoint_packages')
+def admin_dyn_gamepoint_packages(game_id):
+    """Returns GP catalog + local packages for mapping UI (like Blood Strike)."""
+    if not session.get('is_admin'):
+        return jsonify({'error': 'Acceso denegado'}), 403
+    game = get_dynamic_game_by_id(game_id)
+    if not game:
+        return jsonify({'error': 'Juego no encontrado'}), 404
+
+    get_token, gp_post, *_ = _gp_helpers()
+    gc_token, gc_err = get_token()
+    if not gc_token:
+        return jsonify({'error': (gc_err or {}).get('message', 'No se pudo obtener token')}), 500
+
+    _, detail = gp_post('product/detail', {'token': gc_token, 'productid': game['gamepoint_product_id']})
+    if (detail or {}).get('code') != 200:
+        return jsonify({'error': (detail or {}).get('message', 'Error')}), 500
+
+    conn = _get_conn()
+    local_packages = conn.execute(
+        'SELECT id, nombre, precio, gamepoint_package_id FROM paquetes_dinamicos WHERE juego_id = ? ORDER BY orden, id',
+        (game_id,)
+    ).fetchall()
+    conn.close()
+
+    return jsonify({
+        'gamepoint_packages': (detail or {}).get('package', []),
+        'local_packages': [dict(lp) for lp in local_packages],
+        'product_id': game['gamepoint_product_id'],
+        'game_name': game['nombre'],
+    })
+
+
+@bp.route('/admin/dynamic-games/<int:game_id>/set_gamepoint_id', methods=['POST'])
+def admin_dyn_set_gamepoint_id(game_id):
+    """Assign a gamepoint_package_id to a local dynamic package."""
+    if not session.get('is_admin'):
+        return jsonify({'error': 'Acceso denegado'}), 403
+    data = request.get_json() or request.form
+    local_id = data.get('local_id')
+    gp_id = data.get('gamepoint_package_id')
+    if not local_id:
+        return jsonify({'error': 'Falta local_id'}), 400
+
+    conn = _get_conn()
+    pkg = conn.execute('SELECT id, nombre FROM paquetes_dinamicos WHERE id = ? AND juego_id = ?', (local_id, game_id)).fetchone()
+    if not pkg:
+        conn.close()
+        return jsonify({'error': 'Paquete no encontrado'}), 404
+
+    gp_val = int(gp_id) if gp_id and str(gp_id).strip() else None
+    conn.execute('UPDATE paquetes_dinamicos SET gamepoint_package_id = ?, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = ?',
+                 (gp_val, local_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'local_id': int(local_id), 'nombre': pkg['nombre'], 'gamepoint_package_id': gp_val})
 
 
 # ---------------------------------------------------------------------------

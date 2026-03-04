@@ -60,9 +60,6 @@
         <button class="side-tab-button" data-tab="gameclub" onclick="showTab('gameclub', event)" aria-label="GameClub">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10H7z"/><path d="M4 4h4"/><path d="M16 4h4"/><path d="M4 20h4"/><path d="M16 20h4"/></svg></span><span class="label">GameClub</span>
         </button>
-        <a class="side-tab-button" href="/admin/dynamic-games" aria-label="Juegos Dinámicos" style="text-decoration:none;">
-          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12h4l2 -5l2 9l2 -4h4"/></svg></span><span class="label">Dinámicos</span>
-        </a>
         <!-- Redeemer oculto - se usa VPS externo -->
         <a class="side-tab-button" href="/" aria-label="Volver al Inicio" style="text-decoration:none;">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7"/><path d="M9 22V12h6v10"/></svg></span><span class="label">Inicio</span>
@@ -188,6 +185,21 @@
               <div id="bs-sync-report" style="margin-top:14px;display:none;"></div>
             </div>
           </div>
+
+          {% for dg in dyn_games %}
+          <div class="card" style="margin-top:20px;border:1px solid rgba(167,139,250,0.3);">
+            <div class="card-header" style="background:rgba(167,139,250,0.1);"><h3>{{ dg.nombre }} — Mapeo y Sync</h3></div>
+            <div class="card-body">
+              <p style="color:#aaa;font-size:13px;margin-bottom:12px;">Mapea tus paquetes con los IDs de GamePoint y sincroniza precios.</p>
+              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+                <button type="button" class="btn btn-secondary" onclick="loadDynMapping({{ dg.id }})">Cargar Mapeo</button>
+                <button type="button" class="btn btn-primary" onclick="syncDynPrices({{ dg.id }})" style="background:#a78bfa;">Sincronizar Precios</button>
+                <div id="dyn-mapping-status-{{ dg.id }}" style="color:#aaa;font-size:13px;display:flex;align-items:center;"></div>
+              </div>
+              <div id="dyn-mapping-table-{{ dg.id }}" style="overflow-x:auto;"></div>
+            </div>
+          </div>
+          {% endfor %}
         </section>
       </div>
       
@@ -355,7 +367,11 @@
                   <option value="freefire_global">Free Fire</option>
                   <option value="bloodstriker">Blood Striker</option>
                   <option value="freefire_id">Free Fire ID</option>
+                  {% for dg in dyn_games %}
+                  <option value="dyn_{{ dg.slug }}">{{ dg.nombre }}</option>
+                  {% endfor %}
                 </select>
+                <button type="button" class="btn btn-secondary" style="margin-left:8px;padding:8px 12px;font-size:12px;" onclick="document.getElementById('crear-juego-form').style.display=document.getElementById('crear-juego-form').style.display==='none'?'block':'none'">+ Crear Juego</button>
               </div>
               <div class="form-group" style="display:flex;align-items:flex-end;gap:8px;">
                 <form method="POST" action="/admin/toggle_game" onsubmit="document.getElementById('tg_game').value = document.getElementById('price_game_select').value; document.getElementById('tg_active').value = '1';">
@@ -368,7 +384,39 @@
                   <input type="hidden" name="active" id="tg_active2" value="0">
                   <button type="submit" class="btn btn-danger">Desactivar</button>
                 </form>
+                <button type="button" id="btn-delete-dyn-game" class="btn btn-danger" style="display:none;padding:8px 12px;font-size:12px;" onclick="eliminarJuegoDinamico()">Eliminar Juego</button>
               </div>
+            </div>
+          </div>
+
+          <!-- Formulario crear juego dinámico (oculto por defecto) -->
+          <div id="crear-juego-form" style="display:none;background:rgba(167,139,250,0.06);border:1px solid rgba(167,139,250,0.2);border-radius:10px;padding:14px;margin-bottom:14px;">
+            <h4 style="color:#a78bfa;margin:0 0 10px;">+ Crear Juego Dinámico</h4>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+              <div><label style="color:#8896a6;font-size:11px;display:block;">Nombre *</label>
+                <input id="cj-nombre" placeholder="Ej: Mobile Legends" style="width:100%;padding:7px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#e0e0e0;font-size:13px;"></div>
+              <div><label style="color:#8896a6;font-size:11px;display:block;">GP Product ID *</label>
+                <input id="cj-productid" type="number" placeholder="155" style="width:100%;padding:7px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#e0e0e0;font-size:13px;"></div>
+              <div><label style="color:#8896a6;font-size:11px;display:block;">Modo</label>
+                <select id="cj-modo" style="width:100%;padding:7px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#e0e0e0;font-size:13px;">
+                  <option value="id">ID (Recarga Directa)</option><option value="pin">PIN (Voucher)</option>
+                </select></div>
+            </div>
+            <div style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
+              <label style="color:#ccc;font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+                <input type="checkbox" id="cj-dual-id"> Doble ID (ID + Server)
+              </label>
+              <label style="color:#ccc;font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+                <input type="checkbox" id="cj-server-select" onchange="document.getElementById('cj-server-opts-row').style.display=this.checked?'block':'none'"> Selector de Servidor
+              </label>
+            </div>
+            <div id="cj-server-opts-row" style="display:none;margin-top:6px;">
+              <label style="color:#8896a6;font-size:11px;display:block;">Opciones de servidor (separadas por coma)</label>
+              <input id="cj-server-opciones" placeholder="Ej: Asia, Europe, North America, South America" style="width:100%;padding:7px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#e0e0e0;font-size:13px;">
+            </div>
+            <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
+              <button type="button" class="btn btn-success" style="padding:8px 16px;font-size:13px;" onclick="crearJuegoDinamico()">Crear</button>
+              <span id="cj-status" style="font-size:12px;color:#888;"></span>
             </div>
           </div>
 
@@ -377,6 +425,18 @@
             <input type="hidden" name="payload" id="batch_payload" value="[]">
 
             <div id="price-package-list" class="package-list"></div>
+
+            <!-- Botón añadir paquete (solo para juegos dinámicos) -->
+            <div id="add-pkg-area" style="display:none;margin-top:10px;padding:10px;background:rgba(255,255,255,0.03);border:1px dashed rgba(255,255,255,0.1);border-radius:8px;">
+              <div style="display:grid;grid-template-columns:2fr 1fr auto;gap:8px;align-items:end;">
+                <div><label style="color:#8896a6;font-size:11px;display:block;">Nombre</label>
+                  <input id="new-dyn-pkg-name" placeholder="100 Diamantes" style="width:100%;padding:7px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#e0e0e0;font-size:13px;"></div>
+                <div><label style="color:#8896a6;font-size:11px;display:block;">Precio USD</label>
+                  <input id="new-dyn-pkg-price" type="number" step="0.01" placeholder="0.80" style="width:100%;padding:7px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#e0e0e0;font-size:13px;"></div>
+                <button type="button" class="btn btn-success" style="padding:7px 14px;font-size:12px;" onclick="addDynPackage()">+ Añadir</button>
+              </div>
+              <span id="add-pkg-status" style="font-size:11px;color:#888;margin-top:4px;display:block;"></span>
+            </div>
 
             <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
               <button type="button" class="btn btn-update-price" onclick="saveAllPrices()">Guardar Cambios</button>
@@ -649,6 +709,23 @@
     ]
   </script>
 
+  <script type="application/json" id="dyn-games-data">
+    {
+      {% for dg in dyn_games %}
+      "dyn_{{ dg.slug }}": {
+        "id": {{ dg.id }},
+        "slug": "{{ dg.slug }}",
+        "nombre": "{{ dg.nombre }}",
+        "packages": [
+          {% for p in dg._packages %}
+          {"id": {{ p.id }}, "nombre": "{{ p.nombre }}", "precio": {{ p.precio }}}{% if not loop.last %},{% endif %}
+          {% endfor %}
+        ]
+      }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    }
+  </script>
+
   <script>
     // Auto-ocultar mensajes flash después de 2 segundos
     setTimeout(function() {
@@ -659,6 +736,36 @@
       }
 
     }, 2000);
+
+    // AJAX submit para pines (sin recargar página)
+    async function submitPinAjax(evt, form, url) {
+      evt.preventDefault();
+      const st = form.querySelector('.pin-ajax-status');
+      const formData = new FormData(form);
+      if (st) st.innerHTML = '<span style="color:#aaa;">Enviando...</span>';
+      try {
+        const res = await fetch(url, { method:'POST', headers:{'Accept':'application/json'}, body: formData });
+        const data = await res.json();
+        if (data.success) {
+          if (st) st.innerHTML = '<span style="color:#4ade80;">✅ ' + (data.message || 'OK') + '</span>';
+          const pinInput = form.querySelector('input[name="pin_codigo"]');
+          const batchInput = form.querySelector('textarea[name="pins_batch"]');
+          if (pinInput) { pinInput.value = ''; pinInput.focus(); }
+          if (batchInput) { batchInput.value = ''; batchInput.focus(); }
+          // Update stock count in the card
+          const montoId = formData.get('monto_id') || formData.get('batch_monto_id');
+          const added = data.added || 1;
+          const stockEl = form.closest('.package-card')?.querySelector('.package-stock');
+          if (stockEl) {
+            const cur = parseInt(stockEl.textContent) || 0;
+            stockEl.textContent = (cur + added) + ' pines';
+          }
+        } else {
+          if (st) st.innerHTML = '<span style="color:#ff6b6b;">❌ ' + (data.error || 'Error') + '</span>';
+        }
+      } catch(e) { if (st) st.innerHTML = '<span style="color:#ff6b6b;">❌ Error de red</span>'; }
+      return false;
+    }
 
     // Renderizador de lista de paquetes para Pines
     function renderPackageList(game) {
@@ -687,19 +794,21 @@
             </div>
           </div>
           <div class="package-forms">
-            <form method="POST" action="/admin/add_pin" class="package-form collapse" id="ind-form-${pkg.id}">
+            <form class="package-form collapse" id="ind-form-${pkg.id}" onsubmit="return submitPinAjax(event, this, '/admin/add_pin')">
               <input type="hidden" name="game_type" value="${game}">
               <input type="hidden" name="monto_id" value="${pkg.id}">
               <label>Código individual</label>
               <input type="text" name="pin_codigo" placeholder="PIN123456" required>
               <button type="submit" class="btn btn-primary btn-small">Agregar</button>
+              <span class="pin-ajax-status" style="font-size:11px;margin-left:6px;"></span>
             </form>
-            <form method="POST" action="/admin/add_pins_batch" class="package-form collapse" id="batch-form-${pkg.id}">
+            <form class="package-form collapse" id="batch-form-${pkg.id}" onsubmit="return submitPinAjax(event, this, '/admin/add_pins_batch')">
               <input type="hidden" name="game_type" value="${game}">
               <input type="hidden" name="batch_monto_id" value="${pkg.id}">
               <label>Lote (máx 10)</label>
               <textarea name="pins_batch" rows="2" placeholder="PIN1, PIN2, PIN3" required></textarea>
               <button type="submit" class="btn btn-success btn-small">Agregar Lote</button>
+              <span class="pin-ajax-status" style="font-size:11px;margin-left:6px;"></span>
             </form>
             <form method="POST" action="/admin/import_pins_csv" enctype="multipart/form-data" class="package-form collapse" id="csv-form-${pkg.id}">
               <input type="hidden" name="game_type" value="${game}">
@@ -741,17 +850,30 @@
     }
 
     // ======= Gestión de Precios (lista editable) =======
+    const dynGamesData = JSON.parse(document.getElementById('dyn-games-data').textContent);
+    let _currentDynGameId = null;
+
     function renderPricePackageList(game) {
       const container = document.getElementById('price-package-list');
       const batchGame = document.getElementById('batch_game');
+      const addArea = document.getElementById('add-pkg-area');
       if (!container || !batchGame) return;
       batchGame.value = game;
 
       let data = [];
+      const isDyn = game.startsWith('dyn_');
       if (game === 'freefire') data = freefireLatamPackages;
       else if (game === 'freefire_global') data = freefireGlobalPackages;
       else if (game === 'bloodstriker') data = bloodstrikerPackages;
       else if (game === 'freefire_id') data = freefireIdPackages;
+      else if (isDyn && dynGamesData[game]) {
+        data = dynGamesData[game].packages || [];
+        _currentDynGameId = dynGamesData[game].id;
+      }
+
+      if (addArea) addArea.style.display = isDyn ? 'block' : 'none';
+      const delBtn = document.getElementById('btn-delete-dyn-game');
+      if (delBtn) delBtn.style.display = isDyn ? 'inline-block' : 'none';
 
       container.innerHTML = '';
       data.forEach(pkg => {
@@ -776,6 +898,9 @@
         `;
         container.appendChild(card);
       });
+      if (isDyn && data.length === 0) {
+        container.innerHTML = '<p style="color:#666;font-size:13px;padding:10px;">Sin paquetes. Usa el formulario de abajo para añadir.</p>';
+      }
     }
 
     window.saveAllPrices = function() {
@@ -796,6 +921,90 @@
       if (payloadInput) payloadInput.value = JSON.stringify(list);
       const form = document.getElementById('batch-price-form');
       if (form) form.submit();
+    }
+
+    // ======= Crear juego dinámico desde Precios =======
+    async function crearJuegoDinamico() {
+      const st = document.getElementById('cj-status');
+      const nombre = document.getElementById('cj-nombre').value.trim();
+      const productId = document.getElementById('cj-productid').value.trim();
+      const modo = document.getElementById('cj-modo').value;
+      const dualId = document.getElementById('cj-dual-id').checked;
+      const serverSelect = document.getElementById('cj-server-select').checked;
+      if (!nombre || !productId) { st.innerHTML = '<span style="color:#ff6b6b;">Nombre y Product ID son obligatorios</span>'; return; }
+      st.innerHTML = '<span style="color:#aaa;">Creando...</span>';
+      const payload = { nombre, gamepoint_product_id: productId, modo, campo_id_label:'ID de Jugador', campo_id_placeholder:'Ingresa tu ID' };
+      if (dualId) { payload.campo_id2_label = 'Server ID'; payload.campo_id2_placeholder = 'Ingresa Server ID'; }
+      if (serverSelect) {
+        payload.campo_servidor = true;
+        payload.servidor_opciones = document.getElementById('cj-server-opciones').value.trim();
+      }
+      try {
+        const res = await fetch('/admin/dynamic-games/create', {
+          method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+          st.innerHTML = '<span style="color:#4ade80;">✅ Creado. Recargando...</span>';
+          setTimeout(() => location.reload(), 800);
+        } else { st.innerHTML = '<span style="color:#ff6b6b;">❌ '+(data.error||'Error')+'</span>'; }
+      } catch(e) { st.innerHTML = '<span style="color:#ff6b6b;">❌ Error de red</span>'; }
+    }
+
+    // ======= Añadir paquete a juego dinámico =======
+    async function addDynPackage() {
+      const st = document.getElementById('add-pkg-status');
+      const nameInput = document.getElementById('new-dyn-pkg-name');
+      const priceInput = document.getElementById('new-dyn-pkg-price');
+      const nombre = nameInput.value.trim();
+      const precio = parseFloat(priceInput.value);
+      if (!nombre || !precio || precio <= 0) { st.innerHTML = '<span style="color:#ff6b6b;">Nombre y precio requeridos</span>'; return; }
+      if (!_currentDynGameId) { st.innerHTML = '<span style="color:#ff6b6b;">Juego no identificado</span>'; return; }
+      st.innerHTML = '<span style="color:#aaa;">Añadiendo...</span>';
+      try {
+        const res = await fetch(`/admin/dynamic-games/${_currentDynGameId}/packages/add`, {
+          method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
+          body: JSON.stringify({ nombre, precio })
+        });
+        const data = await res.json();
+        if (data.success) {
+          const pkgId = data.package_id;
+          const container = document.getElementById('price-package-list');
+          if (container.querySelector('p')) container.innerHTML = '';
+          const card = document.createElement('div');
+          card.className = 'package-card';
+          card.innerHTML = `
+            <div class="package-card-header"><div class="package-left"><div class="package-title">ID ${pkgId}</div></div></div>
+            <div class="package-forms">
+              <div class="package-form"><label>Nombre</label><input type="text" class="pkg-name" data-id="${pkgId}" value="${nombre}" maxlength="50"></div>
+              <div class="package-form"><label>Precio</label><input type="number" class="pkg-price" data-id="${pkgId}" value="${precio.toFixed(2)}" step="0.01" min="0"></div>
+            </div>`;
+          container.appendChild(card);
+          nameInput.value = '';
+          priceInput.value = '';
+          nameInput.focus();
+          st.innerHTML = '<span style="color:#4ade80;">✅ ' + nombre + ' añadido</span>';
+        } else { st.innerHTML = '<span style="color:#ff6b6b;">❌ '+(data.error||'Error')+'</span>'; }
+      } catch(e) { st.innerHTML = '<span style="color:#ff6b6b;">❌ Error de red</span>'; }
+    }
+
+    // ======= Eliminar juego dinámico =======
+    async function eliminarJuegoDinamico() {
+      if (!_currentDynGameId) return;
+      const sel = document.getElementById('price_game_select');
+      const gameName = sel ? sel.options[sel.selectedIndex].text : '';
+      if (!confirm(`¿Eliminar "${gameName}" y todos sus paquetes? Esta acción no se puede deshacer.`)) return;
+      try {
+        const res = await fetch(`/admin/dynamic-games/${_currentDynGameId}/delete`, {
+          method:'POST', headers:{'Accept':'application/json'}
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert('Juego eliminado');
+          location.reload();
+        } else { alert(data.error || 'Error al eliminar'); }
+      } catch(e) { alert('Error de red'); }
     }
 
     // Buscador por ID de usuario
@@ -1390,6 +1599,68 @@
           rpt.style.display = 'block';
         }
         loadBSMapping();
+      } catch(e) { st.innerHTML = '<span style="color:#ff6b6b;">Error inesperado</span>'; }
+    }
+
+    // ======= Dynamic Game Mapping & Sync (same pattern as BS) =======
+    async function loadDynMapping(gameId) {
+      const st = document.getElementById('dyn-mapping-status-'+gameId);
+      const tbl = document.getElementById('dyn-mapping-table-'+gameId);
+      if (!st || !tbl) return;
+      st.textContent = 'Cargando...';
+      tbl.innerHTML = '';
+      try {
+        const res = await fetch(`/admin/dynamic-games/${gameId}/gamepoint_packages`, {headers:{'Accept':'application/json'}});
+        const data = await res.json();
+        if (!res.ok || data.error) { st.textContent = data.error || 'Error'; return; }
+        st.textContent = `${data.gamepoint_packages.length} paquetes GamePoint, ${data.local_packages.length} locales`;
+        const gpOpts = data.gamepoint_packages.map(p => `<option value="${p.id}">${p.id} - ${p.name} ($${p.price})</option>`).join('');
+        let html = '<table class="table" style="width:100%;font-size:13px;"><thead><tr><th>Local ID</th><th>Nombre</th><th>Precio</th><th>GamePoint Package</th><th></th></tr></thead><tbody>';
+        data.local_packages.forEach(lp => {
+          html += `<tr>
+            <td>${lp.id}</td><td>${lp.nombre}</td><td>$${Number(lp.precio).toFixed(2)}</td>
+            <td><select id="dyn-gp-sel-${gameId}-${lp.id}" style="background:#1a1a2e;color:#ddd;border:1px solid #333;padding:4px 6px;border-radius:4px;font-size:12px;width:100%;max-width:300px;">
+              <option value="">-- Sin asignar --</option>${gpOpts}
+            </select></td>
+            <td><button class="btn btn-secondary" style="padding:4px 10px;font-size:12px;" onclick="saveDynMapping(${gameId},${lp.id})">Guardar</button></td>
+          </tr>`;
+        });
+        html += '</tbody></table>';
+        tbl.innerHTML = html;
+        data.local_packages.forEach(lp => {
+          if (lp.gamepoint_package_id) {
+            const sel = document.getElementById('dyn-gp-sel-'+gameId+'-'+lp.id);
+            if (sel) sel.value = String(lp.gamepoint_package_id);
+          }
+        });
+      } catch(e) { st.textContent = 'Error inesperado'; }
+    }
+
+    async function saveDynMapping(gameId, localId) {
+      const sel = document.getElementById('dyn-gp-sel-'+gameId+'-'+localId);
+      if (!sel) return;
+      const st = document.getElementById('dyn-mapping-status-'+gameId);
+      try {
+        const res = await fetch(`/admin/dynamic-games/${gameId}/set_gamepoint_id`, {
+          method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
+          body: JSON.stringify({local_id: localId, gamepoint_package_id: sel.value || null})
+        });
+        const data = await res.json();
+        if (data.success) { st.innerHTML = '<span style="color:#4ade80;">Mapeo guardado para '+data.nombre+'</span>'; }
+        else { st.innerHTML = '<span style="color:#ff6b6b;">'+(data.error||'Error')+'</span>'; }
+      } catch(e) { st.innerHTML = '<span style="color:#ff6b6b;">Error de red</span>'; }
+    }
+
+    async function syncDynPrices(gameId) {
+      const st = document.getElementById('dyn-mapping-status-'+gameId);
+      if (!st) return;
+      st.textContent = 'Sincronizando precios...';
+      try {
+        const res = await fetch(`/admin/dynamic-games/${gameId}/sync-prices`, {method:'POST',headers:{'Accept':'application/json'}});
+        const data = await res.json();
+        if (!res.ok || data.error) { st.innerHTML = '<span style="color:#ff6b6b;">'+(data.error||'Error')+'</span>'; return; }
+        st.innerHTML = '<span style="color:#4ade80;">✅ Sync OK: '+data.packages_updated+'/'+data.total_gp+' actualizados</span>';
+        loadDynMapping(gameId);
       } catch(e) { st.innerHTML = '<span style="color:#ff6b6b;">Error inesperado</span>'; }
     }
 

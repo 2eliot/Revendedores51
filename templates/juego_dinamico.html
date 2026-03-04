@@ -110,7 +110,7 @@
           <li><a href="/juego/freefire_id">Free Fire ID</a></li>
           {% endif %}
           {% for dg in dynamic_games_menu %}
-          <li><a href="/juego/d/{{ dg.slug }}">{{ dg.icono }} {{ dg.nombre }}</a></li>
+          <li><a href="/juego/d/{{ dg.slug }}">{{ dg.nombre }}</a></li>
           {% endfor %}
           <li style="border-top:1px solid #000000; margin:6px 0;"></li>
           <li><a href="/billetera">Recargar Usuario</a></li>
@@ -287,7 +287,7 @@
       {% if game.descripcion %}
         <p>{{ game.descripcion }}</p>
       {% else %}
-        <p>{{ game.icono }} <strong>{{ game.nombre }}</strong> — Recarga directa vía GamePoint.</p>
+        <p><strong>{{ game.nombre }}</strong> — Selecciona tu paquete y recarga al instante.</p>
       {% endif %}
     </div>
     {% endif %}

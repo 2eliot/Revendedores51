@@ -3665,6 +3665,12 @@ def admin_panel():
     noticias = get_all_news()
     games_active = get_games_active()
     redeemer_config = get_redeemer_config_from_db(get_db_connection)
+
+    # Dynamic games for Precios + GameClub tabs
+    from dynamic_games import get_all_dynamic_games as _dg_all, get_dynamic_packages as _dg_pkgs
+    dyn_games = _dg_all()
+    for dg in dyn_games:
+        dg['_packages'] = _dg_pkgs(dg['id'])
     
     return render_template('admin.html', 
                          users=users, 
@@ -3677,7 +3683,8 @@ def admin_panel():
                          pin_sources_config=pin_sources_config,
                          noticias=noticias,
                          games_active=games_active,
-                         redeemer_config=redeemer_config)
+                         redeemer_config=redeemer_config,
+                         dyn_games=dyn_games)
 
 
 @app.route('/admin/gameclub/products', methods=['GET'])
@@ -3835,6 +3842,8 @@ def admin_save_prices_batch():
         table = 'precios_bloodstriker'
     elif game == 'freefire_id':
         table = 'precios_freefire_id'
+    elif game.startswith('dyn_'):
+        table = 'paquetes_dinamicos'
     else:
         flash('Juego no soportado.', 'error')
         return redirect('/admin')
@@ -3871,18 +3880,27 @@ def admin_toggle_game():
         return redirect('/auth')
     game = request.form.get('game')
     active = request.form.get('active')
-    if game not in ['freefire', 'freefire_global', 'bloodstriker', 'freefire_id'] or active not in ['0','1']:
+    if active not in ['0','1']:
         flash('Parámetros inválidos.', 'error')
         return redirect('/admin')
-    table = {
+
+    static_tables = {
         'freefire': 'precios_paquetes',
         'freefire_global': 'precios_freefire_global',
         'bloodstriker': 'precios_bloodstriker',
         'freefire_id': 'precios_freefire_id'
-    }[game]
+    }
+
     try:
         conn = get_db_connection()
-        conn.execute(f"UPDATE {table} SET activo = ?", (1 if active == '1' else 0,))
+        if game in static_tables:
+            conn.execute(f"UPDATE {static_tables[game]} SET activo = ?", (1 if active == '1' else 0,))
+        elif game and game.startswith('dyn_'):
+            slug = game[4:]
+            conn.execute("UPDATE juegos_dinamicos SET activo = ? WHERE slug = ?", (1 if active == '1' else 0, slug))
+        else:
+            flash('Juego no soportado.', 'error')
+            return redirect('/admin')
         conn.commit()
         conn.close()
         estado = 'activado' if active == '1' else 'desactivado'
@@ -4065,27 +4083,27 @@ def admin_add_pin():
     if monto_id and pin_codigo and game_type:
         if game_type == 'freefire_latam':
             add_pin_freefire(int(monto_id), pin_codigo)
-            # Obtener información del paquete dinámicamente
-            packages_info = get_package_info_with_prices()
-            package_info = packages_info.get(int(monto_id), {})
             juego_nombre = "Free Fire Latam"
+            table = 'precios_paquetes'
         elif game_type == 'freefire_global':
             add_pin_freefire_global(int(monto_id), pin_codigo)
-            # Obtener información del paquete dinámicamente
-            packages_info = get_freefire_global_prices()
-            package_info = packages_info.get(int(monto_id), {})
             juego_nombre = "Free Fire"
+            table = 'precios_freefire_global'
         else:
             flash('Tipo de juego inválido', 'error')
             return redirect('/admin')
         
-        if package_info:
-            paquete_nombre = f"{package_info['nombre']} / ${package_info['precio']:.2f}"
-        else:
-            paquete_nombre = "Paquete desconocido"
+        conn_pkg = get_db_connection()
+        row = conn_pkg.execute(f'SELECT nombre, precio FROM {table} WHERE id = ?', (int(monto_id),)).fetchone()
+        conn_pkg.close()
+        paquete_nombre = f"{row['nombre']} / ${row['precio']:.2f}" if row else f"Monto #{monto_id}"
         
+        if request.headers.get('Accept') == 'application/json':
+            return jsonify({'success': True, 'message': f'Pin agregado para {juego_nombre} - {paquete_nombre}'})
         flash(f'Pin agregado exitosamente para {juego_nombre} - {paquete_nombre}', 'success')
     else:
+        if request.headers.get('Accept') == 'application/json':
+            return jsonify({'success': False, 'error': 'Datos inválidos'}), 400
         flash('Datos inválidos para agregar pin', 'error')
     
     return redirect('/admin')
@@ -4118,28 +4136,28 @@ def admin_add_pins_batch():
     try:
         if game_type == 'freefire_latam':
             added_count = add_pins_batch(int(monto_id), pins_list)
-            # Obtener información del paquete dinámicamente
-            packages_info = get_package_info_with_prices()
-            package_info = packages_info.get(int(monto_id), {})
             juego_nombre = "Free Fire Latam"
+            table = 'precios_paquetes'
         elif game_type == 'freefire_global':
             added_count = add_pins_batch_freefire_global(int(monto_id), pins_list)
-            # Obtener información del paquete dinámicamente
-            packages_info = get_freefire_global_prices()
-            package_info = packages_info.get(int(monto_id), {})
             juego_nombre = "Free Fire"
+            table = 'precios_freefire_global'
         else:
             flash('Tipo de juego inválido', 'error')
             return redirect('/admin')
         
-        if package_info:
-            paquete_nombre = f"{package_info['nombre']} / ${package_info['precio']:.2f}"
-        else:
-            paquete_nombre = "Paquete desconocido"
+        conn_pkg = get_db_connection()
+        row = conn_pkg.execute(f'SELECT nombre, precio FROM {table} WHERE id = ?', (int(monto_id),)).fetchone()
+        conn_pkg.close()
+        paquete_nombre = f"{row['nombre']} / ${row['precio']:.2f}" if row else f"Monto #{monto_id}"
         
+        if request.headers.get('Accept') == 'application/json':
+            return jsonify({'success': True, 'added': added_count, 'message': f'{added_count} pines agregados para {juego_nombre} - {paquete_nombre}'})
         flash(f'Se agregaron {added_count} pines exitosamente para {juego_nombre} - {paquete_nombre}', 'success')
         
     except Exception as e:
+        if request.headers.get('Accept') == 'application/json':
+            return jsonify({'success': False, 'error': str(e)}), 500
         flash(f'Error al agregar pines en lote: {str(e)}', 'error')
     
     return redirect('/admin')
