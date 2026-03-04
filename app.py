@@ -4903,7 +4903,7 @@ def validar_bloodstriker():
             if reference_no:
                 inquiry_data = _gameclub_order_inquiry(gc_token, reference_no)
                 if not ingame_name:
-                    ingame_name = (inquiry_data or {}).get('ingamename') or ''
+                    ingame_name = (inquiry_data or {}).get('ingamename') or (inquiry_data or {}).get('playername') or (inquiry_data or {}).get('gamename') or ''
                 item_name = (inquiry_data or {}).get('item') or ''
                 logger.info(f"[BloodStrike] order/inquiry response keys: {list((inquiry_data or {}).keys())} | ingamename='{ingame_name}' | item='{item_name}'")
         except Exception:

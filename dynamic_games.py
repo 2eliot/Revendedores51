@@ -791,11 +791,15 @@ def validar_dinamico(slug):
         create_code = (create_data or {}).get('code')
         reference_no = (create_data or {}).get('referenceno', '')
 
-        # 4.1 Inquiry fallback for ingame_name
+        # 4.1 Inquiry — always run to get ingame_name + item details
+        item_name = ''
         try:
-            if reference_no and not ingame_name:
+            if reference_no:
                 inq_data = order_inquiry(gc_token, reference_no)
-                ingame_name = (inq_data or {}).get('ingamename') or ''
+                if not ingame_name:
+                    ingame_name = (inq_data or {}).get('ingamename') or (inq_data or {}).get('playername') or (inq_data or {}).get('gamename') or ''
+                item_name = (inq_data or {}).get('item') or ''
+                logger.info(f"[DynGame:{game['slug']}] inquiry keys: {list((inq_data or {}).keys())} | ingamename='{ingame_name}' | item='{item_name}'")
         except Exception:
             pass
 
