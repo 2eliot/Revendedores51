@@ -226,7 +226,7 @@
                 {% endif %}
                 <div class="ffid-voucher-line"><strong>Número de Control:</strong> {{ transaction.numero_control }}</div>
                 {% if transaction.get('gamepoint_ref') %}
-                <div class="ffid-voucher-line"><strong>Ref GamePoint:</strong> {{ transaction.gamepoint_ref }}</div>
+                <div class="ffid-voucher-line"><strong>Ref:</strong> {{ transaction.gamepoint_ref }}</div>
                 {% endif %}
                 <div class="ffid-voucher-amount"><strong>Monto:</strong> ${{ "%.2f"|format(transaction.monto|abs) }}</div>
                 {% if session.get('is_admin') %}
