@@ -782,8 +782,9 @@ def validar_dinamico(slug):
             return redirect(redirect_url)
 
         validation_token = validate_data['validation_token']
-        ingame_name = (validate_data or {}).get('ingamename') or (validate_data or {}).get('playername') or ''
-        logger.info(f"[DynGame:{game['slug']}] validate OK | ingamename='{ingame_name}' | player={player_id}")
+        # validate NO devuelve ingamename según docs — solo code, message, validation_token
+        ingame_name = ''
+        logger.info(f"[DynGame:{game['slug']}] validate OK | player={player_id}")
 
         # 4. Create order
         merchant_code = f"DG{game['id']}-" + secrets.token_hex(6).upper()
@@ -791,17 +792,26 @@ def validar_dinamico(slug):
         create_code = (create_data or {}).get('code')
         reference_no = (create_data or {}).get('referenceno', '')
 
-        # 4.1 Inquiry — always run to get ingame_name + item details
+        # 4.1 order/inquiry — extraer ingamename (docs: campo opcional, aparece cuando el pedido está procesado)
         item_name = ''
         try:
             if reference_no:
-                inq_data = order_inquiry(gc_token, reference_no)
-                if not ingame_name:
-                    ingame_name = (inq_data or {}).get('ingamename') or (inq_data or {}).get('playername') or (inq_data or {}).get('gamename') or ''
-                item_name = (inq_data or {}).get('item') or ''
-                logger.info(f"[DynGame:{game['slug']}] inquiry keys: {list((inq_data or {}).keys())} | ingamename='{ingame_name}' | item='{item_name}'")
-        except Exception:
-            pass
+                # Retry inquiry con delay para dar tiempo a que el pedido se procese
+                for _attempt in range(3):
+                    if _attempt > 0:
+                        time_module.sleep(1.5)
+                    inq_data = order_inquiry(gc_token, reference_no)
+                    ingame_name = (inq_data or {}).get('ingamename') or ''
+                    item_name = (inq_data or {}).get('item') or ''
+                    logger.info(f"[DynGame:{game['slug']}] inquiry attempt {_attempt+1}: ingamename='{ingame_name}' | item='{item_name}'")
+                    if ingame_name:
+                        break
+                # Limpiar HTML del item (ej: "Blood Strike<br />300 + 20 Gold")
+                if item_name:
+                    item_name = re.sub(r'<[^>]+>', ' ', item_name).strip()
+                    item_name = ' '.join(item_name.split())
+        except Exception as e:
+            logger.error(f"[DynGame:{game['slug']}] inquiry FAILED: {e}")
 
         _duration = round(time_module.time() - _start, 1)
 
@@ -878,6 +888,7 @@ def validar_dinamico(slug):
                     pass
 
             estado_txt = 'completado' if create_code == 100 else 'procesando'
+            logger.info(f"[DynGame:{game['slug']}] storing in session: player_name='{ingame_name}' | player_id={player_id} | ref={reference_no}")
             session[f'compra_dyn_{slug}_exitosa'] = {
                 'paquete_nombre': pkg['nombre'],
                 'monto_compra': precio,
