@@ -203,7 +203,10 @@
           <tr id="pkg-row-{{ p.id }}">
             <td>{{ p.id }}</td>
             <td><input value="{{ p.nombre }}" id="pkg-name-{{ p.id }}" style="min-width:120px;"></td>
-            <td><input type="number" step="0.01" value="{{ p.precio }}" id="pkg-price-{{ p.id }}" style="width:80px;"></td>
+            <td>
+              <input type="number" step="0.01" value="{{ p.precio }}" id="pkg-price-{{ p.id }}" style="width:80px;">
+              <div id="pkg-profit-{{ p.id }}" data-cost="{{ p._costo_compra if p._costo_compra is not none else '' }}" style="margin-top:4px;color:#8896a6;font-size:0.8em;"></div>
+            </td>
             <td><input type="number" value="{{ p.gamepoint_package_id or '' }}" id="pkg-gpid-{{ p.id }}" style="width:80px;"></td>
             <td style="text-align:center;">{{ '✅' if p.activo else '❌' }}</td>
             <td class="actions">
@@ -361,6 +364,38 @@
     await fetch(`/admin/dynamic-games/packages/${id}/delete`, {method:'POST',headers:{'Accept':'application/json'}});
     document.getElementById('pkg-row-'+id)?.remove();
   }
+
+  function updatePkgProfit(pkgId) {
+    const priceEl = document.getElementById('pkg-price-'+pkgId);
+    const profitEl = document.getElementById('pkg-profit-'+pkgId);
+    if (!priceEl || !profitEl) return;
+    const rawCost = profitEl.getAttribute('data-cost');
+    const price = parseFloat(String(priceEl.value || '').replace(',', '.'));
+    if (!rawCost) {
+      profitEl.style.color = '#8896a6';
+      profitEl.textContent = 'Costo: no configurado | Ganancia: -';
+      return;
+    }
+    const cost = parseFloat(String(rawCost).replace(',', '.'));
+    if (!isFinite(cost) || !isFinite(price)) {
+      profitEl.style.color = '#8896a6';
+      profitEl.textContent = 'Costo: $' + (isFinite(cost) ? cost.toFixed(4) : '-') + ' | Ganancia: -';
+      return;
+    }
+    const profit = price - cost;
+    const color = profit > 0 ? '#4ade80' : (profit < 0 ? '#ff6b6b' : '#8896a6');
+    profitEl.style.color = color;
+    profitEl.textContent = 'Costo: $' + cost.toFixed(4) + ' | Ganancia: $' + profit.toFixed(4);
+  }
+
+  window.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('[id^="pkg-price-"]').forEach(function(el) {
+      const pkgId = el.id.replace('pkg-price-', '');
+      updatePkgProfit(pkgId);
+      el.addEventListener('input', function() { updatePkgProfit(pkgId); });
+      el.addEventListener('change', function() { updatePkgProfit(pkgId); });
+    });
+  });
   </script>
 </body>
 </html>

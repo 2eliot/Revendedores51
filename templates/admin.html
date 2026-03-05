@@ -341,11 +341,8 @@
         <div class="pin-selector-row">
           <label for="pin_game_selector" class="pin-selector-label">🎮 Juego:</label>
           <select id="pin_game_selector" class="pin-selector">
-            {% if games_active.freefire or session.get('is_admin') %}
-            <option value="freefire_latam" selected>Free Fire Latam</option>
-            {% endif %}
             {% if games_active.freefire_global or session.get('is_admin') %}
-            <option value="freefire_global">Free Fire</option>
+            <option value="freefire_global" selected>Free Fire</option>
             {% endif %}
           </select>
         </div>
@@ -365,8 +362,7 @@
               <div class="form-group">
                 <label for="price_game_select">🎮 Juego:</label>
                 <select id="price_game_select">
-                  <option value="freefire">Free Fire Latam</option>
-                  <option value="freefire_global">Free Fire</option>
+                  <option value="freefire_global" selected>Free Fire</option>
                   <option value="bloodstriker">Blood Striker</option>
                   <option value="freefire_id">Free Fire ID</option>
                   {% for dg in dyn_games %}
@@ -377,12 +373,12 @@
               </div>
               <div class="form-group" style="display:flex;align-items:flex-end;gap:8px;">
                 <form method="POST" action="/admin/toggle_game" onsubmit="document.getElementById('tg_game').value = document.getElementById('price_game_select').value; document.getElementById('tg_active').value = '1';">
-                  <input type="hidden" name="game" id="tg_game" value="freefire">
+                  <input type="hidden" name="game" id="tg_game" value="freefire_global">
                   <input type="hidden" name="active" id="tg_active" value="1">
                   <button type="submit" class="btn btn-success">Activar</button>
                 </form>
                 <form method="POST" action="/admin/toggle_game" onsubmit="document.getElementById('tg_game2').value = document.getElementById('price_game_select').value; document.getElementById('tg_active2').value = '0';">
-                  <input type="hidden" name="game" id="tg_game2" value="freefire">
+                  <input type="hidden" name="game" id="tg_game2" value="freefire_global">
                   <input type="hidden" name="active" id="tg_active2" value="0">
                   <button type="submit" class="btn btn-danger">Desactivar</button>
                 </form>
@@ -423,7 +419,7 @@
           </div>
 
           <form id="batch-price-form" method="POST" action="/admin/save_prices_batch">
-            <input type="hidden" name="game" id="batch_game" value="freefire">
+            <input type="hidden" name="game" id="batch_game" value="freefire_global">
             <input type="hidden" name="payload" id="batch_payload" value="[]">
 
             <div id="price-package-list" class="package-list"></div>

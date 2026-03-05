@@ -4423,6 +4423,8 @@ def cancelar_recarga():
 
 @app.route('/validar/freefire_latam', methods=['POST'])
 def validar_freefire_latam():
+    return redirect('/juego/freefire')
+
     if 'usuario' not in session:
         return redirect('/auth')
 
@@ -4637,6 +4639,8 @@ def validar_freefire_latam():
 
 @app.route('/juego/freefire_latam')
 def freefire_latam():
+    return redirect('/juego/freefire')
+
     if 'usuario' not in session:
         return redirect('/auth')
 

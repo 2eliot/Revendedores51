@@ -128,6 +128,24 @@ def admin_dynamic_games_page():
     for g in games:
         g['_campos'] = parse_campos_config(g)
         g['_packages'] = get_dynamic_packages(g['id'])
+
+        # Load purchase cost per package for real-time profit display in admin UI
+        try:
+            conn = _get_conn()
+            juego_key = f"dyn_{g['slug']}"
+            rows = conn.execute(
+                'SELECT paquete_id, precio_compra FROM precios_compra WHERE juego = ?',
+                (juego_key,)
+            ).fetchall()
+            conn.close()
+            costs = {int(r['paquete_id']): float(r['precio_compra']) for r in rows}
+        except Exception:
+            costs = {}
+        for p in g['_packages']:
+            try:
+                p['_costo_compra'] = costs.get(int(p['id']))
+            except Exception:
+                p['_costo_compra'] = None
     return render_template('admin_dynamic_games.html', games=games)
 
 

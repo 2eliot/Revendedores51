@@ -4,9 +4,53 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Free Fire ID</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='freefire.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='freefire_id_extra.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='freefire_latam.css') }}">
   <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet" />
+  <style>
+    :root { --ffid-accent: #f97316; }
+    .juego-titulo {
+      color: var(--ffid-accent) !important;
+      background: none !important;
+      -webkit-text-fill-color: currentColor !important;
+    }
+    .form-row { gap: 1rem; }
+    .form-col { min-width: 0; }
+    .juego-form input.form-control,
+    .juego-form select.form-control { box-sizing: border-box; }
+    @media (max-width: 600px) {
+      .form-row { gap: 0.5rem; }
+      .form-col label { font-size: 0.95rem; }
+      .juego-form input.form-control,
+      .juego-form select.form-control {
+        padding: 0.55rem 0.7rem;
+        font-size: 0.9rem;
+      }
+    }
+    .juego-container::before {
+      background: linear-gradient(90deg, var(--ffid-accent), var(--ffid-accent), var(--ffid-accent)) !important;
+    }
+    .juego-form button {
+      background: linear-gradient(135deg, var(--ffid-accent), var(--ffid-accent)) !important;
+    }
+    .juego-form input.form-control {
+      padding: 0.75rem 1rem;
+      font-size: 1rem;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.12);
+      width: 100%;
+      margin-bottom: 0;
+      background: rgba(255,255,255,0.08);
+      color: #e0e0e0;
+      transition: all 0.3s ease;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    }
+    .juego-form input.form-control:focus {
+      outline: none;
+      border-color: var(--ffid-accent);
+      box-shadow: 0 0 0 3px rgba(249,115,22,0.12);
+      transform: translateY(-1px);
+    }
+  </style>
 </head>
 <body>
   <!-- Mensajes flash -->
@@ -29,9 +73,6 @@
       <div id="menu-juegos" class="menu-juegos">
         <p class="menu-title">🎮 Juegos</p>
         <ul>
-          {% if games_active.freefire or session.get('is_admin') %}
-          <li><a href="/juego/freefire_latam">Free Fire Latam</a></li>
-          {% endif %}
           {% if games_active.freefire_global or session.get('is_admin') %}
           <li><a href="/juego/freefire">Free Fire</a></li>
           {% endif %}
@@ -90,21 +131,26 @@
     <h1 class="juego-titulo">🔥 Free Fire ID</h1>
 
     <form method="POST" action="/validar/freefire_id" class="juego-form" id="ffid-form">
-      <label for="player_id">ID de Jugador Free Fire:</label>
-      <input type="text" id="player_id" name="player_id" class="form-control" placeholder="Ingresa tu ID de Free Fire" required>
-
-      <label for="monto">Selecciona tu paquete:</label>
-      <select id="monto" name="monto" class="form-control" required>
-        <option value="">Seleccione paquete</option>
-        {% for package_id in range(1, 21) %}
-          {% set package = prices.get(package_id, {}) %}
-          {% if package %}
-            <option id="monto_{{ package_id }}" value="{{ package_id }}">
-              {{ package.nombre }} / ${{ "%.2f"|format(package.precio) }}
-            </option>
-          {% endif %}
-        {% endfor %}
-      </select>
+      <div class="form-row">
+        <div class="form-col">
+          <label for="player_id">ID de Jugador:</label>
+          <input type="text" id="player_id" name="player_id" class="form-control" placeholder="Ingresa tu ID" required>
+        </div>
+        <div class="form-col">
+          <label for="monto">Paquete:</label>
+          <select id="monto" name="monto" class="form-control" required>
+            <option value="">Seleccione paquete</option>
+            {% for package_id in range(1, 21) %}
+              {% set package = prices.get(package_id, {}) %}
+              {% if package %}
+                <option id="monto_{{ package_id }}" value="{{ package_id }}">
+                  {{ package.nombre }} / ${{ "%.2f"|format(package.precio) }}
+                </option>
+              {% endif %}
+            {% endfor %}
+          </select>
+        </div>
+      </div>
 
       <button type="submit" id="btn-recargar">Recargar Ahora</button>
     </form>
