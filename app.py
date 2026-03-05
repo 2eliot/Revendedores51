@@ -5652,6 +5652,8 @@ def reject_bloodstriker_transaction(transaction_id):
         flash('Transacción rechazada y saldo devuelto al usuario', 'success')
     except Exception as e:
         flash(f'Error al rechazar transacción: {str(e)}', 'error')
+
+@app.route('/juego/freefire_id')
 def freefire_id():
     if 'usuario' not in session:
         return redirect('/auth')
