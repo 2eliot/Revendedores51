@@ -1320,7 +1320,67 @@
     </div>
     {% endif %}
 
-    
+    <!-- Historial de Transacciones -->
+    <div class="transactions-section" style="margin-top:24px;">
+      <div class="transactions-header">
+        <div class="section-title">📋 Historial de Transacciones</div>
+        <div style="font-size:13px;color:#8896a6;">{{ inicio }}{% if fin != inicio %} — {{ fin }}{% endif %}</div>
+      </div>
+
+      {% if transacciones %}
+      <div class="transactions-summary">
+        <div class="summary-item">
+          <span class="summary-label">Total:</span>
+          <span class="summary-value">{{ total_transacciones }} transacciones</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Gastado:</span>
+          <span class="summary-value">${{ "%.2f"|format(monto_total) }}</span>
+        </div>
+      </div>
+
+      {% for t in transacciones %}
+      {% set pin_val = t.get('pin', '') or '' %}
+      {% set es_pendiente = pin_val.startswith('⏳') %}
+      {% set es_codigo = pin_val.startswith('Código:') %}
+      <div class="transaction-item" style="{% if es_pendiente %}border-left:3px solid #f59e0b;padding-left:12px;{% elif es_codigo %}border-left:3px solid #28a745;padding-left:12px;{% endif %}">
+        <div class="transaction-info" style="flex:1;min-width:0;">
+          <div class="transaction-package">{{ t.get('paquete','') or t.get('paquete_nombre','') }}</div>
+          {% if is_admin and t.get('nombre') %}
+          <div class="transaction-details">{{ t['nombre'] }} {{ t.get('apellido','') }}</div>
+          {% endif %}
+          <div class="transaction-details">{{ t.get('fecha','') }} · Control: {{ t.get('numero_control','') }}</div>
+
+          {# Serial / código para Gift Cards #}
+          {% if es_codigo %}
+          {% set codigo_val = pin_val.replace('Código: ','',1).split(' - Ref:')[0] %}
+          <div style="margin-top:6px;padding:8px 12px;background:rgba(40,167,69,0.15);border:1px solid #28a745;border-radius:8px;display:inline-block;max-width:100%;">
+            <span style="color:#8896a6;font-size:0.8em;display:block;margin-bottom:2px;">Código / Serial:</span>
+            <span style="font-weight:700;letter-spacing:1.5px;color:#fff;font-size:1em;word-break:break-all;">{{ codigo_val }}</span>
+          </div>
+          {% elif es_pendiente %}
+          <div style="margin-top:6px;padding:6px 10px;background:rgba(245,158,11,0.12);border:1px solid #f59e0b;border-radius:8px;display:inline-block;">
+            <span style="color:#f59e0b;font-size:0.85em;">⏳ Código en proceso — se actualizará automáticamente</span>
+          </div>
+          {% elif pin_val and not t.get('is_bloodstriker') %}
+          <div class="transaction-details" style="margin-top:2px;word-break:break-all;">{{ pin_val[:120] }}{% if pin_val|length > 120 %}…{% endif %}</div>
+          {% endif %}
+        </div>
+        <div style="text-align:right;flex-shrink:0;margin-left:12px;">
+          <div class="transaction-amount">-${{ "%.2f"|format(t.get('monto', 0)) }}</div>
+        </div>
+      </div>
+      {% endfor %}
+
+      {% else %}
+      <div class="no-data">
+        <div class="no-data-icon">📭</div>
+        <div class="no-data-title">Sin transacciones</div>
+        <div class="no-data-subtitle">No hay transacciones para el período seleccionado.</div>
+      </div>
+      {% endif %}
+    </div>
+
   </div>
 
   <!-- Datos del gráfico en JSON para evitar errores del linter JS -->

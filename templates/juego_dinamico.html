@@ -277,6 +277,27 @@
           <p style="margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.1);color:#8896a6;font-size:0.9em;"><strong>Monto:</strong> ${{ "%.2f"|format(monto_compra) }}</p>
         </div>
       </div>
+      {% elif estado == 'pendiente_serial' %}
+      <h3>🎫 ¡Compra Registrada!</h3>
+      <div class="solicitud-container">
+        <div class="solicitud-info">
+          <p class="solicitud-label">Estado:</p>
+          <p class="solicitud-estado" style="color: #f59e0b;">⏳ GENERANDO CÓDIGO</p>
+        </div>
+        <div class="detalles-info">
+          <p><strong>{{ game.icono }} {{ game.nombre }}</strong></p>
+          <p><strong>Paquete:</strong> {{ paquete_nombre }}</p>
+          <div style="margin:10px 0;padding:12px 14px;background:rgba(245,158,11,0.12);border:1px solid #f59e0b;border-radius:10px;">
+            <p style="color:#f59e0b;font-size:0.9em;">⏳ Tu código está siendo generado. Aparecerá automáticamente en tu historial cuando esté listo.</p>
+          </div>
+          <p><strong>Número de Control:</strong> {{ numero_control }}</p>
+          {% if gamepoint_ref %}<p><strong>Ref:</strong> {{ gamepoint_ref }}</p>{% endif %}
+          <p style="margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.1);color:#8896a6;font-size:0.9em;"><strong>Monto:</strong> ${{ "%.2f"|format(monto_compra) }}</p>
+        </div>
+      </div>
+      <div class="entrega-info">
+        <p>📋 Ve a tu <a href="/dashboard" style="color:#a78bfa;">historial de transacciones</a> para ver el código cuando esté disponible.</p>
+      </div>
       {% elif estado == 'procesando' %}
       <h3>🎯 ¡Recarga Enviada!</h3>
       <div class="solicitud-container">

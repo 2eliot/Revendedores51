@@ -2049,6 +2049,22 @@ _bs_sync_thread = threading.Thread(target=_bloodstrike_price_sync_loop, daemon=T
 _bs_sync_thread.start()
 logger.info(f"[AutoSync] Thread iniciado — sincronización cada {_BS_SYNC_INTERVAL_HOURS}h (BloodStrike + Juegos Dinámicos)")
 
+# === Gift Cards: Polling de seriales pendientes cada 60s ===
+def _dyngame_serial_poll_loop():
+    """Hilo que verifica transacciones de Gift Cards pendientes y actualiza el serial."""
+    time_module.sleep(45)  # Esperar al inicio
+    while True:
+        try:
+            from dynamic_games import poll_pending_dynamic_transactions
+            poll_pending_dynamic_transactions()
+        except Exception as e:
+            logger.error(f"[DynGame Poll Loop] Error: {e}")
+        time_module.sleep(60)
+
+_dyngame_poll_thread = threading.Thread(target=_dyngame_serial_poll_loop, daemon=True)
+_dyngame_poll_thread.start()
+logger.info("[DynGame Poll] Thread iniciado — verificación de Gift Cards pendientes cada 60s")
+
 # Funciones para sistema de noticias
 def create_news_table():
     """Crea la tabla de noticias si no existe"""

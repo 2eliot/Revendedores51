@@ -908,6 +908,16 @@ def validar_dinamico(slug):
             numero_control = f"DG-{secrets.token_hex(4).upper()}"
             transaccion_id = merchant_code
 
+            # Determinar estado: aprobado si tenemos serial o es juego de ID
+            # Para Gift Cards sin serial todavía: pendiente (background polling completará)
+            es_gift_card = (game.get('modo', 'id') != 'id')
+            if serial_key:
+                estado_db = 'aprobado'
+            elif es_gift_card:
+                estado_db = 'pendiente'
+            else:
+                estado_db = 'aprobado'
+
             conn = _get_conn()
             conn.execute('''
                 INSERT INTO transacciones_dinamicas
@@ -915,16 +925,18 @@ def validar_dinamico(slug):
                  numero_control, transaccion_id, monto, estado, gamepoint_referenceno, ingame_name, pin_entregado)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (game['id'], user_id, player_id, player_id2 or None, servidor or None,
-                  package_id, numero_control, transaccion_id, precio, 'aprobado', reference_no, ingame_name, serial_key or None))
+                  package_id, numero_control, transaccion_id, precio, estado_db, reference_no, ingame_name, serial_key or None))
 
             # Also insert into general transacciones table for unified history
             if serial_key:
                 pin_info = f"Código: {serial_key} - Ref: {reference_no}"
+            elif es_gift_card:
+                pin_info = f"⏳ Código pendiente - Ref: {reference_no}"
             elif ingame_name:
                 pin_info = f"ID: {player_id} - Jugador: {ingame_name} - Ref: {reference_no}"
             else:
                 pin_info = f"ID: {player_id} - Ref: {reference_no}"
-            if player_id and player_id2 and not serial_key:
+            if player_id and player_id2 and not serial_key and not es_gift_card:
                 pin_info = f"ID: {player_id} / {player_id2} - " + pin_info.split(' - ', 1)[1]
 
             paquete_display = f"{game['nombre']} - {pkg['nombre']}"
@@ -977,7 +989,12 @@ def validar_dinamico(slug):
                 except Exception:
                     pass
 
-            estado_txt = 'completado' if create_code == 100 else 'procesando'
+            if serial_key:
+                estado_txt = 'completado'
+            elif es_gift_card:
+                estado_txt = 'pendiente_serial'
+            else:
+                estado_txt = 'completado' if create_code == 100 else 'procesando'
             logger.info(f"[DynGame:{game['slug']}] storing in session: player_name='{ingame_name}' | player_id={player_id} | ref={reference_no}")
             session[f'compra_dyn_{slug}_exitosa'] = {
                 'paquete_nombre': pkg['nombre'],
@@ -1020,6 +1037,83 @@ def validar_dinamico(slug):
         _refund(user_id, precio, is_admin)
         flash('Error al procesar la compra. Tu saldo ha sido devuelto.', 'error')
         return redirect(redirect_url)
+
+
+def poll_pending_dynamic_transactions():
+    """
+    Consulta GamePoint para transacciones de Gift Cards en estado 'pendiente'.
+    Actualiza a 'aprobado' y guarda el serial/código cuando está disponible.
+    Llamar desde un hilo de fondo cada 60 segundos.
+    """
+    try:
+        conn = _get_conn()
+        # Buscar transacciones pendientes de las últimas 24 horas
+        rows = conn.execute('''
+            SELECT td.id, td.transaccion_id, td.gamepoint_referenceno, td.juego_id,
+                   jd.nombre as juego_nombre, jd.slug
+            FROM transacciones_dinamicas td
+            JOIN juegos_dinamicos jd ON td.juego_id = jd.id
+            WHERE td.estado = 'pendiente'
+              AND td.gamepoint_referenceno IS NOT NULL
+              AND td.gamepoint_referenceno != ''
+              AND datetime(td.fecha) >= datetime('now', '-24 hours')
+        ''').fetchall()
+        conn.close()
+    except Exception as e:
+        logger.error(f"[DynGame Poll] Error consultando pendientes: {e}")
+        return
+
+    if not rows:
+        return
+
+    logger.info(f"[DynGame Poll] {len(rows)} transacciones pendientes a verificar")
+
+    get_token, gp_post, order_validate, order_create, order_inquiry = _gp_helpers()
+
+    try:
+        gc_token, gc_err = get_token()
+        if not gc_token:
+            logger.warning(f"[DynGame Poll] No se pudo obtener token GP: {gc_err}")
+            return
+    except Exception as e:
+        logger.error(f"[DynGame Poll] Error obteniendo token: {e}")
+        return
+
+    for row in rows:
+        try:
+            inq_data = order_inquiry(gc_token, row['gamepoint_referenceno'])
+            serial_key = (
+                (inq_data or {}).get('serialkey') or
+                (inq_data or {}).get('serial_key') or
+                (inq_data or {}).get('pincode') or
+                (inq_data or {}).get('pin_code') or
+                (inq_data or {}).get('voucher') or
+                (inq_data or {}).get('code') or ''
+            )
+            logger.info(f"[DynGame Poll] tx={row['transaccion_id']} ref={row['gamepoint_referenceno']} serial='{serial_key}' fields={list((inq_data or {}).keys())}")
+
+            if serial_key:
+                conn2 = _get_conn()
+                # Actualizar transacciones_dinamicas
+                conn2.execute('''
+                    UPDATE transacciones_dinamicas
+                    SET estado = 'aprobado', pin_entregado = ?, fecha_procesado = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (serial_key, row['id']))
+                # Actualizar transacciones general (pin visible en historial)
+                nuevo_pin = f"Código: {serial_key} - Ref: {row['gamepoint_referenceno']}"
+                conn2.execute('''
+                    UPDATE transacciones SET pin = ? WHERE transaccion_id = ?
+                ''', (nuevo_pin, row['transaccion_id']))
+                conn2.commit()
+                conn2.close()
+                logger.info(f"[DynGame Poll] ✅ tx={row['transaccion_id']} APROBADO con serial")
+            else:
+                logger.debug(f"[DynGame Poll] tx={row['transaccion_id']} serial aún no disponible")
+
+            time_module.sleep(0.5)  # Rate limit entre consultas
+        except Exception as e:
+            logger.error(f"[DynGame Poll] Error procesando tx {row['transaccion_id']}: {e}")
 
 
 def _refund(user_id, precio, is_admin):
