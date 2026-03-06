@@ -5254,7 +5254,8 @@ def _bloodstrike_sync_prices_internal(deactivate_missing=False, deactivate_unmap
     Nuevo precio = nuevo_costo + ganancia_existente.
     Retorna dict con resultado o error."""
     default_profit_usd = float(os.environ.get('BLOODSTRIKE_PROFIT_USD', '0.11'))
-    myr_to_usd = float(os.environ.get('BLOODSTRIKE_MYR_TO_USD_RATE', '0.2357'))
+    from dynamic_games import get_gp_myr_rate as _get_gp_myr_rate
+    myr_to_usd = _get_gp_myr_rate()
     product_id = int(os.environ.get('BLOODSTRIKE_PRODUCT_ID', '155'))
     
     # 1. Obtener token

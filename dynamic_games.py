@@ -29,6 +29,41 @@ def _get_conn():
     return conn
 
 
+# ---------------------------------------------------------------------------
+# Tasa de cambio MYR → USD (compartida entre Blood Strike y juegos dinámicos)
+# ---------------------------------------------------------------------------
+
+GP_MYR_RATE_KEY = 'gp_myr_to_usd_rate'
+_GP_MYR_RATE_DEFAULT = 0.2357
+
+
+def get_gp_myr_rate():
+    """Lee la tasa MYR→USD desde la BD. Fallback: env var BLOODSTRIKE_MYR_TO_USD_RATE."""
+    try:
+        conn = _get_conn()
+        row = conn.execute(
+            'SELECT valor FROM configuracion_redeemer WHERE clave = ?', (GP_MYR_RATE_KEY,)
+        ).fetchone()
+        conn.close()
+        if row and row['valor']:
+            return float(row['valor'])
+    except Exception:
+        pass
+    return float(os.environ.get('BLOODSTRIKE_MYR_TO_USD_RATE', str(_GP_MYR_RATE_DEFAULT)))
+
+
+def set_gp_myr_rate(rate: float):
+    """Guarda la tasa MYR→USD en la BD."""
+    conn = _get_conn()
+    conn.execute(
+        "INSERT OR REPLACE INTO configuracion_redeemer (clave, valor, fecha_actualizacion) "
+        "VALUES (?, ?, datetime('now'))",
+        (GP_MYR_RATE_KEY, str(rate))
+    )
+    conn.commit()
+    conn.close()
+
+
 def get_all_dynamic_games(only_active=False):
     conn = _get_conn()
     if only_active:
@@ -113,6 +148,32 @@ def _gp_helpers():
         _app._gameclub_order_create,
         _app._gameclub_order_inquiry,
     )
+
+
+# ---------------------------------------------------------------------------
+# ADMIN: Tasa MYR → USD
+# ---------------------------------------------------------------------------
+
+@bp.route('/admin/dynamic-games/gp-rate', methods=['GET'])
+def admin_get_gp_rate():
+    if not session.get('is_admin'):
+        return jsonify({'error': 'Acceso denegado'}), 403
+    return jsonify({'rate': get_gp_myr_rate()})
+
+
+@bp.route('/admin/dynamic-games/gp-rate', methods=['POST'])
+def admin_set_gp_rate():
+    if not session.get('is_admin'):
+        return jsonify({'error': 'Acceso denegado'}), 403
+    data = request.get_json() or {}
+    try:
+        rate = float(data.get('rate', 0))
+        if rate <= 0:
+            return jsonify({'error': 'Tasa inválida, debe ser mayor a 0'}), 400
+        set_gp_myr_rate(rate)
+        return jsonify({'ok': True, 'rate': rate})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
 
 
 # ---------------------------------------------------------------------------
@@ -354,7 +415,7 @@ def admin_add_package(game_id):
     game = get_dynamic_game_by_id(game_id)
     if game and gp_pkg_id:
         juego_key = f'dyn_{game["slug"]}'
-        myr_to_usd = float(os.environ.get('BLOODSTRIKE_MYR_TO_USD_RATE', '0.2357'))
+        myr_to_usd = get_gp_myr_rate()
         # Estimate cost from price - default profit
         costo_estimado = max(0, precio - game.get('ganancia_default', 0.10))
         try:
@@ -567,7 +628,7 @@ def sync_dynamic_game_prices(game_id):
     if not game:
         return {'error': 'Juego no encontrado'}
 
-    myr_to_usd = float(os.environ.get('BLOODSTRIKE_MYR_TO_USD_RATE', '0.2357'))
+    myr_to_usd = get_gp_myr_rate()
     default_profit = game.get('ganancia_default', 0.10)
     juego_key = f'dyn_{game["slug"]}'
 

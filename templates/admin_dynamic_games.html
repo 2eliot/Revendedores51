@@ -69,6 +69,23 @@
   <h1>🎮 Juegos Dinámicos</h1>
   <p class="subtitle">Crea y gestiona juegos vinculados a GamePoint. Los juegos aparecerán automáticamente en el menú, historial y estadísticas.</p>
 
+  <!-- Tasa de cambio MYR → USD -->
+  <div class="form-section" style="margin-bottom:20px;max-width:480px;">
+    <h3>💱 Tasa de cambio GamePoint: MYR → USD</h3>
+    <p style="color:#8896a6;font-size:0.85em;margin:0 0 12px 0;">Se usa en sincronización de precios para <strong>Blood Strike</strong> y todos los <strong>juegos dinámicos</strong>. El precio de venta = (precio MYR × tasa) + ganancia.</p>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <div class="form-group" style="margin:0;">
+        <label style="margin-bottom:4px;display:block;">1 MYR =</label>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <input type="number" step="0.0001" min="0.0001" id="gp-myr-rate" placeholder="0.2357" style="width:130px;">
+          <span style="color:#8896a6;">USD</span>
+        </div>
+      </div>
+      <button class="btn btn-primary" style="margin-top:18px;" onclick="saveGpRate()">&#128190; Guardar tasa</button>
+    </div>
+    <div id="rate-status" style="margin-top:8px;"></div>
+  </div>
+
   <button class="btn btn-primary" onclick="document.getElementById('create-game-form').style.display = document.getElementById('create-game-form').style.display === 'none' ? 'block' : 'none'">
     + Crear Nuevo Juego
   </button>
@@ -307,7 +324,7 @@
   }
 
   async function autoAddPkg(gameId, gpId, gpName, gpPriceMyr) {
-    const myrToUsd = 0.2357;
+    const myrToUsd = window._gpMyrRate || 0.2357;
     const costo = gpPriceMyr * myrToUsd;
     const precio = Math.round((costo + 0.10) * 100) / 100;
     const body = { nombre: gpName, precio: precio, gamepoint_package_id: gpId, orden: 0 };
@@ -388,7 +405,44 @@
     profitEl.textContent = 'Costo: $' + cost.toFixed(4) + ' | Ganancia: $' + profit.toFixed(4);
   }
 
+  async function loadGpRate() {
+    try {
+      const res = await fetch('/admin/dynamic-games/gp-rate');
+      const data = await res.json();
+      if (data.rate) {
+        document.getElementById('gp-myr-rate').value = data.rate;
+        window._gpMyrRate = data.rate;
+      }
+    } catch(ex) {}
+  }
+
+  async function saveGpRate() {
+    const rate = parseFloat(document.getElementById('gp-myr-rate').value);
+    const st = document.getElementById('rate-status');
+    if (!rate || rate <= 0) {
+      st.innerHTML = '<div class="status-msg status-err">❌ Tasa inválida</div>';
+      return;
+    }
+    try {
+      const res = await fetch('/admin/dynamic-games/gp-rate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+        body: JSON.stringify({rate})
+      });
+      const data = await res.json();
+      if (data.ok) {
+        window._gpMyrRate = rate;
+        st.innerHTML = '<div class="status-msg status-ok">✅ Tasa guardada: 1 MYR = ' + rate.toFixed(4) + ' USD. Se aplicará al sincronizar precios de Blood Strike y juegos dinámicos.</div>';
+      } else {
+        st.innerHTML = '<div class="status-msg status-err">❌ ' + (data.error || 'Error') + '</div>';
+      }
+    } catch(ex) {
+      st.innerHTML = '<div class="status-msg status-err">❌ Error de red</div>';
+    }
+  }
+
   window.addEventListener('DOMContentLoaded', function() {
+    loadGpRate();
     document.querySelectorAll('[id^="pkg-price-"]').forEach(function(el) {
       const pkgId = el.id.replace('pkg-price-', '');
       updatePkgProfit(pkgId);
