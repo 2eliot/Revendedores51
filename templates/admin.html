@@ -171,6 +171,25 @@
             </div>
           </div>
 
+          <!-- Tasa MYR → USD -->
+          <div class="card" style="margin-top:20px;border:1px solid rgba(250,200,80,0.35);">
+            <div class="card-header" style="background:rgba(250,200,80,0.08);"><h3>💱 Tasa de cambio: MYR → USD</h3></div>
+            <div class="card-body">
+              <p style="color:#aaa;font-size:13px;margin-bottom:14px;">Se aplica al sincronizar precios de <strong>Blood Strike</strong> y <strong>todos los juegos dinámicos</strong>. Precio venta = (precio MYR × tasa) + ganancia existente.</p>
+              <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+                <div>
+                  <label style="display:block;color:#ccc;margin-bottom:4px;font-size:12px;">1 MYR =</label>
+                  <div style="display:flex;align-items:center;gap:6px;">
+                    <input type="number" id="admin-gp-myr-rate" step="0.0001" min="0.0001" placeholder="0.2357" style="width:130px;padding:7px 10px;background:#1a1a2e;border:1px solid #333;border-radius:6px;color:#fff;font-size:13px;">
+                    <span style="color:#aaa;font-size:13px;">USD</span>
+                  </div>
+                </div>
+                <button type="button" class="btn btn-primary" onclick="saveGpRate()" style="background:#f59e0b;color:#000;font-weight:700;">💾 Guardar tasa</button>
+              </div>
+              <div id="admin-gp-rate-status" style="margin-top:8px;font-size:13px;"></div>
+            </div>
+          </div>
+
           <!-- Blood Strike Mapping & Sync -->
           <div class="card" style="margin-top:20px;border:1px solid rgba(167,139,250,0.3);">
             <div class="card-header" style="background:rgba(167,139,250,0.1);"><h3>🎯 Blood Strike — Mapeo y Sync de Precios</h3></div>
@@ -1121,6 +1140,8 @@
         loadAdminStats();
       } else if (tabName === 'costo') {
         loadCostoData();
+      } else if (tabName === 'gameclub') {
+        loadGpRate();
       }
     }
 
@@ -1653,6 +1674,46 @@
         }
         loadBSMapping();
       } catch(e) { st.innerHTML = '<span style="color:#ff6b6b;">Error inesperado</span>'; }
+    }
+
+    // ======= Tasa MYR → USD (GameClub) =======
+    async function loadGpRate() {
+      try {
+        const res = await fetch('/admin/dynamic-games/gp-rate');
+        const data = await res.json();
+        if (data.rate) {
+          const el = document.getElementById('admin-gp-myr-rate');
+          if (el) el.value = data.rate;
+          window._gpMyrRate = data.rate;
+        }
+      } catch(e) {}
+    }
+
+    async function saveGpRate() {
+      const el = document.getElementById('admin-gp-myr-rate');
+      const st = document.getElementById('admin-gp-rate-status');
+      if (!el || !st) return;
+      const rate = parseFloat(el.value);
+      if (!rate || rate <= 0) {
+        st.innerHTML = '<span style="color:#ff6b6b;">❌ Tasa inválida</span>';
+        return;
+      }
+      try {
+        const res = await fetch('/admin/dynamic-games/gp-rate', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json','Accept':'application/json'},
+          body: JSON.stringify({rate})
+        });
+        const data = await res.json();
+        if (data.ok) {
+          window._gpMyrRate = rate;
+          st.innerHTML = '<span style="color:#4ade80;">✅ Guardado: 1 MYR = ' + rate.toFixed(4) + ' USD</span>';
+        } else {
+          st.innerHTML = '<span style="color:#ff6b6b;">❌ ' + (data.error || 'Error') + '</span>';
+        }
+      } catch(e) {
+        st.innerHTML = '<span style="color:#ff6b6b;">❌ Error de red</span>';
+      }
     }
 
     // ======= Dynamic Game Mapping & Sync (same pattern as BS) =======
