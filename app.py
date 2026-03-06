@@ -1270,18 +1270,34 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
 
             elif txid.startswith('DG'):
                 transaction_dict['is_dynamic_game'] = True
-                transaction_dict['estado'] = transaction_dict.get('estado') or 'completado'
 
                 raw_pin_info = str(transaction_dict.get('pin') or '')
-                m_id = re.search(r"ID:\s*([^\s\-/]+(?:\s*/\s*[^\s\-]+)?)", raw_pin_info)
-                if m_id:
-                    transaction_dict['player_id'] = m_id.group(1).strip()
-                m_name = re.search(r"Jugador:\s*([^\n\r\-]+)", raw_pin_info)
-                if m_name:
-                    transaction_dict['player_name'] = m_name.group(1).strip()
-                m_ref = re.search(r"Ref:\s*(\S+)", raw_pin_info)
-                if m_ref:
-                    transaction_dict['gamepoint_ref'] = m_ref.group(1).strip()
+                # Detectar Gift Card pendiente (sin serial todavía)
+                if raw_pin_info.startswith('⏳'):
+                    transaction_dict['estado'] = 'pendiente'
+                    m_ref = re.search(r"Ref:\s*(\S+)", raw_pin_info)
+                    if m_ref:
+                        transaction_dict['gamepoint_ref'] = m_ref.group(1).strip()
+                elif raw_pin_info.startswith('Código:'):
+                    transaction_dict['estado'] = 'completado'
+                    # Extraer serial: "Código: XXXX - Ref: ..."
+                    m_serial = re.match(r"C[oó]digo:\s*(.+?)(?:\s+-\s+Ref:|$)", raw_pin_info)
+                    if m_serial:
+                        transaction_dict['serial_key'] = m_serial.group(1).strip()
+                    m_ref = re.search(r"Ref:\s*(\S+)", raw_pin_info)
+                    if m_ref:
+                        transaction_dict['gamepoint_ref'] = m_ref.group(1).strip()
+                else:
+                    transaction_dict['estado'] = transaction_dict.get('estado') or 'completado'
+                    m_id = re.search(r"ID:\s*([^\s\-/]+(?:\s*/\s*[^\s\-]+)?)", raw_pin_info)
+                    if m_id:
+                        transaction_dict['player_id'] = m_id.group(1).strip()
+                    m_name = re.search(r"Jugador:\s*([^\n\r\-]+)", raw_pin_info)
+                    if m_name:
+                        transaction_dict['player_name'] = m_name.group(1).strip()
+                    m_ref = re.search(r"Ref:\s*(\S+)", raw_pin_info)
+                    if m_ref:
+                        transaction_dict['gamepoint_ref'] = m_ref.group(1).strip()
         except Exception:
             pass
         
