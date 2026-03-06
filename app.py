@@ -5755,11 +5755,19 @@ def validar_freefire_id():
     player_id = request.form.get('player_id')
 
     # Validar nonce (un solo uso) para prevenir reintentos/doble submit en caídas
-    nonce_form = request.form.get('ffid_form_nonce')
-    nonce_session = session.pop('ffid_form_nonce', None)
-    if not nonce_form or not nonce_session or nonce_form != nonce_session:
-        flash('Solicitud duplicada o expirada. Recarga la página e intenta nuevamente.', 'error')
-        return redirect('/juego/freefire_id')
+    # Excepción: solicitudes API automáticas (Inefablestore) usan WEBB_API_KEY en su lugar
+    _webb_api_key_env = os.environ.get('WEBB_API_KEY', '').strip()
+    _webb_api_key_req = request.form.get('webb_api_key', '').strip()
+    _is_api_call = bool(_webb_api_key_env and _webb_api_key_req and _webb_api_key_env == _webb_api_key_req)
+
+    if not _is_api_call:
+        nonce_form = request.form.get('ffid_form_nonce')
+        nonce_session = session.pop('ffid_form_nonce', None)
+        if not nonce_form or not nonce_session or nonce_form != nonce_session:
+            flash('Solicitud duplicada o expirada. Recarga la página e intenta nuevamente.', 'error')
+            return redirect('/juego/freefire_id')
+    else:
+        session.pop('ffid_form_nonce', None)
     
     if not package_id or not player_id:
         flash('Por favor complete todos los campos', 'error')
