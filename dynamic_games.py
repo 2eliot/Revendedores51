@@ -912,8 +912,10 @@ def validar_dinamico(slug):
             numero_control = f"DG-{secrets.token_hex(4).upper()}"
             transaccion_id = merchant_code
 
-            # Determinar estado: aprobado si tenemos serial o es juego de ID
+            # Determinar estado: aprobado si tenemos serial REAL o es juego de ID
             # Para Gift Cards sin serial todavía: pendiente (background polling completará)
+            if not _is_real_serial(serial_key):
+                serial_key = ''  # Descartar si parece código de estado API
             if serial_key:
                 estado_db = 'aprobado'
             elif es_gift_card:
@@ -1042,24 +1044,46 @@ def validar_dinamico(slug):
         return redirect(redirect_url)
 
 
+def _is_real_serial(s):
+    """True si 's' parece un código voucher real y no un código de estado de API."""
+    if not s:
+        return False
+    s = str(s).strip()
+    # Los códigos de estado son puramente numéricos y cortos (ej: '100', '101')
+    if s.isdigit() and len(s) <= 6:
+        return False
+    return len(s) >= 4
+
+
 def poll_pending_dynamic_transactions():
     """
-    Consulta GamePoint para transacciones de Gift Cards en estado 'pendiente'.
+    Consulta GamePoint para transacciones de Gift Cards:
+    - Estado 'pendiente': aún esperando serial
+    - Estado 'aprobado' con serial falso (numérico corto = código de estado API)
     Actualiza a 'aprobado' y guarda el serial/código cuando está disponible.
     Llamar desde un hilo de fondo cada 60 segundos.
     """
     try:
         conn = _get_conn()
-        # Buscar transacciones pendientes de las últimas 24 horas
+        # Buscar pendientes Y aprobados con serial sospechoso (últimas 48 horas)
         rows = conn.execute('''
             SELECT td.id, td.transaccion_id, td.gamepoint_referenceno, td.juego_id,
-                   jd.nombre as juego_nombre, jd.slug
+                   td.pin_entregado, jd.nombre as juego_nombre, jd.slug
             FROM transacciones_dinamicas td
             JOIN juegos_dinamicos jd ON td.juego_id = jd.id
-            WHERE td.estado = 'pendiente'
-              AND td.gamepoint_referenceno IS NOT NULL
+            WHERE td.gamepoint_referenceno IS NOT NULL
               AND td.gamepoint_referenceno != ''
-              AND datetime(td.fecha) >= datetime('now', '-24 hours')
+              AND datetime(td.fecha) >= datetime('now', '-48 hours')
+              AND (
+                td.estado = 'pendiente'
+                OR (
+                  td.estado = 'aprobado'
+                  AND td.pin_entregado IS NOT NULL
+                  AND LENGTH(td.pin_entregado) <= 6
+                  AND CAST(td.pin_entregado AS TEXT) = td.pin_entregado
+                  AND td.pin_entregado GLOB '[0-9]*'
+                )
+              )
         ''').fetchall()
         conn.close()
     except Exception as e:
@@ -1090,12 +1114,11 @@ def poll_pending_dynamic_transactions():
                 (inq_data or {}).get('serial_key') or
                 (inq_data or {}).get('pincode') or
                 (inq_data or {}).get('pin_code') or
-                (inq_data or {}).get('voucher') or
-                (inq_data or {}).get('code') or ''
+                (inq_data or {}).get('voucher') or ''
             )
             logger.info(f"[DynGame Poll] tx={row['transaccion_id']} ref={row['gamepoint_referenceno']} serial='{serial_key}' fields={list((inq_data or {}).keys())}")
 
-            if serial_key:
+            if _is_real_serial(serial_key):
                 conn2 = _get_conn()
                 # Actualizar transacciones_dinamicas
                 conn2.execute('''
