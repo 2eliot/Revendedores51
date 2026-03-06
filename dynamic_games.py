@@ -872,6 +872,8 @@ def validar_dinamico(slug):
         reference_no = (create_data or {}).get('referenceno', '')
 
         # 4.1 order/inquiry — extraer ingamename y serialkey (Gift Cards)
+        # es_gift_card: True para vouchers/pins, False para recargas directas (ID)
+        es_gift_card = (game.get('modo', 'id') != 'id')
         item_name = ''
         serial_key = ''
         try:
@@ -883,14 +885,16 @@ def validar_dinamico(slug):
                     inq_data = order_inquiry(gc_token, reference_no)
                     ingame_name = (inq_data or {}).get('ingamename') or ''
                     item_name = (inq_data or {}).get('item') or ''
-                    serial_key = (
-                        (inq_data or {}).get('serialkey') or
-                        (inq_data or {}).get('serial_key') or
-                        (inq_data or {}).get('pincode') or
-                        (inq_data or {}).get('pin_code') or
-                        (inq_data or {}).get('voucher') or
-                        (inq_data or {}).get('code') or ''
-                    )
+                    # Solo extraer serial para Gift Cards/vouchers, no para recargas directas
+                    # ('code' se excluye — es el código de estado HTTP/API, no un voucher)
+                    if es_gift_card:
+                        serial_key = (
+                            (inq_data or {}).get('serialkey') or
+                            (inq_data or {}).get('serial_key') or
+                            (inq_data or {}).get('pincode') or
+                            (inq_data or {}).get('pin_code') or
+                            (inq_data or {}).get('voucher') or ''
+                        )
                     logger.info(f"[DynGame:{game['slug']}] inquiry attempt {_attempt+1}: ingamename='{ingame_name}' | item='{item_name}' | serialkey='{serial_key}' | all_fields={list((inq_data or {}).keys())}")
                     if ingame_name or serial_key:
                         break
@@ -910,7 +914,6 @@ def validar_dinamico(slug):
 
             # Determinar estado: aprobado si tenemos serial o es juego de ID
             # Para Gift Cards sin serial todavía: pendiente (background polling completará)
-            es_gift_card = (game.get('modo', 'id') != 'id')
             if serial_key:
                 estado_db = 'aprobado'
             elif es_gift_card:

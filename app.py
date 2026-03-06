@@ -1271,6 +1271,10 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
             elif txid.startswith('DG'):
                 transaction_dict['is_dynamic_game'] = True
 
+                # Extraer nombre de juego (antes del primer " - ") para el encabezado
+                raw_pkg = str(transaction_dict.get('paquete_nombre') or '')
+                transaction_dict['juego_nombre'] = raw_pkg.split(' - ')[0].strip() if ' - ' in raw_pkg else raw_pkg
+
                 raw_pin_info = str(transaction_dict.get('pin') or '')
                 # Detectar Gift Card pendiente (sin serial todavía)
                 if raw_pin_info.startswith('⏳'):

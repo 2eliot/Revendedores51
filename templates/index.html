@@ -148,7 +148,7 @@
         <div class="transaction-card-simple {% if transaction.get('is_bloodstriker') %}bloodstriker-transaction{% endif %}{% if transaction.get('is_freefire_id') %} freefire-id-transaction{% endif %}{% if transaction.get('is_dynamic_game') %} bloodstriker-transaction{% endif %}">
           {% set juego = 'Otros' %}
           {% if transaction.get('is_dynamic_game') %}
-            {% set juego = transaction.paquete %}
+            {% set juego = transaction.juego_nombre if transaction.get('juego_nombre') else transaction.paquete %}
           {% elif transaction.get('is_bloodstriker') %}
             {% set juego = 'Blood Striker' %}
           {% elif transaction.get('is_freefire_id') %}
