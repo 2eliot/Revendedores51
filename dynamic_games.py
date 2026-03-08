@@ -947,15 +947,8 @@ def validar_dinamico(slug):
                     ingame_name = (inq_data or {}).get('ingamename') or ''
                     item_name = (inq_data or {}).get('item') or ''
                     # Solo extraer serial para Gift Cards/vouchers, no para recargas directas
-                    # ('code' se excluye — es el código de estado HTTP/API, no un voucher)
                     if es_gift_card:
-                        serial_key = (
-                            (inq_data or {}).get('serialkey') or
-                            (inq_data or {}).get('serial_key') or
-                            (inq_data or {}).get('pincode') or
-                            (inq_data or {}).get('pin_code') or
-                            (inq_data or {}).get('voucher') or ''
-                        )
+                        serial_key = _extract_serial_from_inquiry(inq_data)
                     logger.info(f"[DynGame:{game['slug']}] inquiry attempt {_attempt+1}: ingamename='{ingame_name}' | item='{item_name}' | serialkey='{serial_key}' | all_fields={list((inq_data or {}).keys())}")
                     if ingame_name or serial_key:
                         break
@@ -1116,6 +1109,46 @@ def _is_real_serial(s):
     return len(s) >= 4
 
 
+# Campos que NO son seriales (metadatos de la respuesta)
+_NON_SERIAL_FIELDS = {
+    'code', 'message', 'referenceno', 'merchantcode', 'merchant_code',
+    'ingamename', 'ingame_name', 'item', 'productid', 'product_id',
+    'packageid', 'package_id', 'status', 'orderid', 'order_id',
+    'userid', 'user_id', 'token', 'timestamp', 'date', 'time',
+}
+
+
+def _extract_serial_from_inquiry(inq_data):
+    """
+    Extrae el código/serial de gift card de la respuesta de order_inquiry.
+    Prueba campos conocidos primero; si no encuentra nada, escanea todos los
+    valores de la respuesta buscando uno que parezca un código real.
+    """
+    if not inq_data:
+        return ''
+    # 1. Campos conocidos por nombre (orden de prioridad)
+    known = [
+        'serialkey', 'serial_key', 'pincode', 'pin_code', 'voucher',
+        'giftcode', 'gift_code', 'giftcardcode', 'gift_card_code',
+        'cardcode', 'card_code', 'redeemcode', 'redeem_code',
+        'redemptioncode', 'redemption_code', 'coupon', 'couponcode',
+        'coupon_code', 'serial', 'pin', 'code',
+    ]
+    for field in known:
+        val = str(inq_data.get(field) or '').strip()
+        if _is_real_serial(val):
+            return val
+    # 2. Fallback genérico: primer valor de cadena que parezca un serial real
+    for key, val in inq_data.items():
+        if key.lower() in _NON_SERIAL_FIELDS:
+            continue
+        val_str = str(val or '').strip()
+        if _is_real_serial(val_str):
+            logger.info(f"[ExtractSerial] serial encontrado en campo inesperado '{key}': '{val_str}'")
+            return val_str
+    return ''
+
+
 def poll_pending_dynamic_transactions():
     """
     Consulta GamePoint para transacciones de Gift Cards:
@@ -1170,13 +1203,7 @@ def poll_pending_dynamic_transactions():
     for row in rows:
         try:
             inq_data = order_inquiry(gc_token, row['gamepoint_referenceno'])
-            serial_key = (
-                (inq_data or {}).get('serialkey') or
-                (inq_data or {}).get('serial_key') or
-                (inq_data or {}).get('pincode') or
-                (inq_data or {}).get('pin_code') or
-                (inq_data or {}).get('voucher') or ''
-            )
+            serial_key = _extract_serial_from_inquiry(inq_data)
             logger.info(f"[DynGame Poll] tx={row['transaccion_id']} ref={row['gamepoint_referenceno']} serial='{serial_key}' fields={list((inq_data or {}).keys())}")
 
             if _is_real_serial(serial_key):
