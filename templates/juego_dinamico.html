@@ -143,6 +143,7 @@
     <h1 class="juego-titulo">{{ game.icono }} {{ game.nombre }}</h1>
 
     <form method="POST" action="/validar/dinamico/{{ game.slug }}" class="juego-form" id="dg-form">
+      <input type="hidden" name="dg_form_nonce" value="{{ dg_form_nonce }}">
       {% if game.modo == 'id' %}
         {% if campos.get('campo_id2', {}).get('enabled') %}
           <div class="form-row">

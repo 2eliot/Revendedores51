@@ -767,12 +767,16 @@ def dynamic_game_page(slug):
     packages = get_dynamic_packages(game['id'], only_active=not is_admin)
     campos = parse_campos_config(game)
 
-    # Check for successful purchase
+    # Check for successful purchase (no URL param required — handles browser timeout on redirect)
     compra_exitosa = False
     compra_data = {}
-    if request.args.get('compra') == 'exitosa' and f'compra_dyn_{slug}_exitosa' in session:
+    if f'compra_dyn_{slug}_exitosa' in session:
         compra_exitosa = True
         compra_data = session.pop(f'compra_dyn_{slug}_exitosa')
+
+    # Generate one-time nonce for form submission
+    nonce = secrets.token_urlsafe(16)
+    session[f'dg_nonce_{slug}'] = nonce
 
     # Lazy import to avoid circular dependency
     from app import get_games_active
@@ -789,6 +793,7 @@ def dynamic_game_page(slug):
                            compra_exitosa=compra_exitosa,
                            games_active=games_active,
                            dynamic_games_menu=dynamic_games_menu,
+                           dg_form_nonce=nonce,
                            **compra_data)
 
 
@@ -813,6 +818,13 @@ def validar_dinamico(slug):
 
     campos = parse_campos_config(game)
     redirect_url = f'/juego/d/{slug}'
+
+    # Validate one-time nonce (prevents double charges on browser retry / web down)
+    nonce_form = request.form.get('dg_form_nonce')
+    nonce_session = session.pop(f'dg_nonce_{slug}', None)
+    if not nonce_form or not nonce_session or nonce_form != nonce_session:
+        flash('Solicitud duplicada o expirada. Recarga la página e intenta nuevamente.', 'error')
+        return redirect(redirect_url)
 
     # Collect form fields
     package_id = request.form.get('monto')
@@ -878,6 +890,24 @@ def validar_dinamico(slug):
         if saldo_actual < precio:
             flash(f'Saldo insuficiente. Necesitas ${precio:.2f} pero tienes ${saldo_actual:.2f}', 'error')
             return redirect(redirect_url)
+
+    # Check for recent duplicate pending transaction (extra safety net)
+    try:
+        conn_dup = _get_conn()
+        dup = conn_dup.execute(
+            '''SELECT id FROM transacciones_dinamicas
+               WHERE usuario_id = ? AND juego_id = ? AND paquete_id = ?
+                 AND estado IN ('pendiente', 'aprobado')
+                 AND datetime(fecha) >= datetime('now', '-2 minutes')
+               LIMIT 1''',
+            (user_id, game['id'], package_id)
+        ).fetchone()
+        conn_dup.close()
+        if dup:
+            flash('Ya se está procesando tu recarga. Espera unos segundos y revisa tu historial.', 'error')
+            return redirect(redirect_url)
+    except Exception:
+        pass
 
     # === PURCHASE VIA GAMEPOINT ===
     _start = time_module.time()

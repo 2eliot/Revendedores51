@@ -5727,7 +5727,7 @@ def freefire_id():
     compra_exitosa = False
     compra_data = {}
     
-    if request.args.get('compra') == 'exitosa' and 'compra_freefire_id_exitosa' in session:
+    if 'compra_freefire_id_exitosa' in session:
         compra_exitosa = True
         compra_data = session.pop('compra_freefire_id_exitosa')
     

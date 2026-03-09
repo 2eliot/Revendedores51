@@ -197,7 +197,7 @@
     </script>
 
     {% if compra_exitosa %}
-    <div class="compra-exitosa" id="compra-exitosa">
+    <div class="compra-exitosa" id="compra-exitosa" data-monto="{{ monto_compra }}">
       {% if estado == 'completado' %}
       <h3>¡Recarga Realizada con Éxito!</h3>
       <div class="solicitud-container">
@@ -285,35 +285,23 @@
       }
       
       // Animación de saldo cuando hay compra exitosa
-      {% if compra_exitosa %}
-      const saldoDisplay = document.getElementById('saldo-display');
-      if (saldoDisplay) {
-        const saldoActual = parseFloat(saldoDisplay.getAttribute('data-saldo'));
-        const montoCompra = {{ monto_compra }};
-        const saldoAnterior = saldoActual + montoCompra;
-        
-        saldoDisplay.style.color = '#dc3545';
-        let currentValue = saldoAnterior;
-        const duration = 800;
-        const steps = 30;
-        const decrement = (saldoAnterior - saldoActual) / steps;
-        const interval = duration / steps;
-        
-        let step = 0;
-        const timer = setInterval(function() {
-          step++;
-          currentValue -= decrement;
-          if (step >= steps) {
-            currentValue = saldoActual;
-            clearInterval(timer);
-            setTimeout(function() {
-              saldoDisplay.style.color = '#28a745';
-            }, 100);
-          }
-          saldoDisplay.textContent = '$' + currentValue.toFixed(2);
-        }, interval);
+      var compraEl = document.getElementById('compra-exitosa');
+      if (compraEl) {
+        var saldoDisplay = document.getElementById('saldo-display');
+        if (saldoDisplay) {
+          var saldoActual = parseFloat(saldoDisplay.getAttribute('data-saldo'));
+          var montoCompra = parseFloat(compraEl.getAttribute('data-monto') || '0');
+          var saldoAnterior = saldoActual + montoCompra;
+          saldoDisplay.style.color = '#dc3545';
+          var currentValue = saldoAnterior, step = 0, steps = 30;
+          var decrement = (saldoAnterior - saldoActual) / steps;
+          var timer = setInterval(function() {
+            step++; currentValue -= decrement;
+            if (step >= steps) { currentValue = saldoActual; clearInterval(timer); setTimeout(function(){ saldoDisplay.style.color = '#28a745'; }, 100); }
+            saldoDisplay.textContent = '$' + currentValue.toFixed(2);
+          }, 800/steps);
+        }
       }
-      {% endif %}
     });
     
     // Cerrar menús al hacer clic fuera de ellos
