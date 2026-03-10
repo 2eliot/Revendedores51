@@ -9184,6 +9184,65 @@ def admin_get_user_costos_detail(day, user_id):
 
 
 # ---------------------------------------------------------------------------
+# API endpoint para Inefable Store → recarga Free Fire ID sin sesión
+# ---------------------------------------------------------------------------
+
+@app.route('/api/recharge/freefire_id', methods=['POST'])
+def api_recharge_freefire_id():
+    """Endpoint dedicado para Inefable Store. Solo requiere WEBB_API_KEY."""
+    env_key = os.environ.get('WEBB_API_KEY', '').strip()
+    req_key = (request.form.get('api_key') or '').strip()
+    if not env_key or req_key != env_key:
+        return jsonify({'ok': False, 'error': 'API key inválida'}), 401
+
+    player_id  = (request.form.get('player_id') or '').strip()
+    pkg_id_str = (request.form.get('package_id') or '').strip()
+    if not player_id or not pkg_id_str:
+        return jsonify({'ok': False, 'error': 'player_id y package_id son requeridos'}), 400
+
+    try:
+        package_id = int(pkg_id_str)
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'package_id debe ser un número'}), 400
+
+    precio = get_freefire_id_price_by_id(package_id)
+    if precio == 0:
+        return jsonify({'ok': False, 'error': 'Paquete no encontrado o inactivo'}), 400
+
+    pin_disponible = get_available_pin_freefire_global(package_id)
+    if not pin_disponible:
+        return jsonify({'ok': False, 'error': f'Sin stock para paquete {package_id}'}), 409
+
+    pin_codigo = pin_disponible['pin_codigo']
+
+    redeemer_config = get_redeemer_config_from_db(get_db_connection)
+    import time as _t
+    _start = _t.time()
+    try:
+        redeem_result = redeem_pin_vps(pin_codigo, player_id, redeemer_config)
+    except Exception as e:
+        logger.error(f'[API FF-ID] Error redención: {e}')
+        return jsonify({'ok': False, 'error': f'Error interno: {e}'}), 500
+    _dur = round(_t.time() - _start, 1)
+
+    if redeem_result and redeem_result.success:
+        logger.info(f'[API FF-ID] Recarga exitosa player={player_id} pkg={package_id} dur={_dur}s')
+        return jsonify({'ok': True, 'player_name': redeem_result.player_name or '', 'duration': _dur})
+    else:
+        # Devolver el PIN al stock
+        try:
+            _c = get_db_connection()
+            _c.execute('UPDATE pines_freefire_global SET usado = 0, usuario_id = NULL, fecha_usado = NULL WHERE pin_codigo = ?', (pin_codigo,))
+            _c.commit()
+            _c.close()
+        except Exception:
+            pass
+        err_msg = (redeem_result.error_message if redeem_result else None) or 'Redención fallida'
+        logger.warning(f'[API FF-ID] Redención fallida player={player_id} pkg={package_id}: {err_msg}')
+        return jsonify({'ok': False, 'error': err_msg}), 422
+
+
+# ---------------------------------------------------------------------------
 # Daily Backup — clientes + pines Free Fire Global
 # ---------------------------------------------------------------------------
 
