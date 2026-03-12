@@ -804,7 +804,6 @@
         const data = await res.json();
         if (!data.ok) { wrap.innerHTML = '<div style="color:#f87171;padding:16px;">Error: ' + (data.error||'?') + '</div>'; return; }
         if (!data.logs.length) { wrap.innerHTML = '<div style="text-align:center;padding:30px;color:#888;">Sin recargas registradas aún.</div>'; return; }
-        const pkgMap = {1:'100+10💎',2:'310+31💎',3:'520+52💎',4:'1.060+106💎',5:'2.180+218💎',6:'5.600+560💎'};
         // Stats
         let okCount = 0, failCount = 0;
         for (const r of data.logs) { r.success == 1 ? okCount++ : failCount++; }
@@ -822,7 +821,8 @@
             ? '<span style="background:rgba(74,222,128,0.15);color:#4ade80;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">✅ Exitosa</span>'
             : '<span style="background:rgba(248,113,113,0.15);color:#f87171;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">❌ Fallida</span>';
           const fecha = (r.fecha||'').replace('T',' ').substring(0,16);
-          const pkgName = pkgMap[r.package_id] || 'Pkg ' + r.package_id;
+          const gameName = r.game_name || 'Free Fire ID';
+          const pkgName = r.package_name || ('Pkg ' + r.package_id);
           const playerName = r.player_name || '-';
           const errTip = (!ok && r.error_msg) ? '<div style="margin-top:4px;font-size:11px;color:#f87171;word-break:break-word;">⚠ ' + (r.error_msg||'').substring(0,80) + '</div>' : '';
           html += '<div style="background:' + bgColor + ';border:1px solid ' + borderColor + ';border-radius:10px;padding:10px 12px;">'
@@ -830,12 +830,12 @@
                 + '<span style="font-size:11px;color:#8b949e;">#' + r.id + ' · ' + fecha + '</span>'
                 + statusBadge
                 + '</div>'
+                + '<div style="margin-bottom:6px;"><span style="background:rgba(167,139,250,0.15);color:#a78bfa;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:600;">' + gameName + '</span> <span style="color:#ccc;font-size:12px;">' + pkgName + '</span></div>'
                 + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:13px;">'
                 + '<div><span style="color:#8b949e;font-size:11px;">Player ID</span><div style="color:#e0e0e0;font-family:monospace;font-size:12px;word-break:break-all;">' + r.player_id + '</div></div>'
                 + '<div><span style="color:#8b949e;font-size:11px;">Jugador</span><div style="color:#58a6ff;">' + playerName + '</div></div>'
-                + '<div><span style="color:#8b949e;font-size:11px;">Paquete</span><div style="color:#a78bfa;">' + pkgName + '</div></div>'
-                + '<div><span style="color:#8b949e;font-size:11px;">Duración</span><div style="color:#ccc;">' + (r.duration_seconds||0) + 's</div></div>'
                 + '</div>'
+                + '<div style="margin-top:4px;font-size:11px;color:#888;">⏱ ' + (r.duration_seconds||0) + 's</div>'
                 + errTip
                 + '</div>';
         }

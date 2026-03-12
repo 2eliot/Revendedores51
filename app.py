@@ -955,10 +955,21 @@ def init_db():
                 player_name TEXT DEFAULT '',
                 error_msg TEXT DEFAULT '',
                 duration_seconds REAL DEFAULT 0,
+                game_name TEXT DEFAULT '',
+                package_name TEXT DEFAULT '',
                 fecha DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_api_log_fecha ON api_recharges_log(fecha DESC)')
+        # Migración: agregar columnas game_name y package_name si no existen
+        try:
+            cursor.execute("ALTER TABLE api_recharges_log ADD COLUMN game_name TEXT DEFAULT ''")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE api_recharges_log ADD COLUMN package_name TEXT DEFAULT ''")
+        except Exception:
+            pass
 
         # Crear índices optimizados para mejor rendimiento
         create_optimized_indexes(cursor)
@@ -9224,6 +9235,7 @@ def api_catalog_active():
             items.append({
                 'package_id': r['id'],
                 'name': r['nombre'],
+                'price': float(r['precio']) if r['precio'] else 0,
                 'product_id': None,
                 'product_name': 'Free Fire ID',
                 'active': True,
@@ -9242,6 +9254,7 @@ def api_catalog_active():
             items.append({
                 'package_id': r['id'],
                 'name': r['nombre'],
+                'price': float(r['precio']) if r['precio'] else 0,
                 'product_id': -155,
                 'product_name': 'Blood Strike',
                 'game_id': -155,
@@ -9263,6 +9276,7 @@ def api_catalog_active():
                 items.append({
                     'package_id': pkg['id'],
                     'name': pkg['nombre'],
+                    'price': float(pkg.get('precio') or pkg.get('precio_venta') or 0),
                     'product_id': game['id'],
                     'product_name': game['nombre'],
                     'game_id': game['id'],
@@ -9383,8 +9397,8 @@ def api_recharge_dynamic():
                 try:
                     _lc = get_db_connection()
                     _lc.execute(
-                        'INSERT INTO api_recharges_log (player_id, package_id, success, player_name, error_msg, duration_seconds) VALUES (?,?,?,?,?,?)',
-                        (player_id, package_id, 1, ingame_name, '', _dur)
+                        'INSERT INTO api_recharges_log (player_id, package_id, success, player_name, error_msg, duration_seconds, game_name, package_name) VALUES (?,?,?,?,?,?,?,?)',
+                        (player_id, package_id, 1, ingame_name, '', _dur, game['nombre'], dyn_pkg['nombre'])
                     )
                     _lc.commit()
                     _lc.close()
@@ -9406,8 +9420,8 @@ def api_recharge_dynamic():
                 try:
                     _lc = get_db_connection()
                     _lc.execute(
-                        'INSERT INTO api_recharges_log (player_id, package_id, success, player_name, error_msg, duration_seconds) VALUES (?,?,?,?,?,?)',
-                        (player_id, package_id, 0, '', err_msg, _dur)
+                        'INSERT INTO api_recharges_log (player_id, package_id, success, player_name, error_msg, duration_seconds, game_name, package_name) VALUES (?,?,?,?,?,?,?,?)',
+                        (player_id, package_id, 0, '', err_msg, _dur, game['nombre'], dyn_pkg['nombre'])
                     )
                     _lc.commit()
                     _lc.close()
@@ -9476,8 +9490,8 @@ def api_recharge_dynamic():
                 try:
                     _lc = get_db_connection()
                     _lc.execute(
-                        'INSERT INTO api_recharges_log (player_id, package_id, success, player_name, error_msg, duration_seconds) VALUES (?,?,?,?,?,?)',
-                        (player_id, package_id, 1, ingame_name, '', _dur)
+                        'INSERT INTO api_recharges_log (player_id, package_id, success, player_name, error_msg, duration_seconds, game_name, package_name) VALUES (?,?,?,?,?,?,?,?)',
+                        (player_id, package_id, 1, ingame_name, '', _dur, 'Blood Strike', bs_pkg['nombre'])
                     )
                     _lc.commit()
                     _lc.close()
@@ -9498,8 +9512,8 @@ def api_recharge_dynamic():
                 try:
                     _lc = get_db_connection()
                     _lc.execute(
-                        'INSERT INTO api_recharges_log (player_id, package_id, success, player_name, error_msg, duration_seconds) VALUES (?,?,?,?,?,?)',
-                        (player_id, package_id, 0, '', err_msg, _dur)
+                        'INSERT INTO api_recharges_log (player_id, package_id, success, player_name, error_msg, duration_seconds, game_name, package_name) VALUES (?,?,?,?,?,?,?,?)',
+                        (player_id, package_id, 0, '', err_msg, _dur, 'Blood Strike', bs_pkg['nombre'])
                     )
                     _lc.commit()
                     _lc.close()
@@ -9561,12 +9575,22 @@ def api_recharge_freefire_id():
         return jsonify({'ok': False, 'error': f'Error interno: {e}'}), 500
     _dur = round(_t.time() - _start, 1)
 
+    # Resolver nombre del paquete FF
+    _ff_pkg_name = ''
+    try:
+        _cn = get_db_connection()
+        _rn = _cn.execute('SELECT nombre FROM precios_freefire_id WHERE id = ?', (package_id,)).fetchone()
+        _cn.close()
+        _ff_pkg_name = _rn['nombre'] if _rn else ''
+    except Exception:
+        pass
+
     def _log_api_recharge(success, player_name='', error_msg=''):
         try:
             _lc = get_db_connection()
             _lc.execute(
-                'INSERT INTO api_recharges_log (player_id, package_id, success, player_name, error_msg, duration_seconds) VALUES (?,?,?,?,?,?)',
-                (player_id, package_id, 1 if success else 0, player_name, error_msg, _dur)
+                'INSERT INTO api_recharges_log (player_id, package_id, success, player_name, error_msg, duration_seconds, game_name, package_name) VALUES (?,?,?,?,?,?,?,?)',
+                (player_id, package_id, 1 if success else 0, player_name, error_msg, _dur, 'Free Fire ID', _ff_pkg_name)
             )
             _lc.commit()
             _lc.close()
@@ -9696,7 +9720,7 @@ def admin_api_recharges_log():
     try:
         conn = get_db_connection()
         rows = conn.execute(
-            'SELECT id, player_id, package_id, success, player_name, error_msg, duration_seconds, fecha FROM api_recharges_log ORDER BY fecha DESC LIMIT 100'
+            'SELECT id, player_id, package_id, success, player_name, error_msg, duration_seconds, fecha, game_name, package_name FROM api_recharges_log ORDER BY fecha DESC LIMIT 100'
         ).fetchall()
         conn.close()
         return jsonify({'ok': True, 'logs': [dict(r) for r in rows]})
