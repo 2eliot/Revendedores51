@@ -389,10 +389,26 @@
       <div id="tab-apilog" class="tab-content">
         <section class="prices-section">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
-            <h2 style="margin:0;">🔁 Recargas vía Inefable Store</h2>
+            <h2 style="margin:0;font-size:clamp(16px,4vw,20px);">🔁 Recargas vía Inefable Store</h2>
             <button type="button" class="btn btn-secondary" style="padding:7px 14px;font-size:13px;" onclick="loadApiLog()">🔄 Actualizar</button>
           </div>
-          <div id="apilog-table-wrap" style="overflow-x:auto;">
+          <div id="apilog-stats" style="display:none;margin-bottom:14px;">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;">
+              <div style="background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);border-radius:10px;padding:10px 12px;text-align:center;">
+                <div style="font-size:11px;color:#8b949e;margin-bottom:2px;">Exitosas</div>
+                <div id="apilog-stat-ok" style="font-size:20px;font-weight:700;color:#4ade80;">0</div>
+              </div>
+              <div style="background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.2);border-radius:10px;padding:10px 12px;text-align:center;">
+                <div style="font-size:11px;color:#8b949e;margin-bottom:2px;">Fallidas</div>
+                <div id="apilog-stat-fail" style="font-size:20px;font-weight:700;color:#f87171;">0</div>
+              </div>
+              <div style="background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.2);border-radius:10px;padding:10px 12px;text-align:center;">
+                <div style="font-size:11px;color:#8b949e;margin-bottom:2px;">Total</div>
+                <div id="apilog-stat-total" style="font-size:20px;font-weight:700;color:#a78bfa;">0</div>
+              </div>
+            </div>
+          </div>
+          <div id="apilog-table-wrap">
             <div style="text-align:center;padding:30px;color:#888;">Haz clic en Actualizar para cargar el log.</div>
           </div>
         </section>
@@ -778,9 +794,10 @@
       }
     }, 2000);
 
-    // Log de recargas API (Inefable Store)
+    // Log de recargas API (Inefable Store) — diseño de tarjetas para móvil
     async function loadApiLog() {
       const wrap = document.getElementById('apilog-table-wrap');
+      const statsWrap = document.getElementById('apilog-stats');
       wrap.innerHTML = '<div style="text-align:center;padding:20px;color:#888;">Cargando...</div>';
       try {
         const res = await fetch('/admin/api_recharges_log');
@@ -788,32 +805,41 @@
         if (!data.ok) { wrap.innerHTML = '<div style="color:#f87171;padding:16px;">Error: ' + (data.error||'?') + '</div>'; return; }
         if (!data.logs.length) { wrap.innerHTML = '<div style="text-align:center;padding:30px;color:#888;">Sin recargas registradas aún.</div>'; return; }
         const pkgMap = {1:'100+10💎',2:'310+31💎',3:'520+52💎',4:'1.060+106💎',5:'2.180+218💎',6:'5.600+560💎'};
-        let html = '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
-        html += '<thead><tr style="background:rgba(255,255,255,0.05);color:#8b949e;">'
-              + '<th style="padding:8px 10px;text-align:left;">#</th>'
-              + '<th style="padding:8px 10px;text-align:left;">Fecha</th>'
-              + '<th style="padding:8px 10px;text-align:left;">Player ID</th>'
-              + '<th style="padding:8px 10px;text-align:left;">Paquete</th>'
-              + '<th style="padding:8px 10px;text-align:left;">Jugador</th>'
-              + '<th style="padding:8px 10px;text-align:left;">Estado</th>'
-              + '<th style="padding:8px 10px;text-align:left;">Duración</th>'
-              + '</tr></thead><tbody>';
+        // Stats
+        let okCount = 0, failCount = 0;
+        for (const r of data.logs) { r.success == 1 ? okCount++ : failCount++; }
+        statsWrap.style.display = 'block';
+        document.getElementById('apilog-stat-ok').textContent = okCount;
+        document.getElementById('apilog-stat-fail').textContent = failCount;
+        document.getElementById('apilog-stat-total').textContent = data.logs.length;
+        // Cards
+        let html = '<div style="display:flex;flex-direction:column;gap:8px;">';
         for (const r of data.logs) {
           const ok = r.success == 1;
-          const estado = ok
-            ? '<span style="color:#4ade80;font-weight:600;">✅ Exitosa</span>'
-            : '<span style="color:#f87171;" title="' + (r.error_msg||'') + '">❌ ' + (r.error_msg||'Error').substring(0,40) + '</span>';
-          html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.05);">'
-                + '<td style="padding:7px 10px;color:#555;">' + r.id + '</td>'
-                + '<td style="padding:7px 10px;color:#aaa;white-space:nowrap;">' + (r.fecha||'').replace('T',' ').substring(0,19) + '</td>'
-                + '<td style="padding:7px 10px;color:#e0e0e0;font-family:monospace;">' + r.player_id + '</td>'
-                + '<td style="padding:7px 10px;color:#a78bfa;">' + (pkgMap[r.package_id]||'Pkg '+r.package_id) + '</td>'
-                + '<td style="padding:7px 10px;color:#58a6ff;">' + (r.player_name||'-') + '</td>'
-                + '<td style="padding:7px 10px;">' + estado + '</td>'
-                + '<td style="padding:7px 10px;color:#888;">' + (r.duration_seconds||0) + 's</td>'
-                + '</tr>';
+          const borderColor = ok ? 'rgba(74,222,128,0.3)' : 'rgba(248,113,113,0.3)';
+          const bgColor = ok ? 'rgba(74,222,128,0.04)' : 'rgba(248,113,113,0.04)';
+          const statusBadge = ok
+            ? '<span style="background:rgba(74,222,128,0.15);color:#4ade80;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">✅ Exitosa</span>'
+            : '<span style="background:rgba(248,113,113,0.15);color:#f87171;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">❌ Fallida</span>';
+          const fecha = (r.fecha||'').replace('T',' ').substring(0,16);
+          const pkgName = pkgMap[r.package_id] || 'Pkg ' + r.package_id;
+          const playerName = r.player_name || '-';
+          const errTip = (!ok && r.error_msg) ? '<div style="margin-top:4px;font-size:11px;color:#f87171;word-break:break-word;">⚠ ' + (r.error_msg||'').substring(0,80) + '</div>' : '';
+          html += '<div style="background:' + bgColor + ';border:1px solid ' + borderColor + ';border-radius:10px;padding:10px 12px;">'
+                + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px;margin-bottom:6px;">'
+                + '<span style="font-size:11px;color:#8b949e;">#' + r.id + ' · ' + fecha + '</span>'
+                + statusBadge
+                + '</div>'
+                + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:13px;">'
+                + '<div><span style="color:#8b949e;font-size:11px;">Player ID</span><div style="color:#e0e0e0;font-family:monospace;font-size:12px;word-break:break-all;">' + r.player_id + '</div></div>'
+                + '<div><span style="color:#8b949e;font-size:11px;">Jugador</span><div style="color:#58a6ff;">' + playerName + '</div></div>'
+                + '<div><span style="color:#8b949e;font-size:11px;">Paquete</span><div style="color:#a78bfa;">' + pkgName + '</div></div>'
+                + '<div><span style="color:#8b949e;font-size:11px;">Duración</span><div style="color:#ccc;">' + (r.duration_seconds||0) + 's</div></div>'
+                + '</div>'
+                + errTip
+                + '</div>';
         }
-        html += '</tbody></table>';
+        html += '</div>';
         wrap.innerHTML = html;
       } catch(e) {
         wrap.innerHTML = '<div style="color:#f87171;padding:16px;">Error de red: ' + e + '</div>';
