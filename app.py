@@ -9299,12 +9299,29 @@ def api_recharge_dynamic():
 
     player_id2 = (request.form.get('player_id2') or '').strip()
     product_id_str = (request.form.get('product_id') or '').strip()
+    product_id_hint = None
+    try:
+        if product_id_str:
+            product_id_hint = int(product_id_str)
+    except ValueError:
+        pass
 
-    # --- Intentar como juego dinámico primero ---
     from dynamic_games import get_dynamic_package_by_id, get_dynamic_game_by_id
 
-    dyn_pkg = get_dynamic_package_by_id(package_id)
-    if dyn_pkg and dyn_pkg.get('gamepoint_package_id'):
+    # --- Routing: product_id_hint desambigua cuando package_id colisiona ---
+    #   product_id == -155  → Blood Strike (precios_bloodstriker)
+    #   product_id > 0      → Juego dinámico con juego_id == product_id
+    #   product_id == None  → Busca en orden: dinámicos → Blood Strike → Free Fire ID
+    dyn_pkg = None
+    if product_id_hint != -155:
+        dyn_pkg = get_dynamic_package_by_id(package_id)
+        if dyn_pkg and dyn_pkg.get('gamepoint_package_id'):
+            if product_id_hint and dyn_pkg.get('juego_id') != product_id_hint:
+                dyn_pkg = None
+        elif dyn_pkg and not dyn_pkg.get('gamepoint_package_id'):
+            dyn_pkg = None
+
+    if dyn_pkg:
         game = get_dynamic_game_by_id(dyn_pkg['juego_id'])
         if not game:
             return jsonify({'ok': False, 'error': 'Juego dinámico no encontrado'}), 404
