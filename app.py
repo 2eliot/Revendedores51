@@ -9238,6 +9238,7 @@ def api_catalog_active():
                 'price': float(r['precio']) if r['precio'] else 0,
                 'product_id': None,
                 'product_name': 'Free Fire ID',
+                'is_id_game': True,
                 'active': True,
             })
     except Exception as e:
@@ -9259,6 +9260,7 @@ def api_catalog_active():
                 'product_name': 'Blood Strike',
                 'game_id': -155,
                 'game_type': 'bloodstriker',
+                'is_id_game': True,
                 'active': True,
             })
     except Exception as e:
@@ -9280,6 +9282,7 @@ def api_catalog_active():
                     'product_id': game['id'],
                     'product_name': game['nombre'],
                     'game_id': game['id'],
+                    'is_id_game': True,
                     'active': True,
                 })
     except Exception as e:
