@@ -9231,7 +9231,27 @@ def api_catalog_active():
     except Exception as e:
         logger.warning(f'[API Catalog] Error leyendo precios_freefire_id: {e}')
 
-    # 2. Dynamic games (modo ID) packages
+    # 2. Blood Strike packages
+    try:
+        conn = get_db_connection()
+        bs_rows = conn.execute(
+            'SELECT id, nombre, precio, gamepoint_package_id FROM precios_bloodstriker WHERE activo = TRUE ORDER BY id'
+        ).fetchall()
+        conn.close()
+        for r in bs_rows:
+            items.append({
+                'package_id': r['id'],
+                'name': r['nombre'],
+                'product_id': -155,
+                'product_name': 'Blood Strike',
+                'game_id': -155,
+                'game_type': 'bloodstriker',
+                'active': True,
+            })
+    except Exception as e:
+        logger.warning(f'[API Catalog] Error leyendo precios_bloodstriker: {e}')
+
+    # 3. Dynamic games (modo ID) packages
     try:
         from dynamic_games import get_all_dynamic_games, get_dynamic_packages
         dyn_games = get_all_dynamic_games(only_active=True)
@@ -9383,13 +9403,103 @@ def api_recharge_dynamic():
             logger.error(f'[API DynRecharge] Error general: {e}')
             return jsonify({'ok': False, 'error': f'Error interno: {str(e)}'}), 500
 
+    # --- Intentar como Blood Strike ---
+    try:
+        conn = get_db_connection()
+        bs_pkg = conn.execute(
+            'SELECT id, nombre, precio, gamepoint_package_id FROM precios_bloodstriker WHERE id = ? AND activo = TRUE',
+            (package_id,)
+        ).fetchone()
+        conn.close()
+    except Exception:
+        bs_pkg = None
+
+    if bs_pkg and bs_pkg['gamepoint_package_id']:
+        import time as _t
+        _start = _t.time()
+        bloodstrike_product_id = int(os.environ.get('BLOODSTRIKE_PRODUCT_ID', '155'))
+
+        try:
+            gc_token, gc_err = _gameclub_get_token()
+            if not gc_token:
+                err = (gc_err or {}).get('message', 'No se pudo obtener token de GamePoint')
+                logger.error(f'[API BSRecharge] Token error: {err}')
+                return jsonify({'ok': False, 'error': f'Error proveedor: {err}'}), 502
+
+            input_fields = {'input1': str(player_id)}
+            validate_data = _gameclub_order_validate(gc_token, bloodstrike_product_id, input_fields)
+            validate_code = (validate_data or {}).get('code')
+            if validate_code != 200 or not (validate_data or {}).get('validation_token'):
+                err_msg = (validate_data or {}).get('message', 'Error validando orden')
+                logger.error(f'[API BSRecharge] Validate failed: code={validate_code} msg={err_msg}')
+                return jsonify({'ok': False, 'error': f'Validación falló: {err_msg}'}), 422
+
+            validation_token = validate_data['validation_token']
+            merchant_code = 'API-BS-' + secrets.token_hex(6).upper()
+            gp_package_id = bs_pkg['gamepoint_package_id']
+            create_data = _gameclub_order_create(gc_token, validation_token, gp_package_id, merchant_code)
+            create_code = (create_data or {}).get('code')
+            reference_no = (create_data or {}).get('referenceno', '')
+            _dur = round(_t.time() - _start, 1)
+
+            if create_code in (100, 101):
+                ingame_name = ''
+                try:
+                    if reference_no:
+                        for _attempt in range(3):
+                            if _attempt > 0:
+                                _t.sleep(1.5)
+                            inq_data = _gameclub_order_inquiry(gc_token, reference_no)
+                            ingame_name = (inq_data or {}).get('ingamename') or ''
+                            if ingame_name:
+                                break
+                except Exception as e:
+                    logger.warning(f'[API BSRecharge] Inquiry error: {e}')
+
+                try:
+                    _lc = get_db_connection()
+                    _lc.execute(
+                        'INSERT INTO api_recharges_log (player_id, package_id, success, player_name, error_msg, duration_seconds) VALUES (?,?,?,?,?,?)',
+                        (player_id, package_id, 1, ingame_name, '', _dur)
+                    )
+                    _lc.commit()
+                    _lc.close()
+                except Exception:
+                    pass
+
+                logger.info(f'[API BSRecharge] OK player={player_id} pkg={package_id} gp_pkg={gp_package_id} dur={_dur}s')
+                return jsonify({
+                    'ok': True,
+                    'player_name': ingame_name,
+                    'duration': _dur,
+                    'reference_no': reference_no,
+                    'game': 'Blood Strike',
+                })
+            else:
+                err_msg = (create_data or {}).get('message', 'Error creando orden en GamePoint')
+                logger.error(f'[API BSRecharge] Create failed: code={create_code} msg={err_msg}')
+                try:
+                    _lc = get_db_connection()
+                    _lc.execute(
+                        'INSERT INTO api_recharges_log (player_id, package_id, success, player_name, error_msg, duration_seconds) VALUES (?,?,?,?,?,?)',
+                        (player_id, package_id, 0, '', err_msg, _dur)
+                    )
+                    _lc.commit()
+                    _lc.close()
+                except Exception:
+                    pass
+                return jsonify({'ok': False, 'error': err_msg}), 422
+
+        except Exception as e:
+            logger.error(f'[API BSRecharge] Error general: {e}')
+            return jsonify({'ok': False, 'error': f'Error interno: {str(e)}'}), 500
+
     # --- Fallback: intentar como Free Fire ID ---
     precio = get_freefire_id_price_by_id(package_id)
     if precio > 0:
-        # Delegar al endpoint de Free Fire ID reutilizando la lógica
         return api_recharge_freefire_id()
 
-    return jsonify({'ok': False, 'error': f'Paquete {package_id} no encontrado en juegos dinámicos ni Free Fire ID'}), 404
+    return jsonify({'ok': False, 'error': f'Paquete {package_id} no encontrado en juegos dinámicos, Blood Strike ni Free Fire ID'}), 404
 
 
 # ---------------------------------------------------------------------------
