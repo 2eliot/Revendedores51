@@ -2351,52 +2351,67 @@ def debug_database_info():
     print("=" * 50)
     
     # Variables de entorno
+    db_url = os.environ.get('DATABASE_URL', '').strip()
+    db_path = os.environ.get('DATABASE_PATH', '').strip()
     print(f"RENDER: {os.environ.get('RENDER', 'No configurado')}")
-    print(f"DATABASE_PATH: {os.environ.get('DATABASE_PATH', 'No configurado')}")
-    print(f"Ruta de BD configurada: {DATABASE}")
-    print(f"Ruta absoluta: {os.path.abspath(DATABASE)}")
+    print(f"DATABASE_PATH: {db_path or 'No configurado'}")
+    print(f"DATABASE_URL: {'Configurado' if db_url else 'No configurado'}")
     print(f"Directorio actual: {os.getcwd()}")
-    
-    # Verificar si existe el archivo
-    if os.path.exists(DATABASE):
-        file_size = os.path.getsize(DATABASE)
-        print(f"[OK] Base de datos existe: {file_size} bytes")
-        
-        # Verificar tablas
+
+    # Si hay DB URL, asumimos PostgreSQL
+    if db_url:
         try:
             conn = get_db_connection_optimized()
-            cursor = conn.cursor()
-            
-            # Listar tablas
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-            tables = cursor.fetchall()
-            print(f"[INFO] Tablas encontradas ({len(tables)}):")
-            for table in tables:
-                # Contar registros en cada tabla
+            tables = conn.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"
+            ).fetchall()
+            print(f"[INFO] Tablas PostgreSQL encontradas ({len(tables)}):")
+            for t in tables[:25]:
+                tname = t['table_name']
                 try:
-                    count = cursor.execute(f"SELECT COUNT(*) FROM {table[0]}").fetchone()[0]
-                    print(f"   - {table[0]}: {count} registros")
-                except:
-                    print(f"   - {table[0]}: Error al contar")
-            
-            return_db_connection(conn)
-            
+                    cnt = conn.execute(f'SELECT COUNT(*) AS c FROM "{tname}"').fetchone()['c']
+                    print(f"   - {tname}: {cnt} registros")
+                except Exception:
+                    print(f"   - {tname}: Error al contar")
+            conn.close()
         except Exception as e:
-            print(f"[ERROR] Error conectando a BD: {e}")
+            print(f"[ERROR] Error conectando a PostgreSQL: {e}")
+    elif db_path:
+        print(f"Ruta de BD configurada: {db_path}")
+        print(f"Ruta absoluta: {os.path.abspath(db_path)}")
+        if os.path.exists(db_path):
+            file_size = os.path.getsize(db_path)
+            print(f"[OK] Base de datos existe: {file_size} bytes")
+            try:
+                conn = get_db_connection_optimized()
+                tables = conn.execute(
+                    "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"
+                ).fetchall()
+                print(f"[INFO] Tablas encontradas ({len(tables)}):")
+                for t in tables[:25]:
+                    tname = t['table_name']
+                    try:
+                        cnt = conn.execute(f'SELECT COUNT(*) AS c FROM "{tname}"').fetchone()['c']
+                        print(f"   - {tname}: {cnt} registros")
+                    except Exception:
+                        print(f"   - {tname}: Error al contar")
+                conn.close()
+            except Exception as e:
+                print(f"[ERROR] Error conectando a BD: {e}")
+        else:
+            print(f"[ERROR] Base de datos NO existe en: {db_path}")
+            db_dir = os.path.dirname(db_path)
+            if db_dir:
+                print(f"[DIR] Directorio padre: {db_dir}")
+                print(f"   Existe: {os.path.exists(db_dir)}")
+                if os.path.exists(db_dir):
+                    try:
+                        files = os.listdir(db_dir)
+                        print(f"   Archivos: {files}")
+                    except Exception:
+                        print("   Error listando archivos")
     else:
-        print(f"[ERROR] Base de datos NO existe en: {DATABASE}")
-        
-        # Verificar directorio padre
-        db_dir = os.path.dirname(DATABASE)
-        if db_dir:
-            print(f"[DIR] Directorio padre: {db_dir}")
-            print(f"   Existe: {os.path.exists(db_dir)}")
-            if os.path.exists(db_dir):
-                try:
-                    files = os.listdir(db_dir)
-                    print(f"   Archivos: {files}")
-                except:
-                    print("   Error listando archivos")
+        print("[WARN] No hay DATABASE_URL ni DATABASE_PATH configurados")
     
     print("=" * 50)
 
