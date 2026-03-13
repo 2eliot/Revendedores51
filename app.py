@@ -5927,6 +5927,7 @@ def validar_freefire_id():
     transaction_data = None
     pin_codigo = None
     saldo_cobrado = False
+    redencion_exitosa = False
 
     try:
         # 1. Verificar si hay PIN disponible en stock de FF Global ANTES de cobrar
@@ -5990,6 +5991,7 @@ def validar_freefire_id():
         
         # 6. Evaluar resultado
         if redeem_result and redeem_result.success:
+            redencion_exitosa = True
             # === ÉXITO: Recarga completada ===
             player_name = redeem_result.player_name or ''
             
@@ -6091,33 +6093,44 @@ def validar_freefire_id():
                 estado_actual = row_fix['estado'] if row_fix else None
 
                 if estado_actual == 'pendiente':
-                    if pin_codigo:
-                        try:
-                            conn_fix.execute(
-                                '''
-                                INSERT INTO pines_freefire_global (monto_id, pin_codigo, usado)
-                                VALUES (?, ?, FALSE)
-                                ''',
-                                (package_id, pin_codigo)
-                            )
-                        except Exception:
-                            pass
+                    if redencion_exitosa:
+                        # Si el PIN ya se redimió exitosamente, NO devolver PIN ni saldo.
+                        # Cerrar como aprobado para evitar pérdida por doble compensación.
+                        conn_fix.commit()
+                        update_freefire_id_transaction_status(
+                            transaction_data['id'],
+                            'aprobado',
+                            user_id,
+                            f'Auto-aprobado: redención exitosa con error posterior ({str(e)[:180]})'
+                        )
+                    else:
+                        if pin_codigo:
+                            try:
+                                conn_fix.execute(
+                                    '''
+                                    INSERT INTO pines_freefire_global (monto_id, pin_codigo, usado)
+                                    VALUES (?, ?, FALSE)
+                                    ''',
+                                    (package_id, pin_codigo)
+                                )
+                            except Exception:
+                                pass
 
-                    if saldo_cobrado and not is_admin:
-                        conn_fix.execute('UPDATE usuarios SET saldo = saldo + ? WHERE id = ?', (precio, user_id))
-                        try:
-                            saldo_row = conn_fix.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
-                            session['saldo'] = saldo_row['saldo'] if saldo_row else session.get('saldo', 0)
-                        except Exception:
-                            pass
+                        if saldo_cobrado and not is_admin:
+                            conn_fix.execute('UPDATE usuarios SET saldo = saldo + ? WHERE id = ?', (precio, user_id))
+                            try:
+                                saldo_row = conn_fix.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+                                session['saldo'] = saldo_row['saldo'] if saldo_row else session.get('saldo', 0)
+                            except Exception:
+                                pass
 
-                    conn_fix.commit()
-                    update_freefire_id_transaction_status(
-                        transaction_data['id'],
-                        'rechazado',
-                        user_id,
-                        f'Auto-rechazo por excepción: {str(e)[:200]}'
-                    )
+                        conn_fix.commit()
+                        update_freefire_id_transaction_status(
+                            transaction_data['id'],
+                            'rechazado',
+                            user_id,
+                            f'Auto-rechazo por excepción: {str(e)[:200]}'
+                        )
             except Exception as fix_err:
                 logger.error(f"[FreeFire ID] Error en fallback anti-pendiente: {str(fix_err)}")
             finally:
