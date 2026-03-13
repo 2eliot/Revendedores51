@@ -197,7 +197,7 @@
             <!-- En el panel derecho ahora va la FECHA/HORA -->
             {% if not transaction.get('is_freefire_id') and not transaction.get('is_bloodstriker') and not transaction.get('is_dynamic_game') %}
             <div class="transaction-pin">
-              <span class="date-simple">{{ transaction.fecha.split(' ')[0] }} {{ transaction.fecha.split(' ')[1].split('.')[0] }}</span>
+              <span class="date-simple">{{ transaction.fecha|format_date }}</span>
             </div>
             {% endif %}
             {% if transaction.get('is_bloodstriker') and session.get('is_admin') and (transaction.get('estado') or '')|lower == 'pendiente' %}
@@ -285,7 +285,7 @@
             {% endif %}
           </div>
           {% if transaction.get('is_freefire_id') or transaction.get('is_bloodstriker') or transaction.get('is_dynamic_game') %}
-          <div class="tx-corner-date">{{ transaction.fecha.split(' ')[0] }} {{ transaction.fecha.split(' ')[1].split('.')[0] }}</div>
+          <div class="tx-corner-date">{{ transaction.fecha|format_date }}</div>
           {% endif %}
         </div>
         {% endfor %}

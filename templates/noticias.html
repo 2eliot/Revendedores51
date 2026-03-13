@@ -72,7 +72,7 @@
       <div class="news-card personal-notification notification-{{ notificacion.tipo }}">
         <div class="news-header">
           <h3 class="news-title">{{ notificacion.titulo }}</h3>
-          <span class="news-date">{{ notificacion.fecha.split(' ')[0] }} {{ notificacion.fecha.split(' ')[1].split('.')[0] }}</span>
+          <span class="news-date">{{ notificacion.fecha|format_date }}</span>
         </div>
         <div class="news-content">
           <p>{{ notificacion.mensaje }}</p>
@@ -100,7 +100,7 @@
         <div class="news-card">
           <div class="news-header">
             <h3 class="news-title">{{ noticia.titulo }}</h3>
-            <span class="news-date">{{ noticia.fecha.split(' ')[0] }} {{ noticia.fecha.split(' ')[1].split('.')[0] }}</span>
+            <span class="news-date">{{ noticia.fecha|format_date }}</span>
           </div>
           <div class="news-content">
             <p>{{ noticia.contenido }}</p>

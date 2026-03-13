@@ -261,6 +261,19 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Protección CSRF
 # Configuración de duración de sesión (30 minutos)
 app.permanent_session_lifetime = timedelta(minutes=30)
 
+@app.template_filter('format_date')
+def format_date_filter(value, fmt='%Y-%m-%d %H:%M:%S'):
+    """Format a date value that may be a datetime object or a string."""
+    if value is None:
+        return ''
+    if isinstance(value, datetime):
+        return value.strftime(fmt)
+    s = str(value)
+    # Strip microseconds from string dates
+    if '.' in s:
+        s = s.split('.')[0]
+    return s
+
 # Configuración de correo electrónico (solo 2 variables necesarias)
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587

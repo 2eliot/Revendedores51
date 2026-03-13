@@ -578,7 +578,7 @@
                     <div class="admin-news-header">
                       <h4 class="admin-news-title">{{ noticia.titulo }}</h4>
                       <div class="admin-news-meta">
-                        <span class="admin-news-date">{{ noticia.fecha.split(' ')[0] }} {{ noticia.fecha.split(' ')[1].split('.')[0] }}</span>
+                        <span class="admin-news-date">{{ noticia.fecha|format_date }}</span>
                         {% if noticia.importante %}
                         <span class="admin-news-important">📢 Importante</span>
                         {% endif %}

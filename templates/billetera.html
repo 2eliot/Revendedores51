@@ -314,11 +314,11 @@
               </div>
             </div>
             <div class="transaction-footer">
-              <span class="date-simple">{{ rec.fecha_creacion.split('.')[0] if '.' in rec.fecha_creacion else rec.fecha_creacion }}</span>
+              <span class="date-simple">{{ rec.fecha_creacion|format_date }}</span>
               <span class="user-simple">
                 {{ rec.correo }}
                 {% if rec.estado == 'completada' and rec.fecha_completada %}
-                  | Acreditado: {{ rec.fecha_completada.split('.')[0] if '.' in rec.fecha_completada else rec.fecha_completada }}
+                  | Acreditado: {{ rec.fecha_completada|format_date }}
                 {% endif %}
               </span>
             </div>
@@ -357,7 +357,7 @@
               </div>
             </div>
             <div class="transaction-footer">
-              <span class="date-simple">{{ credit.fecha.split(' ')[0] }} {{ credit.fecha.split(' ')[1].split('.')[0] }}</span>
+              <span class="date-simple">{{ credit.fecha|format_date }}</span>
               <span class="user-simple">
                 {{ credit.correo }}
                 {% if credit.saldo_anterior is defined and credit.saldo_anterior is not none %}
@@ -461,7 +461,7 @@
               <div class="rec-code">{{ recarga.codigo_referencia }}</div>
               <div class="rec-meta">
                 Monto: {{ "%.2f"|format(recarga.monto_solicitado) }} USDT
-                <br>{{ recarga.fecha_creacion.split('.')[0] if '.' in recarga.fecha_creacion else recarga.fecha_creacion }}
+                <br>{{ recarga.fecha_creacion|format_date }}
               </div>
             </div>
             <div class="recarga-history-right">
@@ -498,7 +498,7 @@
               </div>
             </div>
             <div class="transaction-footer">
-              <span class="date-simple">{{ credit.fecha.split(' ')[0] }} {{ credit.fecha.split(' ')[1].split('.')[0] }}</span>
+              <span class="date-simple">{{ credit.fecha|format_date }}</span>
               <span class="user-simple">{{ session.get('nombre', '') }} {{ session.get('apellido', '') }}</span>
             </div>
           </div>
