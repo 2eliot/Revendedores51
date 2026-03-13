@@ -3386,7 +3386,7 @@ def create_freefire_id_transaction(user_id, player_id, package_id, precio, pin_c
         conn.close()
 
 def get_pending_freefire_id_transactions():
-    """Obtiene todas las transacciones pendientes de Free Fire ID para el admin"""
+    """Obtiene transacciones FFID pendientes para revisión manual (no las recientes en auto-proceso)."""
     conn = get_db_connection()
     transactions = conn.execute('''
         SELECT fi.*, u.nombre, u.apellido, u.correo, p.nombre as paquete_nombre
@@ -3394,6 +3394,7 @@ def get_pending_freefire_id_transactions():
         JOIN usuarios u ON fi.usuario_id = u.id
         JOIN precios_freefire_id p ON fi.paquete_id = p.id
         WHERE fi.estado = 'pendiente'
+          AND datetime(fi.fecha) <= datetime('now', '-3 minutes')
         ORDER BY fi.fecha DESC
     ''').fetchall()
     
