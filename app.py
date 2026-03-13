@@ -2167,12 +2167,13 @@ def create_news(titulo, contenido, importante=False, imagen_url=None):
     """Crea una nueva noticia"""
     create_news_table()
     conn = get_db_connection()
-    cursor = conn.execute('''
+    conn.execute('''
         INSERT INTO noticias (titulo, contenido, importante, imagen_url)
         VALUES (?, ?, ?, ?)
     ''', (titulo, contenido, importante, imagen_url))
-    news_id = cursor.lastrowid
     conn.commit()
+    row = conn.execute('SELECT id FROM noticias ORDER BY id DESC LIMIT 1').fetchone()
+    news_id = row['id'] if row else None
     conn.close()
     return news_id
 
@@ -2279,13 +2280,13 @@ def create_personal_notification(user_id, titulo, mensaje, tipo='success'):
     except Exception:
         pass
     
-    cursor = conn.execute('''
+    conn.execute('''
         INSERT INTO notificaciones_personalizadas (usuario_id, titulo, mensaje, tipo, tag)
         VALUES (?, ?, ?, ?, ?)
     ''', (user_id, titulo, mensaje, tipo, None))
-    
-    notification_id = cursor.lastrowid
     conn.commit()
+    row = conn.execute('SELECT id FROM notificaciones_personalizadas WHERE usuario_id = ? ORDER BY id DESC LIMIT 1', (user_id,)).fetchone()
+    notification_id = row['id'] if row else None
     conn.close()
     return notification_id
 
@@ -3164,14 +3165,14 @@ def create_bloodstriker_transaction(user_id, player_id, package_id, precio, esta
     
     conn = get_db_connection()
     try:
-        cursor = conn.execute('''
+        conn.execute('''
             INSERT INTO transacciones_bloodstriker 
             (usuario_id, player_id, paquete_id, numero_control, transaccion_id, monto, estado, gamepoint_referenceno)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (user_id, player_id, package_id, numero_control, transaccion_id, -precio, estado, gamepoint_referenceno))
-        
-        transaction_id = cursor.lastrowid
         conn.commit()
+        row = conn.execute('SELECT id FROM transacciones_bloodstriker WHERE transaccion_id = ?', (transaccion_id,)).fetchone()
+        transaction_id = row['id'] if row else None
         return {
             'id': transaction_id,
             'numero_control': numero_control,
@@ -3378,14 +3379,14 @@ def create_freefire_id_transaction(user_id, player_id, package_id, precio, pin_c
     
     conn = get_db_connection()
     try:
-        cursor = conn.execute('''
+        conn.execute('''
             INSERT INTO transacciones_freefire_id 
             (usuario_id, player_id, paquete_id, numero_control, transaccion_id, monto, estado, pin_codigo)
             VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?)
         ''', (user_id, player_id, package_id, numero_control, transaccion_id, -precio, pin_codigo))
-        
-        transaction_id = cursor.lastrowid
         conn.commit()
+        row = conn.execute('SELECT id FROM transacciones_freefire_id WHERE transaccion_id = ?', (transaccion_id,)).fetchone()
+        transaction_id = row['id'] if row else None
         return {
             'id': transaction_id,
             'numero_control': numero_control,
