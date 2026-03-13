@@ -110,6 +110,48 @@ def get_pg_columns(pg_cur, table_name: str):
     return [r['column_name'] for r in pg_cur.fetchall()]
 
 
+def get_pg_columns_meta(pg_cur, table_name: str):
+    pg_cur.execute(
+        """
+        SELECT column_name, data_type
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = %s
+        ORDER BY ordinal_position
+        """,
+        (table_name,)
+    )
+    return {r['column_name']: r['data_type'] for r in pg_cur.fetchall()}
+
+
+def _coerce_value_for_pg(value, pg_type):
+    if value is None:
+        return None
+
+    # Normalize empty strings for numeric/date columns
+    if isinstance(value, str) and value.strip() == '':
+        if pg_type in (
+            'smallint', 'integer', 'bigint', 'real', 'double precision', 'numeric',
+            'date', 'timestamp without time zone', 'timestamp with time zone',
+            'time without time zone', 'time with time zone'
+        ):
+            return None
+
+    # Bool coercion (SQLite often stores 0/1)
+    if pg_type == 'boolean':
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(int(value))
+        sval = str(value).strip().lower()
+        if sval in ('1', 'true', 't', 'yes', 'y', 'si', 'sí', 'on'):
+            return True
+        if sval in ('0', 'false', 'f', 'no', 'n', 'off', ''):
+            return False
+        return None
+
+    return value
+
+
 def migrate_table(sq_conn, pg_conn, table_name: str, dry_run=False):
     sq_cur = sq_conn.cursor()
     pg_cur = pg_conn.cursor()
@@ -124,7 +166,8 @@ def migrate_table(sq_conn, pg_conn, table_name: str, dry_run=False):
 
     # Get column names and migrate only common columns (schema drift-safe)
     sq_cols = get_columns(sq_cur, table_name)
-    pg_cols = set(get_pg_columns(pg_cur, table_name))
+    pg_meta = get_pg_columns_meta(pg_cur, table_name)
+    pg_cols = set(pg_meta.keys())
     cols = [c for c in sq_cols if c in pg_cols]
     if not cols:
         log.warning(f"  SKIP {table_name} (no common columns between SQLite and PostgreSQL)")
@@ -147,8 +190,9 @@ def migrate_table(sq_conn, pg_conn, table_name: str, dry_run=False):
 
     inserted = 0
     skipped = 0
+    errors_logged = 0
     for row in rows:
-        values = tuple(row[c] for c in cols)
+        values = tuple(_coerce_value_for_pg(row[c], pg_meta.get(c)) for c in cols)
         if dry_run:
             inserted += 1
             continue
@@ -159,7 +203,9 @@ def migrate_table(sq_conn, pg_conn, table_name: str, dry_run=False):
             else:
                 skipped += 1
         except Exception as e:
-            log.debug(f"  {table_name} row skip: {e}")
+            if errors_logged < 3:
+                log.warning(f"  {table_name} row skip sample #{errors_logged+1}: {e}")
+                errors_logged += 1
             skipped += 1
 
     if not dry_run:
