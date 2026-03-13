@@ -67,7 +67,9 @@ def get_pg_conn(url: str):
     if url.startswith('postgres://'):
         url = 'postgresql://' + url[len('postgres://'):]
     conn = psycopg.connect(url, row_factory=dict_row)
-    conn.autocommit = False
+    # Autocommit evita que un fallo en una fila (FK/constraint) anule toda la tabla.
+    # Comportamiento deseado en esta migración: insertar lo válido y saltar lo inválido.
+    conn.autocommit = True
     return conn
 
 
