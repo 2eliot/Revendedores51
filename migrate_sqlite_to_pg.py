@@ -95,6 +95,19 @@ def get_columns(sq_cur, table_name: str):
     return [row[1] for row in sq_cur.fetchall()]
 
 
+def get_pg_columns(pg_cur, table_name: str):
+    pg_cur.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = %s
+        ORDER BY ordinal_position
+        """,
+        (table_name,)
+    )
+    return [r['column_name'] for r in pg_cur.fetchall()]
+
+
 def migrate_table(sq_conn, pg_conn, table_name: str, dry_run=False):
     sq_cur = sq_conn.cursor()
     pg_cur = pg_conn.cursor()
@@ -107,11 +120,17 @@ def migrate_table(sq_conn, pg_conn, table_name: str, dry_run=False):
         log.warning(f"  SKIP {table_name} (not in PostgreSQL — run app first to create schema)")
         return 0
 
-    # Get column names from SQLite
-    cols = get_columns(sq_cur, table_name)
+    # Get column names and migrate only common columns (schema drift-safe)
+    sq_cols = get_columns(sq_cur, table_name)
+    pg_cols = set(get_pg_columns(pg_cur, table_name))
+    cols = [c for c in sq_cols if c in pg_cols]
+    if not cols:
+        log.warning(f"  SKIP {table_name} (no common columns between SQLite and PostgreSQL)")
+        return 0
 
     # Read all rows
-    sq_cur.execute(f'SELECT * FROM "{table_name}"')
+    sq_col_list = ', '.join(f'"{c}"' for c in cols)
+    sq_cur.execute(f'SELECT {sq_col_list} FROM "{table_name}"')
     rows = sq_cur.fetchall()
     if not rows:
         log.info(f"  {table_name}: 0 rows (empty)")
