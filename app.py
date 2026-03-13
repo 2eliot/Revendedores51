@@ -324,7 +324,7 @@ def record_profit_for_transaction(conn, usuario_id, is_admin, juego, paquete_id,
         row = cur.execute(
             """
             SELECT precio_compra FROM precios_compra
-            WHERE juego = ? AND paquete_id = ? AND activo = 1
+            WHERE juego = ? AND paquete_id = ? AND activo = TRUE
             """,
             (juego, int(paquete_id))
         ).fetchone()
@@ -431,7 +431,7 @@ def init_db():
         
         # Columna sin_ganancia: cuentas marcadas no generan profit, no suman a saldo activo, no compiten en top
         try:
-            cursor.execute("ALTER TABLE usuarios ADD COLUMN sin_ganancia BOOLEAN DEFAULT 0")
+            cursor.execute("ALTER TABLE usuarios ADD COLUMN sin_ganancia BOOLEAN DEFAULT FALSE")
         except Exception:
             pass
     
@@ -4002,7 +4002,7 @@ def admin_save_prices_batch():
 
             if game.startswith('dyn_'):
                 # Activate priced packages so they are visible to users (public pages filter activo=1)
-                activo = 1 if price > 0 else 0
+                activo = True if price > 0 else False
                 if dyn_game_id is not None:
                     conn.execute(
                         "UPDATE paquetes_dinamicos SET nombre = ?, precio = ?, activo = ?, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = ? AND juego_id = ?",
@@ -4216,7 +4216,7 @@ def admin_toggle_sin_ganancia():
         conn = get_db_connection()
         user = conn.execute('SELECT sin_ganancia FROM usuarios WHERE id = ?', (user_id,)).fetchone()
         if user:
-            new_val = 0 if user['sin_ganancia'] else 1
+            new_val = False if user['sin_ganancia'] else True
             conn.execute('UPDATE usuarios SET sin_ganancia = ? WHERE id = ?', (new_val, user_id))
             conn.commit()
             estado = 'SIN ganancia' if new_val else 'CON ganancia'
@@ -4741,10 +4741,10 @@ def validar_freefire_latam():
             conn.execute('''
                 DELETE FROM transacciones 
                 WHERE usuario_id = ? AND id NOT IN (
-                    SELECT id FROM transacciones 
+                    SELECT id FROM (SELECT id FROM transacciones 
                     WHERE usuario_id = ? 
                     ORDER BY fecha DESC 
-                    LIMIT 100
+                    LIMIT 100) AS keep_ids
                 )
             ''', (user_id, user_id))
             
@@ -5686,10 +5686,10 @@ def approve_bloodstriker_transaction(transaction_id):
             conn.execute('''
                 DELETE FROM transacciones 
                 WHERE usuario_id = ? AND id NOT IN (
-                    SELECT id FROM transacciones 
+                    SELECT id FROM (SELECT id FROM transacciones 
                     WHERE usuario_id = ? 
                     ORDER BY fecha DESC 
-                    LIMIT 100
+                    LIMIT 100) AS keep_ids
                 )
             ''', (bs_transaction['usuario_id'], bs_transaction['usuario_id']))
             
@@ -6607,10 +6607,10 @@ def approve_freefire_id_transaction(transaction_id):
         conn.execute('''
             DELETE FROM transacciones 
             WHERE usuario_id = ? AND id NOT IN (
-                SELECT id FROM transacciones 
+                SELECT id FROM (SELECT id FROM transacciones 
                 WHERE usuario_id = ? 
                 ORDER BY fecha DESC 
-                LIMIT 100
+                LIMIT 100) AS keep_ids
             )
         ''', (fi_transaction['usuario_id'], fi_transaction['usuario_id']))
         
@@ -7996,10 +7996,10 @@ def validar_freefire():
         conn.execute('''
             DELETE FROM transacciones 
             WHERE usuario_id = ? AND id NOT IN (
-                SELECT id FROM transacciones 
+                SELECT id FROM (SELECT id FROM transacciones 
                 WHERE usuario_id = ? 
                 ORDER BY fecha DESC 
-                LIMIT ?
+                LIMIT ?) AS keep_ids
             )
         ''', (user_id, user_id, limit))
         
@@ -8658,10 +8658,10 @@ def api_simple_endpoint():
         conn.execute('''
             DELETE FROM transacciones 
             WHERE usuario_id = ? AND id NOT IN (
-                SELECT id FROM transacciones 
+                SELECT id FROM (SELECT id FROM transacciones 
                 WHERE usuario_id = ? 
                 ORDER BY fecha DESC 
-                LIMIT ?
+                LIMIT ?) AS keep_ids
             )
         ''', (user['id'], user['id'], limit))
         
