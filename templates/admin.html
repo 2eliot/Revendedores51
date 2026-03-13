@@ -106,7 +106,7 @@
               </div>
               <div class="user-row">
                 <div class="user-label">Fecha</div>
-                <div class="user-value">{{ user.fecha_registro[:10] }}</div>
+                <div class="user-value">{{ user.fecha_registro|format_date('%Y-%m-%d') }}</div>
               </div>
             </div>
             <div class="user-card-actions">
