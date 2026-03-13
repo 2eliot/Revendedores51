@@ -23,8 +23,6 @@ import json
 import csv
 import re
 from pg_compat import get_db_connection, get_db_connection_optimized, PgRow, table_exists as pg_table_exists
-import psycopg2
-import psycopg2.errors
 import pytz
 from datetime import datetime
 import hashlib

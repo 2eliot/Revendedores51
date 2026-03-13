@@ -20,7 +20,7 @@ python-dotenv==1.0.0
 # Para producción (opcional)
 gunicorn==21.2.0
 
-# PostgreSQL
-psycopg2-binary==2.9.9
+# PostgreSQL (Python 3.13 compatible)
+psycopg[binary]==3.2.1
 
-# Nota: sqlite3 fue reemplazado por psycopg2. secrets, hashlib y os son módulos integrados de Python
+# Nota: sqlite3 fue reemplazado por psycopg. secrets, hashlib y os son módulos integrados de Python

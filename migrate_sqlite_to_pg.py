@@ -22,10 +22,10 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 log = logging.getLogger(__name__)
 
 try:
-    import psycopg2
-    import psycopg2.extras
+    import psycopg
+    from psycopg.rows import dict_row
 except ImportError:
-    sys.exit("psycopg2-binary not installed. Run: pip install psycopg2-binary")
+    sys.exit("psycopg not installed. Run: pip install 'psycopg[binary]'")
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +66,7 @@ TABLES = [
 def get_pg_conn(url: str):
     if url.startswith('postgres://'):
         url = 'postgresql://' + url[len('postgres://'):]
-    conn = psycopg2.connect(url, cursor_factory=psycopg2.extras.RealDictCursor)
+    conn = psycopg.connect(url, row_factory=dict_row)
     conn.autocommit = False
     return conn
 

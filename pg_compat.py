@@ -1,6 +1,6 @@
 """
 PostgreSQL compatibility layer for Revendedores51.
-Wraps psycopg2 to expose a sqlite3-compatible interface so minimal
+Wraps psycopg (v3) to expose a sqlite3-compatible interface so minimal
 changes are needed in the rest of the codebase.
 
 Handles automatically:
@@ -9,16 +9,15 @@ Handles automatically:
   - PRAGMA -> no-op (silently ignored)
   - CREATE TABLE schema fixes: AUTOINCREMENT->SERIAL, DATETIME->TIMESTAMP
   - Row objects that support both dict-key and positional (row[0]) access
-  - row_factory assignment (no-op, always uses RealDictCursor)
+  - row_factory assignment (no-op, always uses dict_row)
 """
 
 import os
 import re
 import logging
 
-import psycopg2
-import psycopg2.extras
-import psycopg2.extensions
+import psycopg
+from psycopg.rows import dict_row
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +73,7 @@ def _convert_sql(sql: str):
 
 class PgRow:
     """
-    Wraps a psycopg2 RealDictRow.
+    Wraps a psycopg dict row.
     Supports row['key']  (dict access)
     AND      row[0]      (positional access like sqlite3.Row)
     """
@@ -124,7 +123,7 @@ class PgRow:
 # ---------------------------------------------------------------------------
 
 class PgCursor:
-    """Wraps a psycopg2 RealDictCursor to return PgRow objects."""
+    """Wraps a psycopg v3 dict-row cursor to return PgRow objects."""
 
     def __init__(self, cur):
         self._cur = cur
@@ -143,7 +142,7 @@ class PgCursor:
         sql_pg = _convert_sql(sql)
         if sql_pg is None:
             return self
-        psycopg2.extras.execute_batch(self._cur, sql_pg, params_list)
+        self._cur.executemany(sql_pg, params_list)
         return self
 
     def fetchone(self):
@@ -196,7 +195,7 @@ class _NoOpCursor:
 
 class PgConnection:
     """
-    Wraps a psycopg2 connection to expose sqlite3-compatible interface.
+    Wraps a psycopg (v3) connection to expose sqlite3-compatible interface.
 
     Usage is identical to sqlite3:
         conn = get_db_connection()
@@ -206,7 +205,7 @@ class PgConnection:
     """
 
     def __init__(self, dsn: str):
-        self._conn = psycopg2.connect(dsn, cursor_factory=psycopg2.extras.RealDictCursor)
+        self._conn = psycopg.connect(dsn, row_factory=dict_row)
         self._conn.autocommit = False
 
     # row_factory is set in many places — make it a no-op
@@ -238,7 +237,7 @@ class PgConnection:
         if sql_pg is None:
             return _NoOpCursor()
         cur = self._raw_cursor()
-        psycopg2.extras.execute_batch(cur._cur, sql_pg, params_list)
+        cur._cur.executemany(sql_pg, params_list)
         return cur
 
     def cursor(self) -> PgCursor:
