@@ -1639,6 +1639,8 @@ RECARGA_EXPIRATION_MINUTES = int(os.environ.get('RECARGA_EXPIRATION_MINUTES', '3
 RECARGA_MIN_USDT = float(os.environ.get('RECARGA_MIN_USDT', '10'))
 RECARGA_MAX_USDT = float(os.environ.get('RECARGA_MAX_USDT', '50000'))
 BINANCE_PROXY = os.environ.get('BINANCE_PROXY', '')
+BINANCE_REQUEST_TIMEOUT_SECONDS = float(os.environ.get('BINANCE_REQUEST_TIMEOUT_SECONDS', '4'))
+BINANCE_TOTAL_TIMEOUT_SECONDS = float(os.environ.get('BINANCE_TOTAL_TIMEOUT_SECONDS', '8'))
 
 def binance_create_signature(query_string):
     """Genera firma HMAC SHA256 para autenticación con Binance API"""
@@ -1677,12 +1679,20 @@ def binance_get_pay_transactions(start_time=None, end_time=None, limit=100):
     
     headers = {'X-MBX-APIKEY': BINANCE_API_KEY}
     proxies = {'https': BINANCE_PROXY, 'http': BINANCE_PROXY} if BINANCE_PROXY else None
+    request_timeout = max(1.0, BINANCE_REQUEST_TIMEOUT_SECONDS)
+    total_timeout = max(request_timeout, BINANCE_TOTAL_TIMEOUT_SECONDS)
+    started_at = time_module.monotonic()
     
     last_error = None
     for base_url in BINANCE_API_ENDPOINTS:
+        elapsed = time_module.monotonic() - started_at
+        if elapsed >= total_timeout:
+            logger.warning(f"Timeout total alcanzado consultando Binance Pay ({elapsed:.2f}s)")
+            break
+
         url = f'{base_url}/sapi/v1/pay/transactions'
         try:
-            resp = req_lib.get(url, params=params, headers=headers, timeout=15, proxies=proxies)
+            resp = req_lib.get(url, params=params, headers=headers, timeout=request_timeout, proxies=proxies)
             data = resp.json()
             code = str(data.get('code', ''))
             if code == '000000' or code == '0' or data.get('success') == True:
