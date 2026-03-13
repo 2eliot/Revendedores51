@@ -1213,33 +1213,6 @@
           <div id="kpi-gasto-dia" class="stat-value">${{ "%.2f"|format(gasto_dia) }} $</div>
           <div class="stat-subtitle" id="kpi-gasto-dia-fecha">{{ fin }}</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-header">
-            <div class="stat-title">Ítem de Stock</div>
-          </div>
-          <div class="stat-value">{{ items_stock }}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-header">
-            <div class="stat-title">Ítem de Solicitud</div>
-          </div>
-          <div class="stat-value">{{ items_solicitud }}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-header">
-            <div class="stat-title">Total de Transacciones</div>
-          </div>
-          <div class="stat-value">{{ total_transacciones }}</div>
-        </div>
-        {% if is_admin %}
-        <div class="stat-card">
-          <div class="stat-header">
-            <div class="stat-title">Usuarios Registrados</div>
-          </div>
-          <div class="stat-value">{{ total_users }}</div>
-          <div class="stat-subtitle">Total en el sistema</div>
-        </div>
-        {% endif %}
       </div>
 
       <!-- Gráfico de rango -->
@@ -1298,29 +1271,6 @@
       </div>
 
     </div>
-
-    <!-- Top Usuarios (solo para admin) -->
-    {% if is_admin and top_users %}
-    <div class="top-users-section">
-      <div class="section-title">👑 Top 2 Usuarios con Más Compras</div>
-      {% for user in top_users %}
-      <div class="user-item">
-        <div class="user-info-item">
-          <div class="user-avatar">{{ user.nombre[0] }}{{ user.apellido[0] }}</div>
-          <div class="user-details-item">
-            <div class="user-name">{{ user.nombre }} {{ user.apellido }}</div>
-            <div class="user-email">{{ user.correo }}</div>
-          </div>
-        </div>
-        <div class="user-stats-item">
-          <div class="user-amount">${{ "%.2f"|format(user.monto_total) }}</div>
-          <div class="user-count">{{ user.total_compras }} compras</div>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-    {% endif %}
-
 
   </div>
 
