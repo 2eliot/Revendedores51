@@ -3583,7 +3583,7 @@ def audit_freefire_id_inconsistent_transactions():
     conn.close()
     return results
 
-def update_freefire_id_transaction_status(transaction_id, new_status, admin_id, notas=None):
+def update_freefire_id_transaction_status(transaction_id, new_status, admin_id, notas=None, register_general_tx=True):
     """Actualiza el estado de una transacción de Free Fire ID"""
     conn = get_db_connection()
     conn.execute('''
@@ -3594,7 +3594,8 @@ def update_freefire_id_transaction_status(transaction_id, new_status, admin_id, 
     conn.commit()
 
     # Si se aprueba, asegurar que exista registro en transacciones generales (historial)
-    if new_status == 'aprobado':
+    # Puede desactivarse en el flujo automático que ya inserta un registro más completo
+    if new_status == 'aprobado' and register_general_tx:
         try:
             tx = conn.execute('''
                 SELECT fi.usuario_id, fi.numero_control, fi.transaccion_id, fi.player_id,
@@ -6037,7 +6038,8 @@ def validar_freefire_id():
             player_name = redeem_result.player_name or ''
             
             # Actualizar estado de transacción a aprobado
-            update_freefire_id_transaction_status(transaction_data['id'], 'aprobado', user_id)
+            # register_general_tx=False para evitar duplicado: este flujo inserta abajo el registro completo
+            update_freefire_id_transaction_status(transaction_data['id'], 'aprobado', user_id, register_general_tx=False)
             
             # Registrar en transacciones generales (con duración de redención)
             conn = get_db_connection()
