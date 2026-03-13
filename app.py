@@ -8365,6 +8365,19 @@ def dashboard():
     if fecha_fin in serie_map:
         gasto_dia = round(serie_map[fecha_fin], 2)
 
+    def infer_item_from_package_name(nombre_paquete):
+        """Clasifica el ítem/juego para la tabla de compras por paquete."""
+        # Juego dinámico: "Juego - Paquete"
+        if ' - ' in nombre_paquete:
+            return nombre_paquete.split(' - ', 1)[0].strip() or 'Otros'
+        if '🪙' in nombre_paquete or 'Blood' in nombre_paquete:
+            return 'Blood Striker'
+        if '💎' in nombre_paquete or 'Tarjeta' in nombre_paquete:
+            if any(x in nombre_paquete for x in ['110 💎', '341 💎', '572 💎', '1.166 💎', '2.376 💎', '6.138 💎', 'Tarjeta']):
+                return 'Freefire Bolivia'
+            return 'Freefire'
+        return 'Otros'
+
     # Conteo de compras por paquete en el día seleccionado
     compras_paquete_counter = {}
     for t in transacciones_procesadas:
@@ -8376,17 +8389,7 @@ def dashboard():
     # Construir filas para tabla: Categoria, Ítem (juego), Paquete, Cantidad
     compras_paquete = []
     for nombre, cantidad in sorted(compras_paquete_counter.items(), key=lambda x: x[0]):
-        # Detectar juego para la columna Ítem
-        if '🪙' in nombre or 'Blood' in nombre:
-            item = 'Blood Striker'
-        elif '💎' in nombre or 'Tarjeta' in nombre:
-            # Intento de distinguir LATAM/Global por patrones del nombre
-            if any(x in nombre for x in ['110 💎', '341 💎', '572 💎', '1.166 💎', '2.376 💎', '6.138 💎', 'Tarjeta']):
-                item = 'Freefire Bolivia'
-            else:
-                item = 'Freefire'
-        else:
-            item = 'Otros'
+        item = infer_item_from_package_name(nombre)
         compras_paquete.append({
             'categoria': 'Juegos',
             'item': item,
@@ -8394,22 +8397,19 @@ def dashboard():
             'cantidad': cantidad
         })
 
-    # Catálogo completo de paquetes para mostrar filas con 0 cuando no hubo compras
-    paquetes_catalogo = []
-    try:
-        # Free Fire LATAM
-        for _id, info in packages_info.items():
-            paquetes_catalogo.append({'categoria': 'Juegos', 'item': 'Freefire Bolivia', 'paquete': info['nombre']})
-        # Free Fire Global
-        for _id, info in freefire_global_packages_info.items():
-            paquetes_catalogo.append({'categoria': 'Juegos', 'item': 'Freefire', 'paquete': info['nombre']})
-        # Blood Striker
-        for _id, info in bloodstriker_packages_info.items():
-            paquetes_catalogo.append({'categoria': 'Juegos', 'item': 'Blood Striker', 'paquete': info['nombre']})
-    except Exception:
-        pass
-
-    compras_paquete_map = compras_paquete_counter
+    # Mapa por día para refresco dinámico de tabla desde el gráfico
+    compras_por_dia_detalle = {d: [] for d in dias}
+    for d in dias:
+        counts = compras_por_dia_paquete.get(d, {}) or {}
+        rows = []
+        for nombre, cantidad in sorted(counts.items(), key=lambda x: x[0]):
+            rows.append({
+                'categoria': 'Juegos',
+                'item': infer_item_from_package_name(nombre),
+                'paquete': nombre,
+                'cantidad': cantidad
+            })
+        compras_por_dia_detalle[d] = rows
 
     # Valores por defecto (si no existen tablas de stock/solicitudes)
     items_stock = 0
@@ -8457,9 +8457,9 @@ def dashboard():
                          items_stock=items_stock,
                          items_solicitud=items_solicitud,
                          compras_paquete=compras_paquete,
-                         compras_paquete_map=compras_paquete_map,
-                         paquetes_catalogo=paquetes_catalogo,
+                         compras_paquete_map=compras_paquete_counter,
                          compras_por_dia_paquete=compras_por_dia_paquete,
+                         compras_por_dia_detalle=compras_por_dia_detalle,
                          games_active=get_games_active(),
                          total_users=total_users)
 

@@ -1270,10 +1270,8 @@
             </tr>
           </thead>
           <tbody>
-            {% set prev_cat = None %}
-            {% for row in paquetes_catalogo %}
-            {% set is_new_cat = (prev_cat != row.categoria) %}
-            <tr class="table-row {% if is_new_cat %}category-separator{% endif %}">
+            {% for row in compras_paquete %}
+            <tr class="table-row">
               <td data-label="Categoría">{{ row.categoria }}</td>
               <td data-label="Ítem">
                 <span class="item-desktop">{{ row.item }}</span>
@@ -1286,11 +1284,14 @@
                   {% for w in pkg_mobile.split(' ') %}{{ w }}<br/>{% endfor %}
                 </span>
               </td>
-              {% set cnt = compras_paquete_map.get(row.paquete, 0) %}
-              <td data-label="Cantidad" class="col-cantidad {% if cnt > 0 %}qty-positive{% endif %}">{{ cnt }}</td>
+              <td data-label="Cantidad" class="col-cantidad {% if row.cantidad > 0 %}qty-positive{% endif %}">{{ row.cantidad }}</td>
             </tr>
-            {% set prev_cat = row.categoria %}
             {% endfor %}
+            {% if compras_paquete|length == 0 %}
+            <tr>
+              <td colspan="4" style="text-align:center; color:#94a3b8; padding:14px;">Sin compras en el día seleccionado</td>
+            </tr>
+            {% endif %}
           </tbody>
         </table>
         </div>
@@ -1327,6 +1328,7 @@
   <script id="data-series-labels" type="application/json">{{ series_labels|tojson }}</script>
   <script id="data-series-values" type="application/json">{{ series_values|tojson }}</script>
   <script id="data-compras-por-dia" type="application/json">{{ compras_por_dia_paquete|tojson }}</script>
+  <script id="data-compras-por-dia-detalle" type="application/json">{{ compras_por_dia_detalle|tojson }}</script>
 
   <script>
     // Funciones para los menús del header integrado
@@ -1464,9 +1466,10 @@
 
       const ctx = document.getElementById('serieChart');
       if (ctx) {
-        const labels = JSON.parse(document.getElementById('data-series-labels').textContent || '[]');
-        const values = JSON.parse(document.getElementById('data-series-values').textContent || '[]'); // montos por día
-        const comprasPorDiaPaquete = JSON.parse(document.getElementById('data-compras-por-dia').textContent || '{}');
+        const labels = parseJsonScript('data-series-labels', []);
+        const values = parseJsonScript('data-series-values', []);
+        const comprasPorDiaPaquete = parseJsonScript('data-compras-por-dia', {});
+        const comprasPorDiaDetalle = parseJsonScript('data-compras-por-dia-detalle', {});
 
         // Etiquetas con formato día/mes
         const labelsMulti = labels.map(d => {
@@ -1522,16 +1525,25 @@
               const selectedDateSpan = document.getElementById('selected-date');
               if (selectedDateSpan) selectedDateSpan.textContent = dateSel;
               const tbody = document.querySelector('.games-section table tbody');
-              const counts = (comprasPorDiaPaquete && comprasPorDiaPaquete[dateSel]) ? comprasPorDiaPaquete[dateSel] : {};
+              const rowsData = (comprasPorDiaDetalle && comprasPorDiaDetalle[dateSel]) ? comprasPorDiaDetalle[dateSel] : [];
               if (tbody) {
-                const rows = tbody.querySelectorAll('tr');
-                rows.forEach(tr => {
-                  const cells = tr.querySelectorAll('td');
-                  if (cells.length >= 4) {
-                    const paquete = cells[2].innerText.trim();
-                    cells[3].innerText = counts[paquete] ? counts[paquete] : 0;
-                  }
-                });
+                if (!rowsData.length) {
+                  tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:14px;">Sin compras en el día seleccionado</td></tr>';
+                } else {
+                  tbody.innerHTML = rowsData.map(row => {
+                    const itemDesktop = row.item || '';
+                    const itemMobile = itemDesktop.split(' ').join('<br/>');
+                    const pkgDesktop = row.paquete || '';
+                    const pkgMobile = pkgDesktop.replaceAll(' 💎', '💎').replaceAll(' 🪙', '🪙').split(' ').join('<br/>');
+                    const qtyClass = Number(row.cantidad || 0) > 0 ? 'qty-positive' : '';
+                    return `<tr class="table-row">
+                      <td data-label="Categoría">${row.categoria || 'Juegos'}</td>
+                      <td data-label="Ítem"><span class="item-desktop">${itemDesktop}</span><span class="item-mobile">${itemMobile}</span></td>
+                      <td data-label="Paquete"><span class="item-desktop">${pkgDesktop}</span><span class="item-mobile">${pkgMobile}</span></td>
+                      <td data-label="Cantidad" class="col-cantidad ${qtyClass}">${Number(row.cantidad || 0)}</td>
+                    </tr>`;
+                  }).join('');
+                }
               }
             },
             plugins: {
