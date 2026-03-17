@@ -208,9 +208,10 @@ def crear_usuario():
         cursor = conn.execute('''
             INSERT INTO usuarios (nombre, apellido, telefono, correo, contraseña, saldo)
             VALUES (?, ?, ?, ?, ?, ?)
+            RETURNING id
         ''', (data['nombre'], data['apellido'], data['telefono'], data['correo'], hashed_password, 0.0))
         
-        user_id = cursor.lastrowid
+        user_id = cursor.fetchone()[0]
         conn.commit()
         conn.close()
         
@@ -490,9 +491,10 @@ def agregar_pin():
         cursor = conn.execute('''
             INSERT INTO pines_freefire (monto_id, pin_codigo)
             VALUES (?, ?)
+            RETURNING id
         ''', (monto_id, pin_codigo))
         
-        pin_id = cursor.lastrowid
+        pin_id = cursor.fetchone()[0]
         conn.commit()
         conn.close()
         

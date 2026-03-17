@@ -263,12 +263,13 @@ def admin_create_game():
 
     conn = _get_conn()
     try:
-        conn.execute('''
+        cur = conn.execute('''
             INSERT INTO juegos_dinamicos (nombre, slug, gamepoint_product_id, modo, color_tema, icono, activo, campos_config, descripcion, ganancia_default)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING id
         ''', (nombre, slug, int(product_id), modo, color, icono, False, json.dumps(campos), descripcion, ganancia))
+        game_id = cur.fetchone()[0]
         conn.commit()
-        game_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
     except Exception as e:
         conn.close()
         return jsonify({'error': str(e)}), 500
@@ -402,12 +403,13 @@ def admin_add_package(game_id):
         return jsonify({'error': 'Nombre y precio son obligatorios'}), 400
 
     conn = _get_conn()
-    conn.execute('''
+    cur = conn.execute('''
         INSERT INTO paquetes_dinamicos (juego_id, nombre, precio, descripcion, gamepoint_package_id, activo, orden)
         VALUES (?, ?, ?, ?, ?, 1, ?)
+        RETURNING id
     ''', (game_id, nombre, precio, descripcion, int(gp_pkg_id) if gp_pkg_id else None, orden))
+    pkg_id = cur.fetchone()[0]
     conn.commit()
-    pkg_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
 
     # Also register in precios_compra for profit tracking
     game = get_dynamic_game_by_id(game_id)
@@ -1006,6 +1008,30 @@ def validar_dinamico(slug):
                 estado_db = 'aprobado'
 
             conn = _get_conn()
+            # Idempotencia: si ya existe una transacción con este gamepoint_referenceno, no duplicar
+            if reference_no:
+                dup_td = conn.execute(
+                    'SELECT id FROM transacciones_dinamicas WHERE gamepoint_referenceno = ?',
+                    (reference_no,)
+                ).fetchone()
+                if dup_td:
+                    conn.close()
+                    # Ya procesada — redirigir como éxito sin duplicar registros
+                    session[f'compra_dyn_{slug}_exitosa'] = {
+                        'paquete_nombre': pkg['nombre'],
+                        'monto_compra': precio,
+                        'numero_control': numero_control,
+                        'transaccion_id': transaccion_id,
+                        'player_id': player_id,
+                        'player_id2': player_id2,
+                        'servidor': servidor,
+                        'player_name': ingame_name,
+                        'estado': 'completado',
+                        'gamepoint_ref': reference_no,
+                        'serial_key': serial_key,
+                    }
+                    return redirect(f'/juego/d/{slug}?compra=exitosa')
+
             conn.execute('''
                 INSERT INTO transacciones_dinamicas
                 (juego_id, usuario_id, player_id, player_id2, servidor, paquete_id,

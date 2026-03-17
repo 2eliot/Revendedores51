@@ -434,6 +434,12 @@ def init_db():
             cursor.execute("ALTER TABLE usuarios ADD COLUMN sin_ganancia BOOLEAN DEFAULT FALSE")
         except Exception:
             pass
+
+        # Columna bono_activo: si True y recarga Binance >= 1000$, se aplica bono del 1.5%
+        try:
+            cursor.execute("ALTER TABLE usuarios ADD COLUMN bono_activo BOOLEAN DEFAULT FALSE")
+        except Exception:
+            pass
     
         # Tabla de pines de Free Fire LATAM
         cursor.execute('''
@@ -1866,31 +1872,52 @@ def verificar_recarga_binance(recarga_id, _binance_tx_kwargs=None):
             tx_id = tx.get('transactionId', '')
             
             try:
-                # Verificar que no se haya procesado ya (idempotencia)
+                # === Transacción atómica: idempotencia + bono + crédito ===
                 conn2 = get_db_connection()
+
+                # Verificar que no se haya procesado ya (idempotencia por binance_transaction_id)
                 ya_procesada = conn2.execute(
                     'SELECT 1 FROM recargas_binance WHERE binance_transaction_id = ? AND estado = ?',
                     (tx_id, 'completada')
                 ).fetchone()
-                
+
                 if ya_procesada:
                     conn2.close()
                     return {'status': 'ya_procesada', 'message': 'Esta transacción ya fue procesada'}
-                
+
+                # Calcular bono 1.5% si el usuario tiene bono_activo y monto >= 1000
+                try:
+                    user_row = conn2.execute(
+                        'SELECT bono_activo FROM usuarios WHERE id = ?', (usuario_id,)
+                    ).fetchone()
+                    if user_row and user_row['bono_activo'] and monto_esperado >= 1000:
+                        bonus = round(monto_esperado * 0.015, 2)
+                        monto_total = monto_esperado + bonus
+                        logger.info(f"Recarga {recarga_id}: bono_activo=True, monto={monto_esperado} >= 1000, bono={bonus}, total={monto_total}")
+                except Exception as e_bonus:
+                    logger.warning(f"Recarga {recarga_id}: error consultando bono_activo: {e_bonus}")
+
                 # Actualizar recarga como completada
                 conn2.execute('''
                     UPDATE recargas_binance 
                     SET estado = 'completada', binance_transaction_id = ?, fecha_completada = CURRENT_TIMESTAMP, bonus = ?
                     WHERE id = ?
                 ''', (tx_id, bonus, recarga_id))
+
+                # Acreditar saldo al usuario (atómico, misma transacción)
+                saldo_row = conn2.execute('SELECT saldo FROM usuarios WHERE id = ?', (usuario_id,)).fetchone()
+                saldo_anterior = saldo_row['saldo'] if saldo_row else 0.0
+                conn2.execute('UPDATE usuarios SET saldo = saldo + ? WHERE id = ?', (monto_total, usuario_id))
+                conn2.execute('''
+                    INSERT INTO creditos_billetera (usuario_id, monto, saldo_anterior)
+                    VALUES (?, ?, ?)
+                ''', (usuario_id, monto_total, saldo_anterior))
+
                 conn2.commit()
                 conn2.close()
-                
-                # Acreditar saldo al usuario (usa su propia conexión)
-                add_credit_to_user(usuario_id, monto_total)
-                
+
                 logger.info(f"Recarga {recarga_id} completada: usuario={usuario_id}, monto={monto_esperado}, bonus={bonus}, total={monto_total}")
-                
+
                 return {
                     'status': 'completada',
                     'message': f'Recarga completada exitosamente',
@@ -1900,6 +1927,11 @@ def verificar_recarga_binance(recarga_id, _binance_tx_kwargs=None):
                     'transaction_id': tx_id
                 }
             except Exception as e:
+                try:
+                    conn2.rollback()
+                    conn2.close()
+                except Exception:
+                    pass
                 logger.error(f"Error acreditando recarga {recarga_id}: {e}", exc_info=True)
                 return {'status': 'error', 'message': 'Error al acreditar saldo'}
     
@@ -3159,12 +3191,26 @@ def create_bloodstriker_transaction(user_id, player_id, package_id, precio, esta
     import random
     import string
     
-    # Generar datos de la transacción
-    numero_control = ''.join(random.choices(string.digits, k=10))
-    transaccion_id = 'BS-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-    
     conn = get_db_connection()
     try:
+        # Idempotencia: si ya existe una transacción con este gamepoint_referenceno, no duplicar
+        if gamepoint_referenceno:
+            dup = conn.execute(
+                'SELECT id, numero_control, transaccion_id FROM transacciones_bloodstriker WHERE gamepoint_referenceno = ?',
+                (gamepoint_referenceno,)
+            ).fetchone()
+            if dup:
+                conn.close()
+                return {
+                    'id': dup['id'],
+                    'numero_control': dup['numero_control'],
+                    'transaccion_id': dup['transaccion_id']
+                }
+
+        # Generar datos de la transacción
+        numero_control = ''.join(random.choices(string.digits, k=10))
+        transaccion_id = 'BS-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+
         conn.execute('''
             INSERT INTO transacciones_bloodstriker 
             (usuario_id, player_id, paquete_id, numero_control, transaccion_id, monto, estado, gamepoint_referenceno)
@@ -4266,6 +4312,30 @@ def admin_toggle_sin_ganancia():
             conn.commit()
             estado = 'SIN ganancia' if new_val else 'CON ganancia'
             flash(f'Usuario ID {user_id} ahora está {estado}', 'success')
+        else:
+            flash('Usuario no encontrado', 'error')
+        conn.close()
+    else:
+        flash('ID de usuario inválido', 'error')
+    
+    return redirect('/admin')
+
+@app.route('/admin/toggle_bono_activo', methods=['POST'])
+def admin_toggle_bono_activo():
+    if not session.get('is_admin'):
+        flash('Acceso denegado. Solo administradores.', 'error')
+        return redirect('/auth')
+    
+    user_id = request.form.get('user_id')
+    if user_id:
+        conn = get_db_connection()
+        user = conn.execute('SELECT bono_activo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+        if user:
+            new_val = False if user['bono_activo'] else True
+            conn.execute('UPDATE usuarios SET bono_activo = ? WHERE id = ?', (new_val, user_id))
+            conn.commit()
+            estado = 'ACTIVADO' if new_val else 'DESACTIVADO'
+            flash(f'Bono 1.5% para usuario ID {user_id}: {estado}', 'success')
         else:
             flash('Usuario no encontrado', 'error')
         conn.close()
