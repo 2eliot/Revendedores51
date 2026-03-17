@@ -64,6 +64,9 @@
         <button class="side-tab-button" data-tab="apilog" onclick="showTab('apilog', event)" aria-label="Recargas API">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg></span><span class="label">Recargas</span>
         </button>
+        <button class="side-tab-button" data-tab="webservice" onclick="showTab('webservice', event)" aria-label="API Marca Blanca">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a9 9 0 0 1 9-9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/><path d="M12 17h.01"/><path d="M17 12h.01"/></svg></span><span class="label">API</span>
+        </button>
         <a class="side-tab-button" href="/" aria-label="Volver al Inicio" style="text-decoration:none;">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7"/><path d="M9 22V12h6v10"/></svg></span><span class="label">Inicio</span>
         </a>
@@ -414,6 +417,81 @@
           </div>
           <div id="apilog-table-wrap">
             <div style="text-align:center;padding:30px;color:#888;">Haz clic en Actualizar para cargar el log.</div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Pestaña API Marca Blanca -->
+      <div id="tab-webservice" class="tab-content">
+        <section class="prices-section">
+          <h2 style="margin-bottom:14px;">🔌 API Marca Blanca — Cuentas de Web Service</h2>
+          <p style="color:#8b949e;font-size:13px;margin-bottom:18px;">Permite que webs externas se conecten, consulten productos y ejecuten recargas usando el saldo de un usuario asignado.</p>
+
+          <!-- Formulario crear cuenta -->
+          <div class="card" style="margin-bottom:18px;border:1px solid rgba(74,222,128,0.25);">
+            <div class="card-header" style="background:rgba(74,222,128,0.06);"><h3>+ Crear Cuenta API</h3></div>
+            <div class="card-body">
+              <form method="POST" action="/admin/webservice-accounts/create" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+                <div>
+                  <label style="display:block;color:#8b949e;font-size:11px;margin-bottom:3px;">Nombre *</label>
+                  <input type="text" name="ws_nombre" placeholder="Ej: Inefable Store" required style="padding:7px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#e0e0e0;font-size:13px;width:180px;">
+                </div>
+                <div>
+                  <label style="display:block;color:#8b949e;font-size:11px;margin-bottom:3px;">Usuario ID *</label>
+                  <input type="number" name="ws_usuario_id" placeholder="ID del usuario" required style="padding:7px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#e0e0e0;font-size:13px;width:120px;">
+                </div>
+                <div>
+                  <label style="display:block;color:#8b949e;font-size:11px;margin-bottom:3px;">Webhook URL</label>
+                  <input type="url" name="ws_webhook_url" placeholder="https://ejemplo.com/webhook" style="padding:7px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#e0e0e0;font-size:13px;width:280px;">
+                </div>
+                <button type="submit" class="btn btn-success" style="padding:7px 16px;">Crear</button>
+              </form>
+            </div>
+          </div>
+
+          <!-- Lista de cuentas -->
+          <div class="card">
+            <div class="card-header"><h3>Cuentas Registradas</h3></div>
+            <div class="card-body">
+              <div id="ws-accounts-list" style="color:#888;padding:10px;">Cargando cuentas...</div>
+            </div>
+          </div>
+
+          <!-- Documentación rápida -->
+          <div class="card" style="margin-top:18px;border:1px solid rgba(167,139,250,0.25);">
+            <div class="card-header" style="background:rgba(167,139,250,0.06);"><h3>📖 Endpoints Disponibles</h3></div>
+            <div class="card-body" style="font-size:13px;color:#c9d1d9;">
+              <table style="width:100%;border-collapse:collapse;">
+                <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.1);">
+                  <th style="text-align:left;padding:6px 8px;color:#8b949e;font-size:11px;">Método</th>
+                  <th style="text-align:left;padding:6px 8px;color:#8b949e;font-size:11px;">Endpoint</th>
+                  <th style="text-align:left;padding:6px 8px;color:#8b949e;font-size:11px;">Descripción</th>
+                </tr></thead>
+                <tbody>
+                  <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                    <td style="padding:6px 8px;"><span style="background:#22863a;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;">GET</span></td>
+                    <td style="padding:6px 8px;font-family:monospace;">/api/v1/products</td>
+                    <td style="padding:6px 8px;">Catálogo de juegos + paquetes + precios</td>
+                  </tr>
+                  <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                    <td style="padding:6px 8px;"><span style="background:#b08800;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;">POST</span></td>
+                    <td style="padding:6px 8px;font-family:monospace;">/api/v1/recharge</td>
+                    <td style="padding:6px 8px;">Crear orden de recarga (descuenta saldo)</td>
+                  </tr>
+                  <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                    <td style="padding:6px 8px;"><span style="background:#22863a;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;">GET</span></td>
+                    <td style="padding:6px 8px;font-family:monospace;">/api/v1/orders/&lt;id&gt;</td>
+                    <td style="padding:6px 8px;">Consultar estado de una orden</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 8px;"><span style="background:#22863a;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;">GET</span></td>
+                    <td style="padding:6px 8px;font-family:monospace;">/api/v1/balance</td>
+                    <td style="padding:6px 8px;">Consultar saldo de la cuenta</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p style="color:#8b949e;margin-top:10px;font-size:12px;">Autenticación: <code style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;">X-API-Key: wsk_...</code> en header o <code style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;">?api_key=wsk_...</code> en query param.</p>
+            </div>
           </div>
         </section>
       </div>
@@ -797,6 +875,52 @@
         setTimeout(() => flashMessages.remove(), 300);
       }
     }, 2000);
+
+    // Cargar cuentas WebService API
+    function loadWsAccounts() {
+      fetch('/admin/webservice-accounts')
+        .then(r => r.json())
+        .then(data => {
+          const wrap = document.getElementById('ws-accounts-list');
+          if (!data.ok || !data.accounts.length) {
+            wrap.innerHTML = '<div style="text-align:center;padding:20px;color:#666;">No hay cuentas API creadas.</div>';
+            return;
+          }
+          let html = '<div class="table-responsive"><table class="table" style="width:100%;font-size:13px;"><thead><tr>' +
+            '<th>ID</th><th>Nombre</th><th>Usuario</th><th>Saldo</th><th>API Key</th><th>Webhook</th><th>Estado</th><th>Acciones</th>' +
+            '</tr></thead><tbody>';
+          data.accounts.forEach(a => {
+            const estadoStyle = a.activo ? 'color:#4ade80' : 'color:#f87171';
+            const estadoText = a.activo ? 'Activa' : 'Inactiva';
+            const keyShort = a.api_key.substring(0, 12) + '...';
+            html += '<tr>' +
+              '<td>' + a.id + '</td>' +
+              '<td><strong>' + a.nombre + '</strong></td>' +
+              '<td>' + a.usuario_nombre + '<br><small style="color:#8b949e">' + a.usuario_correo + ' (ID: ' + a.usuario_id + ')</small></td>' +
+              '<td>$' + a.usuario_saldo.toFixed(2) + '</td>' +
+              '<td><code style="font-size:11px;cursor:pointer;background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:4px;" title="' + a.api_key + '" onclick="navigator.clipboard.writeText(\'' + a.api_key + '\');this.style.color=\'#4ade80\';setTimeout(()=>this.style.color=\'\',1000)">' + keyShort + ' 📋</code></td>' +
+              '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;">' + (a.webhook_url || '<span style="color:#666">—</span>') + '</td>' +
+              '<td style="' + estadoStyle + ';font-weight:600;">' + estadoText + '</td>' +
+              '<td style="white-space:nowrap;">' +
+                '<form method="POST" action="/admin/webservice-accounts/' + a.id + '/toggle" style="display:inline;">' +
+                  '<button type="submit" class="btn ' + (a.activo ? 'btn-warning' : 'btn-success') + '" style="padding:4px 10px;font-size:11px;">' + (a.activo ? 'Desactivar' : 'Activar') + '</button>' +
+                '</form> ' +
+                '<form method="POST" action="/admin/webservice-accounts/' + a.id + '/regenerate-key" style="display:inline;" onsubmit="return confirm(\'¿Regenerar API Key? La key actual dejará de funcionar.\')">' +
+                  '<button type="submit" class="btn btn-secondary" style="padding:4px 10px;font-size:11px;">🔑 Nueva Key</button>' +
+                '</form> ' +
+                '<form method="POST" action="/admin/webservice-accounts/' + a.id + '/delete" style="display:inline;" onsubmit="return confirm(\'¿Eliminar esta cuenta API?\')">' +
+                  '<button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:11px;">Eliminar</button>' +
+                '</form>' +
+              '</td>' +
+            '</tr>';
+          });
+          html += '</tbody></table></div>';
+          wrap.innerHTML = html;
+        })
+        .catch(err => {
+          document.getElementById('ws-accounts-list').innerHTML = '<div style="color:#f87171;">Error cargando cuentas: ' + err + '</div>';
+        });
+    }
 
     // Log de recargas API (Inefable Store) — diseño de tarjetas para móvil
     async function loadApiLog() {
@@ -1238,6 +1362,8 @@
         loadCostoData();
       } else if (tabName === 'gameclub') {
         loadGpRate();
+      } else if (tabName === 'webservice') {
+        if (typeof loadWsAccounts === 'function') loadWsAccounts();
       }
     }
 

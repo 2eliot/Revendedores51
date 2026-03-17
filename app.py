@@ -48,6 +48,7 @@ import zipfile
 import io
 from admin_stats import bp as admin_stats_bp
 from dynamic_games import bp as dynamic_games_bp, get_all_dynamic_games as get_dynamic_games_list, sync_all_dynamic_games_prices
+from api_whitelabel import bp as whitelabel_bp, init_whitelabel_tables
 from update_monthly_spending import update_monthly_spending
 
 
@@ -289,6 +290,7 @@ mail = Mail(app)
 # Registrar blueprint de estadísticas de administración
 app.register_blueprint(admin_stats_bp, url_prefix='/admin/stats')
 app.register_blueprint(dynamic_games_bp)
+app.register_blueprint(whitelabel_bp)
 
 @app.context_processor
 def inject_dynamic_games_menu():
@@ -955,6 +957,9 @@ def init_db():
             cursor.execute("ALTER TABLE api_recharges_log ADD COLUMN package_name TEXT DEFAULT ''")
         except Exception:
             pass
+
+        # Tablas para API de marca blanca (WebService accounts + órdenes)
+        init_whitelabel_tables(cursor)
 
         # Crear índices optimizados para mejor rendimiento
         create_optimized_indexes(cursor)
