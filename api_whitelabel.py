@@ -135,6 +135,50 @@ def _generate_api_key():
     return 'wsk_' + secrets.token_hex(24)
 
 
+def _get_linked_user_info(usuario_id):
+    """Retorna datos del usuario vinculado a la cuenta API."""
+    conn = _get_conn()
+    row = conn.execute(
+        'SELECT id, nombre, apellido, correo, saldo FROM usuarios WHERE id = ?',
+        (usuario_id,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        'user_id': row['id'],
+        'name': f"{row['nombre']} {row['apellido']}",
+        'email': row['correo'],
+        'balance': float(row['saldo']),
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/account  — info de la cuenta vinculada
+# ---------------------------------------------------------------------------
+
+@bp.route('/api/v1/account', methods=['GET'])
+@require_api_key
+def api_v1_account():
+    """Retorna info de la cuenta API y del usuario vinculado."""
+    account = request._ws_account
+    user_info = _get_linked_user_info(account['usuario_id'])
+    if not user_info:
+        return jsonify({'ok': False, 'error': 'Usuario vinculado no encontrado'}), 404
+
+    return jsonify({
+        'ok': True,
+        'account': {
+            'id': account['id'],
+            'name': account['nombre'],
+            'active': bool(account['activo']),
+            'webhook_url': account.get('webhook_url', ''),
+            'created_at': str(account.get('fecha_creacion', '')),
+        },
+        'user': user_info,
+    })
+
+
 # ---------------------------------------------------------------------------
 # GET /api/v1/products
 # ---------------------------------------------------------------------------
@@ -233,8 +277,12 @@ def api_v1_products():
     except Exception as e:
         logger.warning(f'[WL API] Error leyendo Free Fire ID: {e}')
 
+    account = request._ws_account
+    user_info = _get_linked_user_info(account['usuario_id'])
+
     return jsonify({
         'ok': True,
+        'user': user_info,
         'games': games,
         'total_games': len(games),
         'total_packages': sum(len(g['packages']) for g in games),
@@ -462,6 +510,16 @@ def _execute_recharge(order_id, game_type, package_id, player_id, player_id2,
     if account.get('webhook_url'):
         _send_webhook_async(order_id, account['webhook_url'])
 
+    # Obtener saldo restante del usuario
+    remaining_balance = 0.0
+    try:
+        conn_bal = _get_conn()
+        bal_row = conn_bal.execute('SELECT saldo FROM usuarios WHERE id = ?', (usuario_id,)).fetchone()
+        conn_bal.close()
+        remaining_balance = float(bal_row['saldo']) if bal_row else 0.0
+    except Exception:
+        pass
+
     # Construir respuesta
     status_code = 200 if result.get('ok') else 422
     response = {
@@ -471,6 +529,8 @@ def _execute_recharge(order_id, game_type, package_id, player_id, player_id2,
         'player_name': result.get('player_name', ''),
         'reference_no': result.get('reference_no', ''),
         'duration': _duration,
+        'user_id': usuario_id,
+        'remaining_balance': remaining_balance,
     }
     if not result.get('ok'):
         response['error'] = result.get('error', '')
@@ -629,16 +689,13 @@ def api_v1_order_status(order_id):
 def api_v1_balance():
     """Consulta el saldo del usuario vinculado a la cuenta API."""
     account = request._ws_account
-    conn = _get_conn()
-    row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (account['usuario_id'],)).fetchone()
-    conn.close()
-
-    if not row:
+    user_info = _get_linked_user_info(account['usuario_id'])
+    if not user_info:
         return jsonify({'ok': False, 'error': 'Usuario vinculado no encontrado'}), 404
 
     return jsonify({
         'ok': True,
-        'balance': float(row['saldo']),
+        'user': user_info,
         'account_name': account['nombre'],
     })
 
@@ -826,6 +883,55 @@ def admin_regenerate_ws_key(account_id):
     conn.close()
 
     flash(f'Nueva API Key para cuenta #{account_id}: {new_key}', 'success')
+    return redirect('/admin')
+
+
+@bp.route('/admin/webservice-accounts/<int:account_id>/update', methods=['POST'])
+def admin_update_ws_account(account_id):
+    """Actualiza usuario vinculado y/o webhook de una cuenta."""
+    if not session.get('is_admin'):
+        return jsonify({'error': 'Acceso denegado'}), 403
+
+    data = request.form or request.get_json(silent=True) or {}
+    nuevo_usuario_id = data.get('ws_usuario_id')
+    nuevo_webhook = data.get('ws_webhook_url')
+
+    conn = _get_conn()
+    row = conn.execute('SELECT * FROM webservice_accounts WHERE id = ?', (account_id,)).fetchone()
+    if not row:
+        conn.close()
+        flash('Cuenta no encontrada.', 'error')
+        return redirect('/admin')
+
+    updates = []
+    params = []
+
+    if nuevo_usuario_id:
+        try:
+            nuevo_usuario_id = int(nuevo_usuario_id)
+            user_exists = conn.execute('SELECT id FROM usuarios WHERE id = ?', (nuevo_usuario_id,)).fetchone()
+            if not user_exists:
+                conn.close()
+                flash(f'Usuario ID {nuevo_usuario_id} no encontrado.', 'error')
+                return redirect('/admin')
+            updates.append('usuario_id = ?')
+            params.append(nuevo_usuario_id)
+        except (ValueError, TypeError):
+            conn.close()
+            flash('ID de usuario inválido.', 'error')
+            return redirect('/admin')
+
+    if nuevo_webhook is not None:
+        updates.append('webhook_url = ?')
+        params.append(nuevo_webhook.strip())
+
+    if updates:
+        updates.append('fecha_actualizacion = CURRENT_TIMESTAMP')
+        params.append(account_id)
+        conn.execute(f'UPDATE webservice_accounts SET {", ".join(updates)} WHERE id = ?', params)
+        conn.commit()
+        flash(f'Cuenta API #{account_id} actualizada.', 'success')
+    conn.close()
     return redirect('/admin')
 
 

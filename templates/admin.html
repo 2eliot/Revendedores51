@@ -437,8 +437,13 @@
                   <input type="text" name="ws_nombre" placeholder="Ej: Inefable Store" required style="padding:7px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#e0e0e0;font-size:13px;width:180px;">
                 </div>
                 <div>
-                  <label style="display:block;color:#8b949e;font-size:11px;margin-bottom:3px;">Usuario ID *</label>
-                  <input type="number" name="ws_usuario_id" placeholder="ID del usuario" required style="padding:7px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#e0e0e0;font-size:13px;width:120px;">
+                  <label style="display:block;color:#8b949e;font-size:11px;margin-bottom:3px;">Usuario vinculado *</label>
+                  <select name="ws_usuario_id" required style="padding:7px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#e0e0e0;font-size:13px;min-width:220px;">
+                    <option value="" disabled selected>Seleccionar usuario...</option>
+                    {% for user in users %}
+                    <option value="{{ user.id }}">{{ user.nombre }} {{ user.apellido }} — ${{ "%.2f"|format(user.saldo) }} (ID: {{ user.id }})</option>
+                    {% endfor %}
+                  </select>
                 </div>
                 <div>
                   <label style="display:block;color:#8b949e;font-size:11px;margin-bottom:3px;">Webhook URL</label>
@@ -482,6 +487,11 @@
                     <td style="padding:6px 8px;"><span style="background:#22863a;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;">GET</span></td>
                     <td style="padding:6px 8px;font-family:monospace;">/api/v1/orders/&lt;id&gt;</td>
                     <td style="padding:6px 8px;">Consultar estado de una orden</td>
+                  </tr>
+                  <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                    <td style="padding:6px 8px;"><span style="background:#22863a;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;">GET</span></td>
+                    <td style="padding:6px 8px;font-family:monospace;">/api/v1/account</td>
+                    <td style="padding:6px 8px;">Info de la cuenta + usuario vinculado</td>
                   </tr>
                   <tr>
                     <td style="padding:6px 8px;"><span style="background:#22863a;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;">GET</span></td>
@@ -876,6 +886,13 @@
       }
     }, 2000);
 
+    // Datos de usuarios para el dropdown de edición
+    var _wsUsers = [
+      {% for user in users %}
+      {id: {{ user.id }}, label: '{{ user.nombre }} {{ user.apellido }} — ${{ "%.2f"|format(user.saldo) }} (ID: {{ user.id }})'},
+      {% endfor %}
+    ];
+
     // Cargar cuentas WebService API
     function loadWsAccounts() {
       fetch('/admin/webservice-accounts')
@@ -886,40 +903,100 @@
             wrap.innerHTML = '<div style="text-align:center;padding:20px;color:#666;">No hay cuentas API creadas.</div>';
             return;
           }
-          let html = '<div class="table-responsive"><table class="table" style="width:100%;font-size:13px;"><thead><tr>' +
-            '<th>ID</th><th>Nombre</th><th>Usuario</th><th>Saldo</th><th>API Key</th><th>Webhook</th><th>Estado</th><th>Acciones</th>' +
-            '</tr></thead><tbody>';
+          let html = '';
           data.accounts.forEach(a => {
-            const estadoStyle = a.activo ? 'color:#4ade80' : 'color:#f87171';
+            const estadoBg = a.activo ? 'rgba(74,222,128,0.08)' : 'rgba(248,113,113,0.08)';
+            const estadoBorder = a.activo ? 'rgba(74,222,128,0.25)' : 'rgba(248,113,113,0.25)';
+            const estadoColor = a.activo ? '#4ade80' : '#f87171';
             const estadoText = a.activo ? 'Activa' : 'Inactiva';
-            const keyShort = a.api_key.substring(0, 12) + '...';
-            html += '<tr>' +
-              '<td>' + a.id + '</td>' +
-              '<td><strong>' + a.nombre + '</strong></td>' +
-              '<td>' + a.usuario_nombre + '<br><small style="color:#8b949e">' + a.usuario_correo + ' (ID: ' + a.usuario_id + ')</small></td>' +
-              '<td>$' + a.usuario_saldo.toFixed(2) + '</td>' +
-              '<td><code style="font-size:11px;cursor:pointer;background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:4px;" title="' + a.api_key + '" onclick="navigator.clipboard.writeText(\'' + a.api_key + '\');this.style.color=\'#4ade80\';setTimeout(()=>this.style.color=\'\',1000)">' + keyShort + ' 📋</code></td>' +
-              '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;">' + (a.webhook_url || '<span style="color:#666">—</span>') + '</td>' +
-              '<td style="' + estadoStyle + ';font-weight:600;">' + estadoText + '</td>' +
-              '<td style="white-space:nowrap;">' +
-                '<form method="POST" action="/admin/webservice-accounts/' + a.id + '/toggle" style="display:inline;">' +
-                  '<button type="submit" class="btn ' + (a.activo ? 'btn-warning' : 'btn-success') + '" style="padding:4px 10px;font-size:11px;">' + (a.activo ? 'Desactivar' : 'Activar') + '</button>' +
-                '</form> ' +
-                '<form method="POST" action="/admin/webservice-accounts/' + a.id + '/regenerate-key" style="display:inline;" onsubmit="return confirm(\'¿Regenerar API Key? La key actual dejará de funcionar.\')">' +
-                  '<button type="submit" class="btn btn-secondary" style="padding:4px 10px;font-size:11px;">🔑 Nueva Key</button>' +
-                '</form> ' +
-                '<form method="POST" action="/admin/webservice-accounts/' + a.id + '/delete" style="display:inline;" onsubmit="return confirm(\'¿Eliminar esta cuenta API?\')">' +
-                  '<button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:11px;">Eliminar</button>' +
-                '</form>' +
-              '</td>' +
-            '</tr>';
+            const keyShort = a.api_key.substring(0, 16) + '...';
+
+            html += '<div style="background:' + estadoBg + ';border:1px solid ' + estadoBorder + ';border-radius:10px;padding:14px;margin-bottom:12px;">';
+
+            // Header: nombre + estado
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
+              '<div><strong style="font-size:15px;">' + a.nombre + '</strong> <span style="color:' + estadoColor + ';font-size:12px;font-weight:600;margin-left:8px;">' + estadoText + '</span></div>' +
+              '<span style="color:#8b949e;font-size:11px;">ID: ' + a.id + '</span>' +
+            '</div>';
+
+            // Info grid
+            html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;font-size:13px;margin-bottom:12px;">';
+
+            // Usuario vinculado
+            html += '<div>' +
+              '<span style="color:#8b949e;font-size:11px;display:block;">Usuario vinculado</span>' +
+              '<strong>' + a.usuario_nombre + '</strong><br>' +
+              '<small style="color:#8b949e;">' + a.usuario_correo + ' (ID: ' + a.usuario_id + ')</small>' +
+            '</div>';
+
+            // Saldo
+            html += '<div>' +
+              '<span style="color:#8b949e;font-size:11px;display:block;">Saldo disponible</span>' +
+              '<strong style="color:#4ade80;font-size:16px;">$' + a.usuario_saldo.toFixed(2) + '</strong>' +
+            '</div>';
+
+            // API Key
+            html += '<div>' +
+              '<span style="color:#8b949e;font-size:11px;display:block;">API Key</span>' +
+              '<code style="font-size:11px;cursor:pointer;background:rgba(255,255,255,0.06);padding:3px 8px;border-radius:4px;" title="' + a.api_key + '" onclick="navigator.clipboard.writeText(\'' + a.api_key + '\');this.style.color=\'#4ade80\';setTimeout(()=>this.style.color=\'\',1000)">' + keyShort + ' 📋</code>' +
+            '</div>';
+
+            // Webhook
+            html += '<div>' +
+              '<span style="color:#8b949e;font-size:11px;display:block;">Webhook URL</span>' +
+              '<span style="font-size:12px;word-break:break-all;">' + (a.webhook_url || '<span style="color:#666">No configurado</span>') + '</span>' +
+            '</div>';
+
+            html += '</div>'; // close grid
+
+            // Acciones
+            html += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;border-top:1px solid rgba(255,255,255,0.06);padding-top:10px;">';
+
+            // Toggle
+            html += '<form method="POST" action="/admin/webservice-accounts/' + a.id + '/toggle" style="display:inline;">' +
+              '<button type="submit" class="btn ' + (a.activo ? 'btn-warning' : 'btn-success') + '" style="padding:4px 12px;font-size:11px;">' + (a.activo ? 'Desactivar' : 'Activar') + '</button></form>';
+
+            // Editar usuario
+            html += '<button type="button" class="btn btn-secondary" style="padding:4px 12px;font-size:11px;" onclick="toggleWsEdit(' + a.id + ')">Editar</button>';
+
+            // Regenerar key
+            html += '<form method="POST" action="/admin/webservice-accounts/' + a.id + '/regenerate-key" style="display:inline;" onsubmit="return confirm(\'¿Regenerar API Key? La key actual dejará de funcionar.\')">' +
+              '<button type="submit" class="btn btn-secondary" style="padding:4px 12px;font-size:11px;">🔑 Nueva Key</button></form>';
+
+            // Eliminar
+            html += '<form method="POST" action="/admin/webservice-accounts/' + a.id + '/delete" style="display:inline;" onsubmit="return confirm(\'¿Eliminar esta cuenta API?\')">' +
+              '<button type="submit" class="btn btn-danger" style="padding:4px 12px;font-size:11px;">Eliminar</button></form>';
+
+            html += '</div>'; // close acciones
+
+            // Formulario edición inline (oculto)
+            var userOpts = '<option value="">Sin cambio</option>';
+            _wsUsers.forEach(function(u) {
+              var sel = u.id === a.usuario_id ? ' selected' : '';
+              userOpts += '<option value="' + u.id + '"' + sel + '>' + u.label + '</option>';
+            });
+
+            html += '<div id="ws-edit-' + a.id + '" style="display:none;margin-top:10px;padding:10px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.08);">' +
+              '<form method="POST" action="/admin/webservice-accounts/' + a.id + '/update" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">' +
+                '<div><label style="display:block;color:#8b949e;font-size:11px;margin-bottom:3px;">Cambiar usuario vinculado</label>' +
+                  '<select name="ws_usuario_id" style="padding:6px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#e0e0e0;font-size:12px;min-width:220px;">' + userOpts + '</select></div>' +
+                '<div><label style="display:block;color:#8b949e;font-size:11px;margin-bottom:3px;">Webhook URL</label>' +
+                  '<input type="url" name="ws_webhook_url" value="' + (a.webhook_url || '') + '" placeholder="https://..." style="padding:6px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#e0e0e0;font-size:12px;width:250px;"></div>' +
+                '<button type="submit" class="btn btn-success" style="padding:5px 14px;font-size:12px;">Guardar</button>' +
+              '</form></div>';
+
+            html += '</div>'; // close card
           });
-          html += '</tbody></table></div>';
           wrap.innerHTML = html;
         })
         .catch(err => {
           document.getElementById('ws-accounts-list').innerHTML = '<div style="color:#f87171;">Error cargando cuentas: ' + err + '</div>';
         });
+    }
+
+    function toggleWsEdit(id) {
+      var el = document.getElementById('ws-edit-' + id);
+      if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
     }
 
     // Log de recargas API (Inefable Store) — diseño de tarjetas para móvil
