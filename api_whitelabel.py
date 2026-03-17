@@ -379,7 +379,8 @@ def api_v1_recharge():
     # --- Ejecutar recarga en background para no bloquear al cliente ---
     # (se ejecuta síncrono porque el cliente espera el resultado)
     result = _execute_recharge(order_id, game_type, package_id, player_id, player_id2,
-                               precio, gp_package_id, gp_product_id, usuario_id, account)
+                               precio, gp_package_id, gp_product_id, usuario_id, account,
+                               game_name=game_name, pkg_name=pkg_name)
 
     return result
 
@@ -455,7 +456,8 @@ def _resolve_package(product_id, package_id):
 
 
 def _execute_recharge(order_id, game_type, package_id, player_id, player_id2,
-                      precio, gp_package_id, gp_product_id, usuario_id, account):
+                      precio, gp_package_id, gp_product_id, usuario_id, account,
+                      game_name='', pkg_name=''):
     """Ejecuta la recarga según el tipo de juego y actualiza la orden."""
     _start = time_module.time()
 
@@ -487,6 +489,42 @@ def _execute_recharge(order_id, game_type, package_id, player_id, player_id2,
                 WHERE id = ?
             ''', (result.get('reference_no', ''), result.get('player_name', ''),
                   _duration, order_id))
+
+            # ── Registrar en historial general (transacciones + historial_compras) ──
+            try:
+                _nc = f"WL-{secrets.token_hex(4).upper()}"
+                _tid = f"WL-API-{order_id}"
+                _player_name = result.get('player_name', '')
+                if _player_name:
+                    _pin_info = f"ID: {player_id} - Jugador: {_player_name}"
+                else:
+                    _pin_info = f"ID: {player_id}"
+                if player_id2:
+                    _pin_info = f"ID: {player_id}/{player_id2} - " + _pin_info.split(' - ', 1)[-1]
+                _pin_info += f" [API: {account['nombre']}]"
+
+                _paquete_display = f"{game_name} - {pkg_name}" if game_name else (pkg_name or f"Paquete {package_id}")
+
+                conn.execute('''
+                    INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto, duracion_segundos)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (usuario_id, _nc, _pin_info, _tid, _paquete_display, -precio, _duration))
+
+                _saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (usuario_id,)).fetchone()
+                _saldo = float(_saldo_row['saldo']) if _saldo_row else 0.0
+                conn.execute('''
+                    INSERT INTO historial_compras (usuario_id, monto, paquete_nombre, pin, tipo_evento, duracion_segundos, saldo_antes, saldo_despues)
+                    VALUES (?, ?, ?, ?, 'compra', ?, ?, ?)
+                ''', (usuario_id, precio, _paquete_display, _pin_info, _duration, _saldo + precio, _saldo))
+
+                try:
+                    from app import update_monthly_spending
+                    update_monthly_spending(conn, usuario_id, precio)
+                except Exception:
+                    pass
+            except Exception as e:
+                logger.warning(f'[WL API] Error registrando transacción general order={order_id}: {e}')
+
         else:
             # Reembolsar saldo
             conn.execute('UPDATE usuarios SET saldo = saldo + ? WHERE id = ?', (precio, usuario_id))
