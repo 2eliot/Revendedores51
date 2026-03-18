@@ -897,8 +897,8 @@ def validar_dinamico(slug):
         dup = conn_dup.execute(
             '''SELECT id FROM transacciones_dinamicas
                WHERE usuario_id = ? AND juego_id = ? AND paquete_id = ?
-                 AND estado IN ('pendiente', 'aprobado')
-                 AND datetime(fecha) >= datetime('now', '-2 minutes')
+                 AND estado IN ('procesando', 'pendiente', 'aprobado')
+                 AND fecha >= (NOW() - INTERVAL '2 minutes')
                LIMIT 1''',
             (user_id, game['id'], package_id)
         ).fetchone()
@@ -912,6 +912,7 @@ def validar_dinamico(slug):
     # === PURCHASE VIA GAMEPOINT ===
     _start = time_module.time()
     get_token, gp_post, order_validate, order_create, order_inquiry = _gp_helpers()
+    _tx_procesando_id = None
 
     try:
         # 1. Deduct balance atomically
@@ -927,9 +928,45 @@ def validar_dinamico(slug):
             conn.close()
             session['saldo'] = new_saldo['saldo'] if new_saldo else 0
 
+        # 1b. Insert 'procesando' record BEFORE GamePoint calls (prevents duplicate on page refresh)
+        merchant_code = f"DG{game['id']}-" + secrets.token_hex(6).upper()
+        numero_control = f"DG-{secrets.token_hex(4).upper()}"
+        try:
+            conn_proc = _get_conn()
+            dup_proc = conn_proc.execute(
+                '''SELECT id FROM transacciones_dinamicas
+                   WHERE usuario_id = ? AND juego_id = ? AND paquete_id = ?
+                     AND estado IN ('procesando', 'pendiente', 'aprobado')
+                     AND fecha >= (NOW() - INTERVAL '2 minutes')
+                   LIMIT 1''',
+                (user_id, game['id'], package_id)
+            ).fetchone()
+            if dup_proc:
+                conn_proc.close()
+                _refund(user_id, precio, is_admin)
+                flash('Ya se está procesando tu recarga. Espera unos segundos y revisa tu historial.', 'error')
+                return redirect(redirect_url)
+            cur_proc = conn_proc.execute('''
+                INSERT INTO transacciones_dinamicas
+                (juego_id, usuario_id, player_id, player_id2, servidor, paquete_id,
+                 numero_control, transaccion_id, monto, estado)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'procesando')
+                RETURNING id
+            ''', (game['id'], user_id, player_id, player_id2 or None, servidor or None,
+                  package_id, numero_control, merchant_code, precio))
+            _tx_procesando_id = cur_proc.fetchone()[0]
+            conn_proc.commit()
+            conn_proc.close()
+        except Exception as e_proc:
+            logger.error(f"[DynGame:{game['slug']}] Error insertando procesando: {e_proc}")
+            _refund(user_id, precio, is_admin)
+            flash('Error al procesar. Tu saldo ha sido devuelto.', 'error')
+            return redirect(redirect_url)
+
         # 2. Get GamePoint token
         gc_token, gc_err = get_token()
         if not gc_token:
+            _update_tx_error(_tx_procesando_id, 'No se pudo obtener token GP')
             _refund(user_id, precio, is_admin)
             flash(f'Error de conexión con proveedor. Tu saldo ha sido devuelto.', 'error')
             return redirect(redirect_url)
@@ -945,6 +982,7 @@ def validar_dinamico(slug):
         validate_code = (validate_data or {}).get('code')
 
         if validate_code != 200 or not (validate_data or {}).get('validation_token'):
+            _update_tx_error(_tx_procesando_id, f"validate failed: code={validate_code}")
             _refund(user_id, precio, is_admin)
             err_msg = (validate_data or {}).get('message', 'Error validando orden')
             logger.error(f"[DynGame:{game['slug']}] validate failed: code={validate_code} msg={err_msg}")
@@ -957,7 +995,6 @@ def validar_dinamico(slug):
         logger.info(f"[DynGame:{game['slug']}] validate OK | player={player_id}")
 
         # 4. Create order
-        merchant_code = f"DG{game['id']}-" + secrets.token_hex(6).upper()
         create_data = order_create(gc_token, validation_token, gp_package_id, merchant_code)
         create_code = (create_data or {}).get('code')
         reference_no = (create_data or {}).get('referenceno', '')
@@ -993,7 +1030,6 @@ def validar_dinamico(slug):
 
         if create_code in (100, 101):
             # === SUCCESS ===
-            numero_control = f"DG-{secrets.token_hex(4).upper()}"
             transaccion_id = merchant_code
 
             # Determinar estado: aprobado si tenemos serial REAL o es juego de ID
@@ -1008,15 +1044,16 @@ def validar_dinamico(slug):
                 estado_db = 'aprobado'
 
             conn = _get_conn()
-            # Idempotencia: si ya existe una transacción con este gamepoint_referenceno, no duplicar
+            # Idempotencia: si ya existe OTRA transacción con este gamepoint_referenceno, no duplicar
             if reference_no:
                 dup_td = conn.execute(
-                    'SELECT id FROM transacciones_dinamicas WHERE gamepoint_referenceno = ?',
-                    (reference_no,)
+                    'SELECT id FROM transacciones_dinamicas WHERE gamepoint_referenceno = ? AND id != ?',
+                    (reference_no, _tx_procesando_id)
                 ).fetchone()
                 if dup_td:
+                    conn.execute('DELETE FROM transacciones_dinamicas WHERE id = ?', (_tx_procesando_id,))
+                    conn.commit()
                     conn.close()
-                    # Ya procesada — redirigir como éxito sin duplicar registros
                     session[f'compra_dyn_{slug}_exitosa'] = {
                         'paquete_nombre': pkg['nombre'],
                         'monto_compra': precio,
@@ -1032,13 +1069,13 @@ def validar_dinamico(slug):
                     }
                     return redirect(f'/juego/d/{slug}?compra=exitosa')
 
+            # Actualizar registro 'procesando' con resultados finales
             conn.execute('''
-                INSERT INTO transacciones_dinamicas
-                (juego_id, usuario_id, player_id, player_id2, servidor, paquete_id,
-                 numero_control, transaccion_id, monto, estado, gamepoint_referenceno, ingame_name, pin_entregado)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (game['id'], user_id, player_id, player_id2 or None, servidor or None,
-                  package_id, numero_control, transaccion_id, precio, estado_db, reference_no, ingame_name, serial_key or None))
+                UPDATE transacciones_dinamicas
+                SET estado = ?, gamepoint_referenceno = ?, ingame_name = ?, pin_entregado = ?,
+                    fecha_procesado = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (estado_db, reference_no, ingame_name, serial_key or None, _tx_procesando_id))
 
             # Also insert into general transacciones table for unified history
             if serial_key:
@@ -1131,13 +1168,11 @@ def validar_dinamico(slug):
 
             conn = _get_conn()
             conn.execute('''
-                INSERT INTO transacciones_dinamicas
-                (juego_id, usuario_id, player_id, player_id2, servidor, paquete_id,
-                 numero_control, transaccion_id, monto, estado, gamepoint_referenceno, notas)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (game['id'], user_id, player_id, player_id2 or None, servidor or None,
-                  package_id, f"DG-{secrets.token_hex(4).upper()}", merchant_code, precio,
-                  'rechazado', reference_no, err_msg))
+                UPDATE transacciones_dinamicas
+                SET estado = 'rechazado', gamepoint_referenceno = ?, notas = ?,
+                    fecha_procesado = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (reference_no, err_msg, _tx_procesando_id))
             conn.commit()
             conn.close()
 
@@ -1147,6 +1182,7 @@ def validar_dinamico(slug):
 
     except Exception as e:
         logger.error(f"[DynGame:{game['slug']}] Error general: {str(e)}")
+        _update_tx_error(_tx_procesando_id, str(e)[:500])
         _refund(user_id, precio, is_admin)
         flash('Error al procesar la compra. Tu saldo ha sido devuelto.', 'error')
         return redirect(redirect_url)
@@ -1281,6 +1317,22 @@ def poll_pending_dynamic_transactions():
             time_module.sleep(0.5)  # Rate limit entre consultas
         except Exception as e:
             logger.error(f"[DynGame Poll] Error procesando tx {row['transaccion_id']}: {e}")
+
+
+def _update_tx_error(tx_id, notas=''):
+    """Mark a 'procesando' transaction as 'error'."""
+    if not tx_id:
+        return
+    try:
+        conn = _get_conn()
+        conn.execute(
+            'UPDATE transacciones_dinamicas SET estado = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP WHERE id = ?',
+            ('error', str(notas)[:500], tx_id)
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 
 def _refund(user_id, precio, is_admin):

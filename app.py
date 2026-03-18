@@ -5116,10 +5116,29 @@ def validar_bloodstriker():
         flash(f'Saldo insuficiente. Necesitas ${precio:.2f} pero tienes ${saldo_actual:.2f}', 'error')
         return redirect('/juego/bloodstriker')
     
+    # Check for recent duplicate pending transaction (prevents double recharge on page refresh)
+    try:
+        conn_dup = get_db_connection()
+        dup = conn_dup.execute(
+            '''SELECT id FROM transacciones_bloodstriker
+               WHERE usuario_id = ? AND paquete_id = ?
+                 AND estado IN ('procesando', 'pendiente', 'aprobado')
+                 AND fecha >= (NOW() - INTERVAL '2 minutes')
+               LIMIT 1''',
+            (user_id, package_id)
+        ).fetchone()
+        conn_dup.close()
+        if dup:
+            flash('Ya se est\u00e1 procesando tu recarga. Espera unos segundos y revisa tu historial.', 'error')
+            return redirect('/juego/bloodstriker')
+    except Exception:
+        pass
+    
     # === COMPRA AUTOMÁTICA VIA GAMEPOINT CLUB ===
     import time as _time
     _bs_start = _time.time()
     bloodstrike_product_id = int(os.environ.get('BLOODSTRIKE_PRODUCT_ID', '155'))
+    _bs_tx_id = None
     
     try:
         # 1. Cobrar al usuario (atómico)
@@ -5137,9 +5156,63 @@ def validar_bloodstriker():
             conn.close()
             session['saldo'] = new_saldo['saldo'] if new_saldo else 0
         
+        # 1b. Insert 'procesando' record BEFORE GamePoint calls (prevents duplicate on refresh)
+        import random as _bs_random
+        import string as _bs_string
+        _bs_numero_control = ''.join(_bs_random.choices(_bs_string.digits, k=10))
+        _bs_transaccion_id = 'BS-' + ''.join(_bs_random.choices(_bs_string.ascii_uppercase + _bs_string.digits, k=8))
+        try:
+            conn_proc = get_db_connection()
+            dup_proc = conn_proc.execute(
+                '''SELECT id FROM transacciones_bloodstriker
+                   WHERE usuario_id = ? AND paquete_id = ?
+                     AND estado IN ('procesando', 'pendiente', 'aprobado')
+                     AND fecha >= (NOW() - INTERVAL '2 minutes')
+                   LIMIT 1''',
+                (user_id, package_id)
+            ).fetchone()
+            if dup_proc:
+                conn_proc.close()
+                if not is_admin:
+                    conn_r = get_db_connection()
+                    conn_r.execute('UPDATE usuarios SET saldo = saldo + ? WHERE id = ?', (precio, user_id))
+                    conn_r.commit()
+                    conn_r.close()
+                    session['saldo'] = session.get('saldo', 0) + precio
+                flash('Ya se est\u00e1 procesando tu recarga. Espera unos segundos y revisa tu historial.', 'error')
+                return redirect('/juego/bloodstriker')
+            conn_proc.execute('''
+                INSERT INTO transacciones_bloodstriker
+                (usuario_id, player_id, paquete_id, numero_control, transaccion_id, monto, estado)
+                VALUES (?, ?, ?, ?, ?, ?, 'procesando')
+            ''', (user_id, player_id, package_id, _bs_numero_control, _bs_transaccion_id, -precio))
+            conn_proc.commit()
+            _bs_tx_row = conn_proc.execute('SELECT id FROM transacciones_bloodstriker WHERE transaccion_id = ?', (_bs_transaccion_id,)).fetchone()
+            _bs_tx_id = _bs_tx_row['id'] if _bs_tx_row else None
+            conn_proc.close()
+        except Exception as e_proc:
+            logger.error(f"[BloodStrike] Error insertando procesando: {e_proc}")
+            if not is_admin:
+                conn_r = get_db_connection()
+                conn_r.execute('UPDATE usuarios SET saldo = saldo + ? WHERE id = ?', (precio, user_id))
+                conn_r.commit()
+                conn_r.close()
+                session['saldo'] = session.get('saldo', 0) + precio
+            flash('Error al procesar. Tu saldo ha sido devuelto.', 'error')
+            return redirect('/juego/bloodstriker')
+        
         # 2. Obtener token de GamePoint
         gc_token, gc_err = _gameclub_get_token()
         if not gc_token:
+            # Mark procesando as error
+            if _bs_tx_id:
+                try:
+                    conn_e = get_db_connection()
+                    conn_e.execute('UPDATE transacciones_bloodstriker SET estado = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP WHERE id = ?', ('error', 'No se pudo obtener token GP', _bs_tx_id))
+                    conn_e.commit()
+                    conn_e.close()
+                except Exception:
+                    pass
             # Reembolsar saldo
             if not is_admin:
                 conn = get_db_connection()
@@ -5156,6 +5229,15 @@ def validar_bloodstriker():
         validate_code = (validate_data or {}).get('code')
         
         if validate_code != 200 or not (validate_data or {}).get('validation_token'):
+            # Mark procesando as error
+            if _bs_tx_id:
+                try:
+                    conn_e = get_db_connection()
+                    conn_e.execute('UPDATE transacciones_bloodstriker SET estado = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP WHERE id = ?', ('error', f'validate failed: code={validate_code}', _bs_tx_id))
+                    conn_e.commit()
+                    conn_e.close()
+                except Exception:
+                    pass
             # Reembolsar saldo
             if not is_admin:
                 conn = get_db_connection()
@@ -5175,7 +5257,7 @@ def validar_bloodstriker():
         logger.info(f"[BloodStrike] validate OK | player_id={player_id}")
         
         # 4. Crear orden (order/create) — la compra real
-        merchant_code = 'BS-' + secrets.token_hex(6).upper()
+        merchant_code = _bs_transaccion_id
         create_data = _gameclub_order_create(gc_token, validation_token, gp_package_id, merchant_code)
         create_code = (create_data or {}).get('code')
         reference_no = (create_data or {}).get('referenceno', '')
@@ -5206,10 +5288,21 @@ def validar_bloodstriker():
         
         if create_code in (100, 101):
             # === ÉXITO: Recarga completada o enviada ===
-            transaction_data = create_bloodstriker_transaction(
-                user_id, player_id, package_id, precio,
-                estado='aprobado', gamepoint_referenceno=reference_no
-            )
+            # Update the 'procesando' record with final results
+            conn_upd = get_db_connection()
+            conn_upd.execute('''
+                UPDATE transacciones_bloodstriker
+                SET estado = 'aprobado', gamepoint_referenceno = ?,
+                    fecha_procesado = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (reference_no, _bs_tx_id))
+            conn_upd.commit()
+            conn_upd.close()
+            transaction_data = {
+                'id': _bs_tx_id,
+                'numero_control': _bs_numero_control,
+                'transaccion_id': _bs_transaccion_id
+            }
             
             # Registrar en transacciones generales
             conn = get_db_connection()
@@ -5283,11 +5376,16 @@ def validar_bloodstriker():
                 f"user={user_id} player={player_id} pkg={package_id} gp_pkg={gp_package_id} ref={reference_no}"
             )
             
-            # Guardar transacción como rechazada
-            create_bloodstriker_transaction(
-                user_id, player_id, package_id, precio,
-                estado='rechazado', gamepoint_referenceno=reference_no
-            )
+            # Update procesando record to rechazado
+            conn_rej = get_db_connection()
+            conn_rej.execute('''
+                UPDATE transacciones_bloodstriker
+                SET estado = 'rechazado', gamepoint_referenceno = ?, notas = ?,
+                    fecha_procesado = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (reference_no, err_msg, _bs_tx_id))
+            conn_rej.commit()
+            conn_rej.close()
             
             # Reembolsar saldo
             if not is_admin:
@@ -5303,6 +5401,18 @@ def validar_bloodstriker():
     
     except Exception as e:
         logger.error(f"[BloodStrike] Error general: {str(e)}")
+        # Mark procesando as error
+        if _bs_tx_id:
+            try:
+                conn_err = get_db_connection()
+                conn_err.execute(
+                    'UPDATE transacciones_bloodstriker SET estado = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP WHERE id = ?',
+                    ('error', str(e)[:500], _bs_tx_id)
+                )
+                conn_err.commit()
+                conn_err.close()
+            except Exception:
+                pass
         # Intentar reembolsar en caso de error inesperado
         try:
             if not is_admin:
