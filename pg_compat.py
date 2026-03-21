@@ -15,6 +15,7 @@ Handles automatically:
 import os
 import re
 import logging
+import sqlite3
 
 import psycopg
 from psycopg.rows import dict_row
@@ -43,6 +44,36 @@ _DT_NOW_MOD_RE = re.compile(
     r"datetime\(\s*'now'\s*,\s*'([+-]?\s*\d+)\s+(hours?|minutes?|days?|seconds?)'\s*\)",
     re.IGNORECASE
 )
+
+# PostgreSQL-style placeholders/functions that can appear in code paths
+# and need to run in local SQLite development mode.
+_PG_PLACEHOLDER_RE = re.compile(r'%s')
+_PG_NOW_RE = re.compile(r'\bNOW\(\)', re.IGNORECASE)
+_PG_INTERVAL_SUB_RE = re.compile(
+    r"NOW\(\)\s*-\s*INTERVAL\s*'\s*(\d+)\s*(seconds?|minutes?|hours?|days?)\s*'",
+    re.IGNORECASE
+)
+
+
+def _convert_sql_for_sqlite(sql: str):
+    """Convert a subset of PostgreSQL-oriented SQL back to SQLite SQL."""
+    if _PRAGMA_RE.match(sql.strip()):
+        return sql
+
+    # %s placeholders (psycopg style) -> ? (sqlite style)
+    sql = _PG_PLACEHOLDER_RE.sub('?', sql)
+
+    # NOW() -> datetime('now')
+    sql = _PG_NOW_RE.sub("datetime('now')", sql)
+
+    # NOW() - INTERVAL '2 minutes' -> datetime('now', '-2 minutes')
+    def _repl_interval_sub(match):
+        n = match.group(1)
+        unit = match.group(2)
+        return f"datetime('now', '-{n} {unit}')"
+
+    sql = _PG_INTERVAL_SUB_RE.sub(_repl_interval_sub, sql)
+    return sql
 
 
 def _replace_date_modifier(match):
@@ -260,6 +291,109 @@ class _NoOpCursor:
 
 
 # ---------------------------------------------------------------------------
+# SQLite wrappers (dev fallback)
+# ---------------------------------------------------------------------------
+
+class SqliteCursor:
+    """Wrap sqlite3 cursor to return PgRow-compatible rows."""
+
+    def __init__(self, cur):
+        self._cur = cur
+
+    def execute(self, sql: str, params=None):
+        sql_sq = _convert_sql_for_sqlite(sql)
+        if params is None:
+            self._cur.execute(sql_sq)
+        else:
+            self._cur.execute(sql_sq, params)
+        return self
+
+    def executemany(self, sql: str, params_list):
+        sql_sq = _convert_sql_for_sqlite(sql)
+        self._cur.executemany(sql_sq, params_list)
+        return self
+
+    def fetchone(self):
+        row = self._cur.fetchone()
+        if row is None:
+            return None
+        return PgRow(dict(row))
+
+    def fetchall(self):
+        rows = self._cur.fetchall() or []
+        return [PgRow(dict(r)) for r in rows]
+
+    def __iter__(self):
+        for row in self._cur:
+            yield PgRow(dict(row))
+
+    @property
+    def rowcount(self):
+        return self._cur.rowcount
+
+    @property
+    def lastrowid(self):
+        return getattr(self._cur, 'lastrowid', None)
+
+    def close(self):
+        self._cur.close()
+
+
+class SqliteConnection:
+    """sqlite3-compatible wrapper aligned to PgConnection interface."""
+
+    def __init__(self, db_path: str):
+        self._db_path = db_path
+        self._conn = sqlite3.connect(db_path)
+        self._conn.row_factory = sqlite3.Row
+
+    @property
+    def row_factory(self):
+        return None
+
+    @row_factory.setter
+    def row_factory(self, value):
+        # sqlite row_factory is already fixed to sqlite3.Row
+        pass
+
+    def _raw_cursor(self) -> SqliteCursor:
+        return SqliteCursor(self._conn.cursor())
+
+    def execute(self, sql: str, params=None):
+        cur = self._raw_cursor()
+        return cur.execute(sql, params)
+
+    def executemany(self, sql: str, params_list):
+        cur = self._raw_cursor()
+        return cur.executemany(sql, params_list)
+
+    def cursor(self) -> SqliteCursor:
+        return self._raw_cursor()
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            try:
+                self.rollback()
+            except Exception:
+                pass
+        else:
+            self.commit()
+        self.close()
+
+
+# ---------------------------------------------------------------------------
 # PgConnection wrapper
 # ---------------------------------------------------------------------------
 
@@ -347,6 +481,12 @@ class PgConnection:
 def table_exists(conn: PgConnection, table_name: str) -> bool:
     """Check if a table exists in the current PostgreSQL database."""
     try:
+        if isinstance(conn, SqliteConnection):
+            cur = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?",
+                (table_name,)
+            )
+            return cur.fetchone() is not None
         cur = conn.execute(
             "SELECT 1 FROM information_schema.tables "
             "WHERE table_schema = 'public' AND table_name = %s",
@@ -362,6 +502,7 @@ def table_exists(conn: PgConnection, table_name: str) -> bool:
 # ---------------------------------------------------------------------------
 
 _DATABASE_URL: str = None  # type: ignore[assignment]
+_DATABASE_PATH: str = None  # type: ignore[assignment]
 
 
 def _get_database_url() -> str:
@@ -380,9 +521,27 @@ def _get_database_url() -> str:
     return _DATABASE_URL
 
 
+def _get_database_path() -> str:
+    global _DATABASE_PATH
+    if _DATABASE_PATH is None:
+        path = os.environ.get('DATABASE_PATH', '').strip()
+        if not path:
+            path = os.environ.get('DEV_DATABASE_PATH', '').strip()
+        if not path:
+            path = 'revendedores_local.db'
+        _DATABASE_PATH = path
+    return _DATABASE_PATH
+
+
 def get_db_connection() -> PgConnection:
-    """Return a new PostgreSQL connection (sqlite3-compatible interface)."""
-    return PgConnection(_get_database_url())
+    """Return PostgreSQL connection in prod; SQLite fallback in local dev."""
+    url = os.environ.get('DATABASE_URL', '').strip()
+    if url:
+        return PgConnection(_get_database_url())
+
+    db_path = _get_database_path()
+    logger.info(f"[pg_compat] DATABASE_URL no definido: usando SQLite local en {db_path}")
+    return SqliteConnection(db_path)
 
 
 def get_db_connection_optimized() -> PgConnection:

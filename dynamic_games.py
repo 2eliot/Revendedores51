@@ -169,7 +169,30 @@ def admin_set_gp_rate():
         if rate <= 0:
             return jsonify({'error': 'Tasa inválida, debe ser mayor a 0'}), 400
         set_gp_myr_rate(rate)
-        return jsonify({'ok': True, 'rate': rate})
+
+        # Aplicar inmediatamente la nueva tasa en los precios locales de juegos dinámicos.
+        # Esto evita esperar al ciclo automático en background para ver cambios en layouts.
+        sync_results = sync_all_dynamic_games_prices()
+        synced_games = 0
+        updated_packages = 0
+        errors = []
+        for item in sync_results:
+            result = item.get('result') or {}
+            if result.get('success'):
+                synced_games += 1
+                updated_packages += int(result.get('packages_updated', 0) or 0)
+            if item.get('error') or result.get('error'):
+                errors.append({'game': item.get('game'), 'error': item.get('error') or result.get('error')})
+
+        return jsonify({
+            'ok': True,
+            'rate': rate,
+            'dynamic_sync': {
+                'games_synced': synced_games,
+                'packages_updated': updated_packages,
+                'errors': errors,
+            }
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 

@@ -61,7 +61,7 @@
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10H7z"/><path d="M4 4h4"/><path d="M16 4h4"/><path d="M4 20h4"/><path d="M16 20h4"/></svg></span><span class="label">GameClub</span>
         </button>
         <!-- Redeemer oculto - se usa VPS externo -->
-        <button class="side-tab-button" data-tab="apilog" onclick="showTab('apilog', event)" aria-label="Recargas API">
+        <button class="side-tab-button" data-tab="apilog" onclick="showTab('apilog', event)" aria-label="Recargas API" style="display:none;">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg></span><span class="label">Recargas</span>
         </button>
         <button class="side-tab-button" data-tab="webservice" onclick="showTab('webservice', event)" aria-label="API Marca Blanca">
@@ -197,6 +197,22 @@
                 <button type="button" class="btn btn-primary" onclick="saveGpRate()" style="background:#f59e0b;color:#000;font-weight:700;">💾 Guardar tasa</button>
               </div>
               <div id="admin-gp-rate-status" style="margin-top:8px;font-size:13px;"></div>
+            </div>
+          </div>
+
+          <!-- Estadísticas de salud de precios -->
+          <div class="card" style="margin-top:20px;border:1px solid rgba(74,222,128,0.25);">
+            <div class="card-header" style="background:rgba(74,222,128,0.08);"><h3>📈 Estado de precios GP vs precios locales</h3></div>
+            <div class="card-body">
+              <p style="color:#aaa;font-size:13px;margin-bottom:12px;">Aquí validas si el sync de precios está funcionando: compara <strong>precio en GP antes</strong>, <strong>precio en GP ahora</strong>, <strong>precio mío antes</strong> y <strong>precio actualizado ahora</strong>.</p>
+              <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+                <button type="button" class="btn btn-secondary" onclick="loadGameclubPriceHealth()">Actualizar estadísticas</button>
+                <div id="gp-health-status" style="color:#aaa;font-size:13px;"></div>
+              </div>
+              <div id="gp-health-summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:12px;"></div>
+              <div id="gp-health-table-wrap" style="overflow-x:auto;">
+                <div style="color:#888;padding:10px 0;">Presiona "Actualizar estadísticas" para calcular el estado actual.</div>
+              </div>
             </div>
           </div>
 
@@ -1439,6 +1455,7 @@
         loadCostoData();
       } else if (tabName === 'gameclub') {
         loadGpRate();
+        loadGameclubPriceHealth();
       } else if (tabName === 'webservice') {
         if (typeof loadWsAccounts === 'function') loadWsAccounts();
       }
@@ -2004,12 +2021,124 @@
         const data = await res.json();
         if (data.ok) {
           window._gpMyrRate = rate;
-          st.innerHTML = '<span style="color:#4ade80;">✅ Guardado: 1 MYR = ' + rate.toFixed(4) + ' USD</span>';
+          const dyn = data.dynamic_sync || {};
+          const synced = Number(dyn.games_synced || 0);
+          const updated = Number(dyn.packages_updated || 0);
+          const errCount = Array.isArray(dyn.errors) ? dyn.errors.length : 0;
+          st.innerHTML = '<span style="color:#4ade80;">✅ Guardado: 1 MYR = ' + rate.toFixed(4) + ' USD | Sync dinámico: ' + synced + ' juegos, ' + updated + ' paquetes' + (errCount ? ' (' + errCount + ' con error)' : '') + '</span>';
         } else {
           st.innerHTML = '<span style="color:#ff6b6b;">❌ ' + (data.error || 'Error') + '</span>';
         }
       } catch(e) {
         st.innerHTML = '<span style="color:#ff6b6b;">❌ Error de red</span>';
+      }
+    }
+
+    async function loadGameclubPriceHealth() {
+      const st = document.getElementById('gp-health-status');
+      const summaryEl = document.getElementById('gp-health-summary');
+      const tableWrap = document.getElementById('gp-health-table-wrap');
+      if (!st || !summaryEl || !tableWrap) return;
+
+      st.textContent = 'Calculando estado de precios...';
+      summaryEl.innerHTML = '';
+      tableWrap.innerHTML = '<div style="color:#888;padding:10px 0;">Cargando...</div>';
+
+      try {
+        const res = await fetch('/admin/gameclub/price_health', {headers:{'Accept':'application/json'}});
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          st.innerHTML = '<span style="color:#ff6b6b;">' + (data.error || 'Error al calcular estadísticas') + '</span>';
+          tableWrap.innerHTML = '';
+          return;
+        }
+
+        const s = data.summary || {};
+        const items = Array.isArray(data.items) ? data.items : [];
+        const errors = Array.isArray(data.errors) ? data.errors : [];
+
+        st.innerHTML = '<span style="color:#4ade80;">Actualizado. Tasa: ' + Number(data.myr_to_usd_rate || 0).toFixed(4) + ' | Filas: ' + Number(s.total_rows || 0) + '</span>';
+
+        const okRows = Number(s.ok_rows || 0);
+        const badRows = Number(s.out_of_sync_rows || 0);
+        const compRows = Number(s.comparable_rows || 0);
+        const healthPct = compRows > 0 ? ((okRows / compRows) * 100).toFixed(1) : '0.0';
+
+        summaryEl.innerHTML = '' +
+          '<div style="background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);border-radius:10px;padding:10px 12px;text-align:center;">' +
+            '<div style="font-size:11px;color:#8b949e;">Sincronizados OK</div>' +
+            '<div style="font-size:20px;font-weight:700;color:#4ade80;">' + okRows + '</div>' +
+          '</div>' +
+          '<div style="background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.2);border-radius:10px;padding:10px 12px;text-align:center;">' +
+            '<div style="font-size:11px;color:#8b949e;">Fuera de sync</div>' +
+            '<div style="font-size:20px;font-weight:700;color:#f87171;">' + badRows + '</div>' +
+          '</div>' +
+          '<div style="background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.2);border-radius:10px;padding:10px 12px;text-align:center;">' +
+            '<div style="font-size:11px;color:#8b949e;">Salud global</div>' +
+            '<div style="font-size:20px;font-weight:700;color:#a78bfa;">' + healthPct + '%</div>' +
+          '</div>' +
+          '<div style="background:rgba(88,166,255,0.08);border:1px solid rgba(88,166,255,0.2);border-radius:10px;padding:10px 12px;text-align:center;">' +
+            '<div style="font-size:11px;color:#8b949e;">Desv. promedio</div>' +
+            '<div style="font-size:20px;font-weight:700;color:#58a6ff;">$' + Number(s.avg_abs_diff || 0).toFixed(4) + '</div>' +
+          '</div>';
+
+        const snapshotKey = 'gpPriceHealthSnapshotV1';
+        let prev = {};
+        try {
+          prev = JSON.parse(localStorage.getItem(snapshotKey) || '{}') || {};
+        } catch(e) {
+          prev = {};
+        }
+
+        if (!items.length) {
+          tableWrap.innerHTML = '<div style="color:#888;padding:10px 0;">No hay paquetes mapeados para comparar.</div>';
+        } else {
+          let html = '<table class="table" style="width:100%;font-size:12px;"><thead><tr>' +
+            '<th>Juego</th><th>Paquete</th><th>Precio en GP antes</th><th>Precio en GP ahora</th><th>Precio mío antes</th><th>Precio actualizado ahora</th><th>Estado</th>' +
+            '</tr></thead><tbody>';
+
+          const nextSnapshot = {};
+          items.forEach(it => {
+            const key = it.row_key || (it.game_key + ':' + it.local_id);
+            const prevRow = prev[key] || {};
+
+            const gpBefore = (prevRow.gp_now_usd != null) ? Number(prevRow.gp_now_usd) : (it.gp_price_before_usd != null ? Number(it.gp_price_before_usd) : null);
+            const gpNow = (it.gp_price_now_usd != null) ? Number(it.gp_price_now_usd) : null;
+            const myBefore = (prevRow.my_now_price != null) ? Number(prevRow.my_now_price) : (it.my_price_now != null ? Number(it.my_price_now) : null);
+            const myUpdatedNow = (it.my_price_updated_now != null) ? Number(it.my_price_updated_now) : null;
+
+            const statusTxt = (it.ok === null) ? 'Sin costo base' : (it.ok ? 'OK' : 'Revisar');
+            const statusColor = (it.ok === null) ? '#888' : (it.ok ? '#4ade80' : '#f87171');
+
+            html += '<tr>' +
+              '<td>' + (it.game_name || '-') + '</td>' +
+              '<td>#' + it.local_id + ' ' + (it.local_name || '-') + '</td>' +
+              '<td>' + (gpBefore != null ? ('$' + gpBefore.toFixed(4)) : '-') + '</td>' +
+              '<td>' + (gpNow != null ? ('$' + gpNow.toFixed(4)) : '-') + '</td>' +
+              '<td>' + (myBefore != null ? ('$' + myBefore.toFixed(2)) : '-') + '</td>' +
+              '<td>' + (myUpdatedNow != null ? ('$' + myUpdatedNow.toFixed(2)) : '-') + '</td>' +
+              '<td style="color:' + statusColor + ';font-weight:700;">' + statusTxt + '</td>' +
+            '</tr>';
+
+            nextSnapshot[key] = {
+              gp_now_usd: gpNow,
+              my_now_price: (it.my_price_now != null ? Number(it.my_price_now) : null),
+              at: Date.now()
+            };
+          });
+
+          html += '</tbody></table>';
+          if (errors.length) {
+            html += '<div style="margin-top:10px;color:#f59e0b;font-size:12px;">Advertencias API: ' + errors.map(e => (e.game || '?') + ': ' + (e.error || 'error')).join(' | ') + '</div>';
+          }
+          tableWrap.innerHTML = html;
+          try {
+            localStorage.setItem(snapshotKey, JSON.stringify(nextSnapshot));
+          } catch(e) {}
+        }
+      } catch(e) {
+        st.innerHTML = '<span style="color:#ff6b6b;">Error de red</span>';
+        tableWrap.innerHTML = '';
       }
     }
 

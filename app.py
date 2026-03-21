@@ -2111,39 +2111,136 @@ _binance_verify_thread.start()
 # === Blood Strike: Sincronización automática de precios cada 6 horas ===
 _BS_SYNC_INTERVAL_HOURS = float(os.environ.get('BS_SYNC_INTERVAL_HOURS', '6'))
 
-def _bloodstrike_price_sync_loop():
-    """Hilo en background que sincroniza precios de Blood Strike cada N horas."""
-    time_module.sleep(30)  # Esperar 30s al iniciar para que la app esté lista
-    while True:
+# Estado de autosync robusto (resistente a reinicios/sueño del proceso)
+_PRICE_SYNC_LAST_RUN_KEY = 'autosync_last_prices_run_ts'
+_PRICE_SYNC_CHECK_EVERY_SEC = 120
+_price_sync_lock = threading.Lock()
+_last_price_sync_check_ts = 0.0
+
+
+def _get_last_price_sync_ts():
+    try:
+        conn = get_db_connection()
+        row = conn.execute(
+            'SELECT valor FROM configuracion_redeemer WHERE clave = ?',
+            (_PRICE_SYNC_LAST_RUN_KEY,)
+        ).fetchone()
+        conn.close()
+        if not row or row['valor'] is None:
+            return 0.0
+        return float(row['valor'])
+    except Exception:
+        return 0.0
+
+
+def _set_last_price_sync_ts(ts=None):
+    ts = float(ts if ts is not None else time_module.time())
+    try:
+        conn = get_db_connection()
+        conn.execute(
+            """
+            INSERT INTO configuracion_redeemer (clave, valor, fecha_actualizacion)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT (clave) DO UPDATE
+            SET valor = EXCLUDED.valor, fecha_actualizacion = CURRENT_TIMESTAMP
+            """,
+            (_PRICE_SYNC_LAST_RUN_KEY, str(ts))
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"[AutoSync] No se pudo guardar timestamp de sync: {e}")
+
+
+def _run_all_price_syncs(trigger='background'):
+    """Ejecuta sync de Blood Strike + juegos dinámicos con lock de proceso."""
+    if not _price_sync_lock.acquire(blocking=False):
+        logger.info(f"[AutoSync] Sync omitido ({trigger}): ya hay otro en ejecución")
+        return {'skipped': True, 'reason': 'already_running'}
+
+    try:
+        logger.info(f"[AutoSync] Iniciando sync combinado (trigger={trigger})")
+
+        bs_result = None
         try:
-            logger.info("[BloodStrike AutoSync] Iniciando sincronización automática de precios...")
-            result = _bloodstrike_sync_prices_internal()
-            if result.get('error'):
-                logger.warning(f"[BloodStrike AutoSync] Error: {result['error']}")
+            bs_result = _bloodstrike_sync_prices_internal()
+            if bs_result.get('error'):
+                logger.warning(f"[BloodStrike AutoSync] Error: {bs_result['error']}")
             else:
-                updated = result.get('packages_updated', 0)
-                total = result.get('total_gamepoint_packages', 0)
-                logger.info(f"[BloodStrike AutoSync] OK: {updated}/{total} paquetes actualizados (ganancia ${result.get('profit_usd', 0)}, tasa {result.get('myr_to_usd_rate', 0)})")
+                updated = bs_result.get('packages_updated', 0)
+                total = bs_result.get('total_gamepoint_packages', 0)
+                logger.info(
+                    f"[BloodStrike AutoSync] OK: {updated}/{total} paquetes actualizados "
+                    f"(ganancia ${bs_result.get('profit_usd', 0)}, tasa {bs_result.get('myr_to_usd_rate', 0)})"
+                )
         except Exception as e:
             logger.error(f"[BloodStrike AutoSync] Excepción: {e}")
+            bs_result = {'error': str(e)}
 
-        # === Sincronizar juegos dinámicos ===
+        dyn_results = []
         try:
             dyn_results = sync_all_dynamic_games_prices()
             for dr in dyn_results:
                 if dr.get('error'):
-                    logger.warning(f"[DynGame AutoSync] {dr.get('game','?')}: {dr['error']}")
+                    logger.warning(f"[DynGame AutoSync] {dr.get('game', '?')}: {dr['error']}")
                 else:
                     r = dr.get('result', {})
-                    logger.info(f"[DynGame AutoSync] {dr.get('game','?')}: {r.get('packages_updated',0)}/{r.get('total_gp',0)} actualizados")
+                    if r.get('error'):
+                        logger.warning(f"[DynGame AutoSync] {dr.get('game', '?')}: {r.get('error')}")
+                    else:
+                        logger.info(
+                            f"[DynGame AutoSync] {dr.get('game', '?')}: "
+                            f"{r.get('packages_updated', 0)}/{r.get('total_gp', 0)} actualizados"
+                        )
         except Exception as e:
             logger.error(f"[DynGame AutoSync] Excepción: {e}")
+            dyn_results = [{'error': str(e)}]
+
+        _set_last_price_sync_ts(time_module.time())
+        return {'success': True, 'bloodstrike': bs_result, 'dynamic': dyn_results}
+    finally:
+        _price_sync_lock.release()
+
+def _bloodstrike_price_sync_loop():
+    """Hilo en background que sincroniza precios de Blood Strike cada N horas."""
+    time_module.sleep(30)  # Esperar 30s al iniciar para que la app esté lista
+    while True:
+        _run_all_price_syncs(trigger='background_loop')
 
         time_module.sleep(_BS_SYNC_INTERVAL_HOURS * 3600)
 
 _bs_sync_thread = threading.Thread(target=_bloodstrike_price_sync_loop, daemon=True)
 _bs_sync_thread.start()
 logger.info(f"[AutoSync] Thread iniciado — sincronización cada {_BS_SYNC_INTERVAL_HOURS}h (BloodStrike + Juegos Dinámicos)")
+
+
+@app.before_request
+def _maybe_catchup_price_sync_on_request():
+    """Si el proceso estuvo dormido/reiniciado, dispara sync al vencer el intervalo."""
+    global _last_price_sync_check_ts
+
+    # Evitar trabajo extra en archivos estáticos y en checks muy frecuentes.
+    if request.endpoint == 'static':
+        return None
+
+    now_ts = time_module.time()
+    if (now_ts - _last_price_sync_check_ts) < _PRICE_SYNC_CHECK_EVERY_SEC:
+        return None
+    _last_price_sync_check_ts = now_ts
+
+    interval_sec = max(300.0, _BS_SYNC_INTERVAL_HOURS * 3600.0)
+    last_run_ts = _get_last_price_sync_ts()
+    if last_run_ts > 0 and (now_ts - last_run_ts) < interval_sec:
+        return None
+
+    # Ejecutar en hilo aparte para no bloquear la request actual.
+    try:
+        t = threading.Thread(target=_run_all_price_syncs, kwargs={'trigger': 'request_catchup'}, daemon=True)
+        t.start()
+        logger.info("[AutoSync] Catch-up disparado por request: intervalo vencido")
+    except Exception as e:
+        logger.warning(f"[AutoSync] No se pudo iniciar catch-up por request: {e}")
+    return None
 
 # === Gift Cards: Polling de seriales pendientes cada 60s ===
 def _dyngame_serial_poll_loop():
@@ -4148,12 +4245,14 @@ def admin_toggle_game():
 
     try:
         conn = get_db_connection()
+        is_active = (active == '1')
         if game in static_tables:
-            conn.execute(f"UPDATE {static_tables[game]} SET activo = ?", (1 if active == '1' else 0,))
+            conn.execute(f"UPDATE {static_tables[game]} SET activo = ?", (is_active,))
         elif game and game.startswith('dyn_'):
             slug = game[4:]
-            conn.execute("UPDATE juegos_dinamicos SET activo = ? WHERE slug = ?", (1 if active == '1' else 0, slug))
+            conn.execute("UPDATE juegos_dinamicos SET activo = ? WHERE slug = ?", (is_active, slug))
         else:
+            conn.close()
             flash('Juego no soportado.', 'error')
             return redirect('/admin')
         conn.commit()
@@ -4161,6 +4260,10 @@ def admin_toggle_game():
         estado = 'activado' if active == '1' else 'desactivado'
         flash(f'Juego {game} {estado} correctamente.', 'success')
     except Exception as e:
+        try:
+            conn.close()
+        except Exception:
+            pass
         flash(f'Error al actualizar estado del juego: {str(e)}', 'error')
     return redirect('/admin')
 
@@ -5779,6 +5882,134 @@ def admin_bloodstrike_gamepoint_packages():
         'local_packages': [dict(lp) for lp in local_packages],
         'fields': (detail_data or {}).get('fields', []),
         'product_id': product_id,
+    })
+
+
+@app.route('/admin/gameclub/price_health')
+def admin_gameclub_price_health():
+    """Estadísticas de salud de precios: GP actual vs precio local esperado."""
+    if not session.get('is_admin'):
+        return jsonify({'error': 'Acceso denegado'}), 403
+
+    from dynamic_games import get_gp_myr_rate as _get_gp_myr_rate
+    myr_to_usd = float(_get_gp_myr_rate())
+
+    gc_token, gc_err = _gameclub_get_token()
+    if not gc_token:
+        return jsonify({'error': (gc_err or {}).get('message', 'No se pudo obtener token de GamePoint')}), 500
+
+    conn = get_db_connection()
+    items = []
+    api_errors = []
+
+    def _process_game(game_key, game_name, product_id, local_rows, cost_map):
+        try:
+            _, detail_data = _gameclub_post('product/detail', {'token': gc_token, 'productid': int(product_id)})
+            if (detail_data or {}).get('code') != 200:
+                api_errors.append({'game': game_name, 'error': (detail_data or {}).get('message', 'Error obteniendo detalle')})
+                return
+
+            gp_map = {}
+            for p in (detail_data or {}).get('package', []) or []:
+                try:
+                    gp_map[int(p.get('id'))] = float(p.get('price', 0))
+                except Exception:
+                    continue
+
+            for lp in local_rows:
+                gp_id = lp.get('gamepoint_package_id')
+                if not gp_id:
+                    continue
+                try:
+                    gp_id_int = int(gp_id)
+                except Exception:
+                    continue
+                if gp_id_int not in gp_map:
+                    continue
+
+                gp_myr_now = float(gp_map[gp_id_int])
+                gp_usd_now = round(gp_myr_now * myr_to_usd, 4)
+                my_price_now = float(lp.get('precio') or 0)
+
+                cost_before = cost_map.get(int(lp['id']))
+                my_updated_now = None
+                diff = None
+                ok = None
+                if cost_before is not None:
+                    my_price_before = round(float(cost_before), 4)
+                    margin = my_price_now - my_price_before
+                    my_updated_now = round(gp_usd_now + margin, 2)
+                    diff = round(my_price_now - my_updated_now, 4)
+                    ok = abs(diff) <= 0.01
+
+                items.append({
+                    'row_key': f"{game_key}:{lp['id']}",
+                    'game_key': game_key,
+                    'game_name': game_name,
+                    'local_id': int(lp['id']),
+                    'local_name': lp.get('nombre'),
+                    'gp_package_id': gp_id_int,
+                    'gp_price_before_usd': round(float(cost_before), 4) if cost_before is not None else None,
+                    'gp_price_now_usd': gp_usd_now,
+                    'my_price_now': round(my_price_now, 2),
+                    'my_price_updated_now': my_updated_now,
+                    'diff': diff,
+                    'ok': ok,
+                })
+        except Exception as e:
+            api_errors.append({'game': game_name, 'error': str(e)})
+
+    # Blood Strike
+    bs_locals = conn.execute(
+        'SELECT id, nombre, precio, gamepoint_package_id FROM precios_bloodstriker WHERE gamepoint_package_id IS NOT NULL'
+    ).fetchall()
+    bs_costs = {
+        int(r['paquete_id']): float(r['precio_compra'])
+        for r in conn.execute("SELECT paquete_id, precio_compra FROM precios_compra WHERE juego = 'bloodstriker'").fetchall()
+    }
+    bs_product_id = int(os.environ.get('BLOODSTRIKE_PRODUCT_ID', '155'))
+    _process_game('bloodstriker', 'Blood Striker', bs_product_id, [dict(x) for x in bs_locals], bs_costs)
+
+    # Juegos dinámicos
+    dyn_games_rows = conn.execute(
+        'SELECT id, nombre, slug, gamepoint_product_id FROM juegos_dinamicos ORDER BY nombre'
+    ).fetchall()
+    for g in dyn_games_rows:
+        g = dict(g)
+        local_rows = conn.execute(
+            'SELECT id, nombre, precio, gamepoint_package_id FROM paquetes_dinamicos WHERE juego_id = ? AND gamepoint_package_id IS NOT NULL',
+            (g['id'],)
+        ).fetchall()
+        cost_map = {
+            int(r['paquete_id']): float(r['precio_compra'])
+            for r in conn.execute(
+                'SELECT paquete_id, precio_compra FROM precios_compra WHERE juego = ?',
+                (f"dyn_{g['slug']}",)
+            ).fetchall()
+        }
+        _process_game(f"dyn_{g['slug']}", g['nombre'], int(g['gamepoint_product_id']), [dict(x) for x in local_rows], cost_map)
+
+    conn.close()
+
+    comparable = [it for it in items if it.get('ok') is not None]
+    ok_count = sum(1 for it in comparable if it.get('ok'))
+    bad_count = sum(1 for it in comparable if it.get('ok') is False)
+    avg_abs_diff = round((sum(abs(float(it.get('diff') or 0)) for it in comparable) / len(comparable)), 4) if comparable else 0.0
+
+    return jsonify({
+        'success': True,
+        'myr_to_usd_rate': myr_to_usd,
+        'generated_at': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
+        'summary': {
+            'total_rows': len(items),
+            'comparable_rows': len(comparable),
+            'ok_rows': ok_count,
+            'out_of_sync_rows': bad_count,
+            'avg_abs_diff': avg_abs_diff,
+            'api_errors': len(api_errors),
+        },
+        'items': items,
+        'errors': api_errors,
     })
 
 
