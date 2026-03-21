@@ -45,6 +45,33 @@ _DT_NOW_MOD_RE = re.compile(
     re.IGNORECASE
 )
 
+_BOOL_ASSIGN_PARAM_RE = re.compile(
+    r'\b(activo|usado|importante|visto|sin_ganancia|bono_activo)\b\s*=\s*%s',
+    re.IGNORECASE
+)
+
+
+def _normalize_bool_params(sql: str, params):
+    """Cast 0/1 params to bool for common boolean assignment columns."""
+    if params is None:
+        return params
+    if isinstance(params, dict):
+        return params
+    if not isinstance(params, (tuple, list)):
+        return params
+
+    try:
+        values = list(params)
+        for m in _BOOL_ASSIGN_PARAM_RE.finditer(sql or ''):
+            ph_index = (sql[:m.start()] if sql else '').count('%s')
+            if 0 <= ph_index < len(values):
+                v = values[ph_index]
+                if isinstance(v, int) and v in (0, 1):
+                    values[ph_index] = bool(v)
+        return tuple(values) if isinstance(params, tuple) else values
+    except Exception:
+        return params
+
 # PostgreSQL-style placeholders/functions that can appear in code paths
 # and need to run in local SQLite development mode.
 _PG_PLACEHOLDER_RE = re.compile(r'%s')
@@ -234,7 +261,8 @@ class PgCursor:
         if sql_pg is None:
             return self  # PRAGMA no-op
         try:
-            self._cur.execute(sql_pg, params)
+            safe_params = _normalize_bool_params(sql_pg, params)
+            self._cur.execute(sql_pg, safe_params)
         except Exception:
             raise
         return self
@@ -243,7 +271,11 @@ class PgCursor:
         sql_pg = _convert_sql(sql)
         if sql_pg is None:
             return self
-        self._cur.executemany(sql_pg, params_list)
+        safe_list = [
+            _normalize_bool_params(sql_pg, p)
+            for p in (params_list or [])
+        ]
+        self._cur.executemany(sql_pg, safe_list)
         return self
 
     def fetchone(self):
@@ -435,7 +467,8 @@ class PgConnection:
             return _NoOpCursor()
         cur = self._raw_cursor()
         try:
-            cur._cur.execute(sql_pg, params)
+            safe_params = _normalize_bool_params(sql_pg, params)
+            cur._cur.execute(sql_pg, safe_params)
         except Exception:
             raise
         return cur
@@ -445,7 +478,11 @@ class PgConnection:
         if sql_pg is None:
             return _NoOpCursor()
         cur = self._raw_cursor()
-        cur._cur.executemany(sql_pg, params_list)
+        safe_list = [
+            _normalize_bool_params(sql_pg, p)
+            for p in (params_list or [])
+        ]
+        cur._cur.executemany(sql_pg, safe_list)
         return cur
 
     def cursor(self) -> PgCursor:
