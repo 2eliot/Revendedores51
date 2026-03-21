@@ -4247,10 +4247,16 @@ def admin_toggle_game():
         conn = get_db_connection()
         active_sql = 'TRUE' if active == '1' else 'FALSE'
         if game in static_tables:
-            conn.execute(f"UPDATE {static_tables[game]} SET activo = {active_sql}")
+            cur = conn.execute(f"UPDATE {static_tables[game]} SET activo = {active_sql}")
+            affected = getattr(cur, 'rowcount', -1)
         elif game and game.startswith('dyn_'):
             slug = game[4:]
-            conn.execute(f"UPDATE juegos_dinamicos SET activo = {active_sql} WHERE slug = ?", (slug,))
+            cur = conn.execute(f"UPDATE juegos_dinamicos SET activo = {active_sql} WHERE slug = ?", (slug,))
+            affected = getattr(cur, 'rowcount', -1)
+            if affected == 0:
+                conn.close()
+                flash(f'No se encontró juego dinámico con slug: {slug}', 'warning')
+                return redirect('/admin')
         else:
             conn.close()
             flash('Juego no soportado.', 'error')
@@ -4258,12 +4264,14 @@ def admin_toggle_game():
         conn.commit()
         conn.close()
         estado = 'activado' if active == '1' else 'desactivado'
+        logger.info(f"[admin_toggle_game] game={game} active={active} sql={active_sql} affected={affected}")
         flash(f'Juego {game} {estado} correctamente.', 'success')
     except Exception as e:
         try:
             conn.close()
         except Exception:
             pass
+        logger.exception(f"[admin_toggle_game] Error game={game} active={active}")
         flash(f'Error al actualizar estado del juego: {str(e)}', 'error')
     return redirect('/admin')
 
@@ -5312,6 +5320,7 @@ def validar_bloodstriker():
                 try:
                     conn_e = get_db_connection()
                     conn_e.execute('UPDATE transacciones_bloodstriker SET estado = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP WHERE id = ?', ('error', 'No se pudo obtener token GP', _bs_tx_id))
+                    logger.info(f"[admin_toggle_game] game={game} active={active} active_sql={active_sql}")
                     conn_e.commit()
                     conn_e.close()
                 except Exception:
@@ -10172,6 +10181,7 @@ def api_recharge_freefire_id():
             _lc.commit()
             _lc.close()
         except Exception as _le:
+            logger.exception(f"[admin_toggle_game] Error actualizando juego game={game} active={active}: {e}")
             logger.warning(f'[API FF-ID] No se pudo guardar log: {_le}')
 
     if redeem_result and redeem_result.success:
