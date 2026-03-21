@@ -170,6 +170,14 @@ def admin_set_gp_rate():
             return jsonify({'error': 'Tasa inválida, debe ser mayor a 0'}), 400
         set_gp_myr_rate(rate)
 
+        # Sincronizar Blood Strike inmediatamente con la nueva tasa.
+        bloodstrike_sync = None
+        try:
+            import app as _app
+            bloodstrike_sync = _app._bloodstrike_sync_prices_internal()
+        except Exception as e:
+            bloodstrike_sync = {'error': str(e)}
+
         # Aplicar inmediatamente la nueva tasa en los precios locales de juegos dinámicos.
         # Esto evita esperar al ciclo automático en background para ver cambios en layouts.
         sync_results = sync_all_dynamic_games_prices()
@@ -187,6 +195,7 @@ def admin_set_gp_rate():
         return jsonify({
             'ok': True,
             'rate': rate,
+            'bloodstrike_sync': bloodstrike_sync,
             'dynamic_sync': {
                 'games_synced': synced_games,
                 'packages_updated': updated_packages,
@@ -698,7 +707,9 @@ def sync_dynamic_game_prices(game_id):
             if costo_actual > 0:
                 ganancia = round(local['precio'] - costo_actual, 4)
             else:
-                ganancia = default_profit
+                # Si falta costo histórico, inferir margen desde precio actual para
+                # mantener estable el precio base y que próximos cambios sigan el delta GP.
+                ganancia = round(float(local['precio']) - float(nuevo_costo), 4)
             nuevo_precio = round(nuevo_costo + ganancia, 2)
 
             entry = {
@@ -748,8 +759,8 @@ def admin_sync_game_prices(game_id):
 
 
 def sync_all_dynamic_games_prices():
-    """Sync prices for ALL active dynamic games. Called by background thread."""
-    games = get_all_dynamic_games(only_active=True)
+    """Sync prices for all dynamic games (activos e inactivos)."""
+    games = get_all_dynamic_games(only_active=False)
     results = []
     for g in games:
         try:

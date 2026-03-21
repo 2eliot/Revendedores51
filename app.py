@@ -5320,7 +5320,6 @@ def validar_bloodstriker():
                 try:
                     conn_e = get_db_connection()
                     conn_e.execute('UPDATE transacciones_bloodstriker SET estado = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP WHERE id = ?', ('error', 'No se pudo obtener token GP', _bs_tx_id))
-                    logger.info(f"[admin_toggle_game] game={game} active={active} active_sql={active_sql}")
                     conn_e.commit()
                     conn_e.close()
                 except Exception:
@@ -5757,8 +5756,9 @@ def _bloodstrike_sync_prices_internal(deactivate_missing=False, deactivate_unmap
             if costo_actual > 0:
                 ganancia_paquete = round(local['precio'] - costo_actual, 4)
             else:
-                # Si no hay costo registrado aún, usar default
-                ganancia_paquete = default_profit_usd
+                # Si falta costo histórico, inferir margen desde precio actual para
+                # mantener el precio base y que próximos cambios sigan el delta GP.
+                ganancia_paquete = round(float(local['precio']) - float(nuevo_costo_usd), 4)
             
             nuevo_precio_venta = round(nuevo_costo_usd + ganancia_paquete, 2)
             
@@ -5781,8 +5781,15 @@ def _bloodstrike_sync_prices_internal(deactivate_missing=False, deactivate_unmap
                 (nuevo_precio_venta, local['id'])
             )
             conn.execute(
-                'UPDATE precios_compra SET precio_compra = ? WHERE juego = ? AND paquete_id = ?',
-                (nuevo_costo_usd, 'bloodstriker', local['id'])
+                '''
+                INSERT INTO precios_compra (juego, paquete_id, precio_compra, activo)
+                VALUES (?, ?, ?, TRUE)
+                ON CONFLICT (juego, paquete_id) DO UPDATE
+                SET precio_compra = EXCLUDED.precio_compra,
+                    activo = EXCLUDED.activo,
+                    fecha_actualizacion = CURRENT_TIMESTAMP
+                ''',
+                ('bloodstriker', local['id'], nuevo_costo_usd)
             )
             updated += 1
         else:
@@ -10181,7 +10188,6 @@ def api_recharge_freefire_id():
             _lc.commit()
             _lc.close()
         except Exception as _le:
-            logger.exception(f"[admin_toggle_game] Error actualizando juego game={game} active={active}: {e}")
             logger.warning(f'[API FF-ID] No se pudo guardar log: {_le}')
 
     if redeem_result and redeem_result.success:
