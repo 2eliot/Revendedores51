@@ -149,69 +149,90 @@
 
       <!-- Pestaña GameClub -->
       <div id="tab-gameclub" class="tab-content">
-        <section class="stats-admin-section">
-          <h2>🎮 GameClub - Catálogo</h2>
-          <p style="color:#888;margin-bottom:14px;">Lista los productos de GamePoint Club para que puedas identificar <code>productid</code>, campos requeridos y paquetes (<code>packageid</code>).</p>
-
-          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
-            <button type="button" class="btn btn-secondary" onclick="loadGameClubProducts()">Cargar productos</button>
-            <div id="gameclub-status" style="color:#aaa;font-size:13px;"></div>
-          </div>
-
-          <div class="card" style="margin-top:10px;">
-            <div class="card-header"><h3>Productos</h3></div>
-            <div class="card-body">
-              <div class="table-responsive">
-                <table class="table" style="width:100%; min-width: 320px;">
-                  <thead>
-                    <tr><th>ID</th><th>Nombre</th><th></th></tr>
-                  </thead>
-                  <tbody id="gameclub-products-body">
-                    <tr><td colspan="3" style="color:#888;">Presiona "Cargar productos".</td></tr>
-                  </tbody>
-                </table>
-              </div>
+        <section class="stats-admin-section gameclub-catalog-panel">
+          <div class="gameclub-mobile-status-wrap">
+            <div class="gameclub-mobile-status">
+              <span>7:30</span>
+              <span class="gc-battery"><span class="gc-battery-level"></span></span>
             </div>
           </div>
 
-          <div class="card" style="margin-top:14px;">
-            <div class="card-header"><h3>Detalle</h3></div>
-            <div class="card-body" id="gameclub-detail" style="color:#ddd;font-size:13px;">
-              Selecciona un producto para ver sus campos y paquetes.
-            </div>
+          <h2 class="gc-title">
+            <span class="gc-title-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="1.9"><rect x="2.5" y="7" width="19" height="10" rx="4"></rect><path d="M8 12h4"></path><path d="M10 10v4"></path><circle cx="16" cy="11" r="1"></circle><circle cx="18" cy="13" r="1"></circle></svg>
+            </span>
+            GameClub - Catálogo
+          </h2>
+          <p class="gc-subtitle">Lista los productos de GamePoint Club para que puedas identificar productid, campos requeridos y paquetes (packageid).</p>
+
+          <div class="gc-toolbar">
+            <button type="button" class="btn gc-btn-load" onclick="loadGameClubProducts()">Cargar productos</button>
+            <div id="gameclub-status" class="gc-status-text"></div>
           </div>
 
-          <!-- Tasa MYR → USD -->
-          <div class="card" style="margin-top:20px;border:1px solid rgba(250,200,80,0.35);">
-            <div class="card-header" style="background:rgba(250,200,80,0.08);"><h3>💱 Tasa de cambio: MYR → USD</h3></div>
-            <div class="card-body">
-              <p style="color:#aaa;font-size:13px;margin-bottom:14px;">Se aplica al sincronizar precios de <strong>Blood Strike</strong> y <strong>todos los juegos dinámicos</strong>. Precio venta = (precio MYR × tasa) + ganancia existente.</p>
-              <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
-                <div>
-                  <label style="display:block;color:#ccc;margin-bottom:4px;font-size:12px;">1 MYR =</label>
-                  <div style="display:flex;align-items:center;gap:6px;">
-                    <input type="number" id="admin-gp-myr-rate" step="0.0001" min="0.0001" placeholder="0.2357" style="width:130px;padding:7px 10px;background:#1a1a2e;border:1px solid #333;border-radius:6px;color:#fff;font-size:13px;">
-                    <span style="color:#aaa;font-size:13px;">USD</span>
-                  </div>
+          <div class="gc-two-col">
+            <div class="card gc-card">
+              <div class="card-header gc-card-header"><h3>Productos</h3></div>
+              <div class="card-body">
+                <div class="table-responsive">
+                  <table class="table gc-products-table" style="width:100%; min-width: 320px;">
+                    <thead>
+                      <tr><th>ID</th><th>Nombre</th></tr>
+                    </thead>
+                    <tbody id="gameclub-products-body">
+                      <tr><td colspan="2" class="gc-muted">Presiona "Cargar productos".</td></tr>
+                    </tbody>
+                  </table>
                 </div>
-                <button type="button" class="btn btn-primary" onclick="saveGpRate()" style="background:#f59e0b;color:#000;font-weight:700;">💾 Guardar tasa</button>
               </div>
-              <div id="admin-gp-rate-status" style="margin-top:8px;font-size:13px;"></div>
+            </div>
+
+            <div class="card gc-card">
+              <div class="card-header gc-card-header"><h3>Detalle</h3></div>
+              <div class="card-body gc-muted" id="gameclub-detail">
+                Selecciona un producto para ver sus campos y paquetes.
+              </div>
             </div>
           </div>
 
-          <!-- Estadísticas de salud de precios -->
-          <div class="card" style="margin-top:20px;border:1px solid rgba(74,222,128,0.25);">
-            <div class="card-header" style="background:rgba(74,222,128,0.08);"><h3>📈 Estado de precios GP vs precios locales</h3></div>
+          <div class="card gc-card gc-card-exchange">
+            <div class="card-header gc-card-header gc-head-exchange">
+              <h3>
+                <svg class="gc-inline-icon" viewBox="0 0 24 24" fill="none" stroke-width="1.8"><path d="M16 3l5 5-5 5"></path><path d="M21 8H8a5 5 0 1 0 0 10"></path><path d="M8 21l-5-5 5-5"></path><path d="M3 16h13a5 5 0 1 0 0-10"></path></svg>
+                Tasa de cambio: USD → MYR
+              </h3>
+            </div>
             <div class="card-body">
-              <p style="color:#aaa;font-size:13px;margin-bottom:12px;">Aquí validas si el sync de precios está funcionando: compara <strong>precio en GP antes</strong>, <strong>precio en GP ahora</strong>, <strong>precio mío antes</strong> y <strong>precio actualizado ahora</strong>.</p>
-              <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
-                <button type="button" class="btn btn-secondary" onclick="loadGameclubPriceHealth()">Actualizar estadísticas</button>
-                <div id="gp-health-status" style="color:#aaa;font-size:13px;"></div>
+              <p class="gc-exchange-copy">Usa la tasa real del mercado para convertir GP (MYR) a USD. Fórmula: costo USD = precio MYR / tasa(USD→MYR). El precio de venta mantiene la misma diferencia en USD frente al costo GP.</p>
+              <div class="gc-exchange-row">
+                <span class="gc-rate-label">1 USD =</span>
+                <input type="number" id="admin-gp-myr-rate" step="0.0001" min="0.0001" placeholder="3.9400" class="gc-rate-input">
+                <span class="gc-rate-currency">MYR</span>
+                <button type="button" class="btn gc-btn-save" onclick="saveGpRate()">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 4h11l3 3v13H5z"></path><path d="M8 4v6h8"></path><path d="M9 17h6"></path></svg>
+                  Guardar tasa
+                </button>
+              </div>
+              <div id="admin-gp-rate-status" class="gc-status-text"></div>
+            </div>
+          </div>
+
+          <div class="card gc-card gc-health-card">
+            <div class="card-header gc-card-header gc-head-health">
+              <h3>
+                <svg class="gc-inline-icon" viewBox="0 0 24 24" fill="none" stroke-width="1.8"><path d="M4 19V5"></path><path d="M4 19h16"></path><path d="M7 14l4-4 3 2 4-5"></path></svg>
+                Estado de precios GP vs precios locales
+              </h3>
+            </div>
+            <div class="card-body">
+              <p class="gc-health-copy">Aquí validas si el sync de precios está funcionando: compara precio en GP antes, precio en GP ahora, precio mío antes y precio actualizado ahora.</p>
+              <div class="gc-toolbar gc-toolbar-inline">
+                <button type="button" class="btn gc-btn-load" onclick="loadGameclubPriceHealth()">Actualizar estadísticas</button>
+                <div id="gp-health-status" class="gc-status-text"></div>
               </div>
               <div id="gp-health-summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:12px;"></div>
-              <div id="gp-health-table-wrap" style="overflow-x:auto;">
-                <div style="color:#888;padding:10px 0;">Presiona "Actualizar estadísticas" para calcular el estado actual.</div>
+              <div id="gp-health-table-wrap" class="gc-health-table-wrap">
+                <div class="gc-muted">Presiona "Actualizar estadísticas" para calcular el estado actual.</div>
               </div>
             </div>
           </div>
@@ -1838,45 +1859,38 @@
       statusEl.textContent = 'Cargando...';
       detailEl.textContent = 'Selecciona un producto para ver sus campos y paquetes.';
       detailEl.style.whiteSpace = '';
-      bodyEl.innerHTML = '<tr><td colspan="3" style="color:#888;">Cargando...</td></tr>';
+      bodyEl.innerHTML = '<tr><td colspan="2" class="gc-muted">Cargando...</td></tr>';
       try {
         const res = await fetch('/admin/gameclub/products', { method: 'GET', headers: { 'Accept': 'application/json' } });
         const data = await res.json();
         if (!res.ok || !data.success) {
           statusEl.textContent = data.error || 'Error cargando productos.';
-          bodyEl.innerHTML = '<tr><td colspan="3" style="color:#ff7777;">No se pudo cargar.</td></tr>';
+          bodyEl.innerHTML = '<tr><td colspan="2" style="color:#dc3545;">No se pudo cargar.</td></tr>';
           return;
         }
         const list = (data.data && data.data.detail) ? data.data.detail : [];
         statusEl.textContent = `OK: ${list.length} productos.`;
         if (!list.length) {
-          bodyEl.innerHTML = '<tr><td colspan="3" style="color:#888;">No hay productos.</td></tr>';
+          bodyEl.innerHTML = '<tr><td colspan="2" class="gc-muted">No hay productos.</td></tr>';
           return;
         }
         bodyEl.innerHTML = '';
         list.forEach(p => {
           const tr = document.createElement('tr');
+          tr.className = 'gc-row-clickable';
+          tr.title = 'Click para ver detalle';
           const tdId = document.createElement('td');
           tdId.textContent = p.id;
           const tdName = document.createElement('td');
           tdName.textContent = p.name;
-          const tdBtn = document.createElement('td');
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'btn btn-secondary';
-          btn.textContent = 'Ver detalle';
-          btn.style.padding = '6px 10px';
-          btn.style.fontSize = '12px';
-          btn.onclick = () => loadGameClubProductDetail(p.id);
-          tdBtn.appendChild(btn);
+          tr.onclick = () => loadGameClubProductDetail(p.id);
           tr.appendChild(tdId);
           tr.appendChild(tdName);
-          tr.appendChild(tdBtn);
           bodyEl.appendChild(tr);
         });
       } catch (e) {
         statusEl.textContent = 'Error inesperado.';
-        bodyEl.innerHTML = '<tr><td colspan="3" style="color:#ff7777;">Error.</td></tr>';
+        bodyEl.innerHTML = '<tr><td colspan="2" style="color:#dc3545;">Error.</td></tr>';
       }
     }
 
@@ -1968,7 +1982,8 @@
         const res = await fetch('/admin/bloodstrike/sync_prices', {method:'POST',headers:{'Accept':'application/json'}});
         const data = await res.json();
         if (!res.ok || data.error) { st.innerHTML = '<span style="color:#ff6b6b;">' + (data.error||'Error') + '</span>'; return; }
-        st.innerHTML = '<span style="color:#4ade80;">Sync OK: ' + data.packages_updated + '/' + data.total_gamepoint_packages + ' actualizados (tasa ' + data.myr_to_usd_rate + ')</span>';
+        const usdToMyr = Number(data.usd_to_myr_rate || (1 / Number(data.myr_to_usd_rate || 0.2538)));
+        st.innerHTML = '<span style="color:#4ade80;">Sync OK: ' + data.packages_updated + '/' + data.total_gamepoint_packages + ' actualizados (1 USD = ' + usdToMyr.toFixed(4) + ' MYR)</span>';
         if (rpt && data.report) {
           let html = '<div style="background:#0d0d1a;border-radius:8px;padding:12px;font-size:12px;"><strong>Reporte de Sync:</strong><table class="table" style="width:100%;font-size:12px;margin-top:8px;"><thead><tr><th>GP ID</th><th>Nombre GP</th><th>Precio MYR</th><th>Costo USD</th><th>Venta USD</th><th>Local</th><th>Cambio</th></tr></thead><tbody>';
           data.report.forEach(r => {
@@ -1990,7 +2005,7 @@
       } catch(e) { st.innerHTML = '<span style="color:#ff6b6b;">Error inesperado</span>'; }
     }
 
-    // ======= Tasa MYR → USD (GameClub) =======
+    // ======= Tasa USD → MYR (GameClub) =======
     async function loadGpRate() {
       try {
         const res = await fetch('/admin/dynamic-games/gp-rate');
@@ -1998,7 +2013,7 @@
         if (data.rate) {
           const el = document.getElementById('admin-gp-myr-rate');
           if (el) el.value = data.rate;
-          window._gpMyrRate = data.rate;
+          window._gpUsdToMyrRate = data.rate;
         }
       } catch(e) {}
     }
@@ -2020,12 +2035,14 @@
         });
         const data = await res.json();
         if (data.ok) {
-          window._gpMyrRate = rate;
+          window._gpUsdToMyrRate = Number(data.usd_to_myr_rate || rate);
           const dyn = data.dynamic_sync || {};
           const synced = Number(dyn.games_synced || 0);
           const updated = Number(dyn.packages_updated || 0);
           const errCount = Array.isArray(dyn.errors) ? dyn.errors.length : 0;
-          st.innerHTML = '<span style="color:#4ade80;">✅ Guardado: 1 MYR = ' + rate.toFixed(4) + ' USD | Sync dinámico: ' + synced + ' juegos, ' + updated + ' paquetes' + (errCount ? ' (' + errCount + ' con error)' : '') + '</span>';
+          const usdToMyr = Number(data.usd_to_myr_rate || rate);
+          const myrToUsd = Number(data.myr_to_usd_rate || (1 / usdToMyr));
+          st.innerHTML = '<span style="color:#4ade80;">✅ Guardado: 1 USD = ' + usdToMyr.toFixed(4) + ' MYR (1 MYR = ' + myrToUsd.toFixed(6) + ' USD) | Sync dinámico: ' + synced + ' juegos, ' + updated + ' paquetes' + (errCount ? ' (' + errCount + ' con error)' : '') + '</span>';
         } else {
           st.innerHTML = '<span style="color:#ff6b6b;">❌ ' + (data.error || 'Error') + '</span>';
         }
@@ -2065,7 +2082,8 @@
         const items = Array.isArray(data.items) ? data.items : [];
         const errors = Array.isArray(data.errors) ? data.errors : [];
 
-        st.innerHTML = '<span style="color:#4ade80;">Actualizado. Tasa: ' + Number(data.myr_to_usd_rate || 0).toFixed(4) + ' | Filas: ' + Number(s.total_rows || 0) + '</span>';
+        const usdToMyr = Number(data.usd_to_myr_rate || (1 / Number(data.myr_to_usd_rate || 0.2538)));
+        st.innerHTML = '<span style="color:#4ade80;">Actualizado. Tasa: 1 USD = ' + usdToMyr.toFixed(4) + ' MYR | Filas: ' + Number(s.total_rows || 0) + '</span>';
 
         const okRows = Number(s.ok_rows || 0);
         const badRows = Number(s.out_of_sync_rows || 0);

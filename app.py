@@ -5686,6 +5686,7 @@ def _bloodstrike_sync_prices_internal(deactivate_missing=False, deactivate_unmap
     default_profit_usd = float(os.environ.get('BLOODSTRIKE_PROFIT_USD', '0.11'))
     from dynamic_games import get_gp_myr_rate as _get_gp_myr_rate
     myr_to_usd = _get_gp_myr_rate()
+    usd_to_myr = round((1.0 / float(myr_to_usd)), 6) if float(myr_to_usd) > 0 else None
     product_id = int(os.environ.get('BLOODSTRIKE_PRODUCT_ID', '155'))
     
     # 1. Obtener token
@@ -5820,6 +5821,7 @@ def _bloodstrike_sync_prices_internal(deactivate_missing=False, deactivate_unmap
         'success': True,
         'product_id': product_id,
         'default_profit_usd': default_profit_usd,
+        'usd_to_myr_rate': usd_to_myr,
         'myr_to_usd_rate': myr_to_usd,
         'packages_updated': updated,
         'total_gamepoint_packages': len(gp_packages),
@@ -5909,6 +5911,7 @@ def admin_gameclub_price_health():
     try:
         from dynamic_games import get_gp_myr_rate as _get_gp_myr_rate
         myr_to_usd = float(_get_gp_myr_rate())
+        usd_to_myr = round((1.0 / myr_to_usd), 6) if myr_to_usd > 0 else None
 
         gc_token, gc_err = _gameclub_get_token()
         if not gc_token:
@@ -6020,6 +6023,7 @@ def admin_gameclub_price_health():
 
         return jsonify({
             'success': True,
+            'usd_to_myr_rate': usd_to_myr,
             'myr_to_usd_rate': myr_to_usd,
             'generated_at': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
             'summary': {
@@ -10382,6 +10386,11 @@ def admin_restore_backup():
         flash(f'Error al restaurar backup: {e}', 'error')
 
     return redirect('/admin')
+
+
+@app.route('/mockup/gameclub-catalogo')
+def gameclub_catalogo_mockup():
+    return render_template('gameclub_catalogo_mockup.html')
 
 
 if __name__ == '__main__':

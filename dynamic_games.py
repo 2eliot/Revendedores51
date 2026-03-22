@@ -27,36 +27,83 @@ def _get_conn():
 
 
 # ---------------------------------------------------------------------------
-# Tasa de cambio MYR → USD (compartida entre Blood Strike y juegos dinámicos)
+# Tasa de cambio para GamePoint (compartida entre Blood Strike y juegos dinámicos)
 # ---------------------------------------------------------------------------
 
-GP_MYR_RATE_KEY = 'gp_myr_to_usd_rate'
-_GP_MYR_RATE_DEFAULT = 0.2357
+GP_MYR_RATE_KEY = 'gp_myr_to_usd_rate'  # legado (MYR -> USD)
+GP_USD_TO_MYR_RATE_KEY = 'gp_usd_to_myr_rate'  # nuevo (USD -> MYR)
+_GP_USD_TO_MYR_RATE_DEFAULT = 3.94
 
 
-def get_gp_myr_rate():
-    """Lee la tasa MYR→USD desde la BD. Fallback: env var BLOODSTRIKE_MYR_TO_USD_RATE."""
+def get_gp_usd_to_myr_rate():
+    """Lee la tasa USD→MYR desde BD (nuevo formato) con fallback compatible legado."""
     try:
         conn = _get_conn()
-        row = conn.execute(
+        row_new = conn.execute(
+            'SELECT valor FROM configuracion_redeemer WHERE clave = ?', (GP_USD_TO_MYR_RATE_KEY,)
+        ).fetchone()
+        if row_new and row_new['valor']:
+            conn.close()
+            return float(row_new['valor'])
+
+        # Compatibilidad con tasa anterior MYR->USD.
+        row_old = conn.execute(
             'SELECT valor FROM configuracion_redeemer WHERE clave = ?', (GP_MYR_RATE_KEY,)
         ).fetchone()
         conn.close()
-        if row and row['valor']:
-            return float(row['valor'])
+        if row_old and row_old['valor']:
+            old_myr_to_usd = float(row_old['valor'])
+            if old_myr_to_usd > 0:
+                return round(1.0 / old_myr_to_usd, 6)
     except Exception:
         pass
-    return float(os.environ.get('BLOODSTRIKE_MYR_TO_USD_RATE', str(_GP_MYR_RATE_DEFAULT)))
+
+    # Fallback env: preferir USD->MYR; si solo existe el legado, convertir.
+    env_usd_to_myr = os.environ.get('BLOODSTRIKE_USD_TO_MYR_RATE')
+    if env_usd_to_myr:
+        try:
+            parsed = float(env_usd_to_myr)
+            if parsed > 0:
+                return parsed
+        except Exception:
+            pass
+
+    env_myr_to_usd = os.environ.get('BLOODSTRIKE_MYR_TO_USD_RATE')
+    if env_myr_to_usd:
+        try:
+            parsed_old = float(env_myr_to_usd)
+            if parsed_old > 0:
+                return round(1.0 / parsed_old, 6)
+        except Exception:
+            pass
+
+    return float(_GP_USD_TO_MYR_RATE_DEFAULT)
 
 
-def set_gp_myr_rate(rate: float):
-    """Guarda la tasa MYR→USD en la BD."""
+def get_gp_myr_rate():
+    """Devuelve la tasa efectiva MYR→USD usada en cálculos: 1 / (USD→MYR)."""
+    usd_to_myr = float(get_gp_usd_to_myr_rate())
+    if usd_to_myr <= 0:
+        usd_to_myr = float(_GP_USD_TO_MYR_RATE_DEFAULT)
+    return 1.0 / usd_to_myr
+
+
+def set_gp_usd_to_myr_rate(rate: float):
+    """Guarda la tasa USD→MYR en la BD y actualiza el espejo legado MYR→USD."""
+    myr_to_usd = 1.0 / float(rate)
     conn = _get_conn()
     conn.execute(
         "INSERT INTO configuracion_redeemer (clave, valor, fecha_actualizacion) "
         "VALUES (?, ?, datetime('now')) "
         "ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor, fecha_actualizacion = EXCLUDED.fecha_actualizacion",
-        (GP_MYR_RATE_KEY, str(rate))
+        (GP_USD_TO_MYR_RATE_KEY, str(rate))
+    )
+    # Guardar también la clave anterior para compatibilidad con instancias viejas.
+    conn.execute(
+        "INSERT INTO configuracion_redeemer (clave, valor, fecha_actualizacion) "
+        "VALUES (?, ?, datetime('now')) "
+        "ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor, fecha_actualizacion = EXCLUDED.fecha_actualizacion",
+        (GP_MYR_RATE_KEY, str(myr_to_usd))
     )
     conn.commit()
     conn.close()
@@ -156,7 +203,12 @@ def _gp_helpers():
 def admin_get_gp_rate():
     if not session.get('is_admin'):
         return jsonify({'error': 'Acceso denegado'}), 403
-    return jsonify({'rate': get_gp_myr_rate()})
+    usd_to_myr = float(get_gp_usd_to_myr_rate())
+    return jsonify({
+        'rate': usd_to_myr,
+        'usd_to_myr_rate': usd_to_myr,
+        'myr_to_usd_rate': round(1.0 / usd_to_myr, 6),
+    })
 
 
 @bp.route('/admin/dynamic-games/gp-rate', methods=['POST'])
@@ -168,7 +220,9 @@ def admin_set_gp_rate():
         rate = float(data.get('rate', 0))
         if rate <= 0:
             return jsonify({'error': 'Tasa inválida, debe ser mayor a 0'}), 400
-        set_gp_myr_rate(rate)
+        # Si envían una tasa antigua < 1 (MYR->USD), convertirla automáticamente.
+        usd_to_myr = (1.0 / rate) if rate < 1 else rate
+        set_gp_usd_to_myr_rate(usd_to_myr)
 
         # Sincronizar Blood Strike inmediatamente con la nueva tasa.
         bloodstrike_sync = None
@@ -194,7 +248,9 @@ def admin_set_gp_rate():
 
         return jsonify({
             'ok': True,
-            'rate': rate,
+            'rate': usd_to_myr,
+            'usd_to_myr_rate': usd_to_myr,
+            'myr_to_usd_rate': round(1.0 / usd_to_myr, 6),
             'bloodstrike_sync': bloodstrike_sync,
             'dynamic_sync': {
                 'games_synced': synced_games,
