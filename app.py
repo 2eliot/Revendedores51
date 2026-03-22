@@ -8820,12 +8820,40 @@ def dashboard():
         monto_total += transaction_dict['monto']
         transacciones_procesadas.append(transaction_dict)
     
-    # Ordenar todas las transacciones por fecha
-    transacciones_procesadas.sort(key=lambda x: x['fecha'], reverse=True)
-    
-    # Calcular estadísticas
+    def _dashboard_tx_key(tx):
+        transaccion_id = str(tx.get('transaccion_id') or '').strip()
+        if transaccion_id:
+            return f"tx:{transaccion_id}"
+        return "|".join([
+            str(tx.get('numero_control') or '').strip(),
+            str(tx.get('fecha') or '').strip(),
+            str(tx.get('monto') or '').strip(),
+            str(tx.get('paquete') or '').strip(),
+        ])
+
+    def _dashboard_tx_priority(tx):
+        priority = 0
+        if tx.get('duracion_segundos') not in (None, ''):
+            priority += 2
+        if tx.get('pin'):
+            priority += 1
+        if tx.get('paquete'):
+            priority += 1
+        if tx.get('is_bloodstriker'):
+            priority -= 1
+        return priority
+
+    deduped_transactions = {}
+    for transaction in transacciones_procesadas:
+        tx_key = _dashboard_tx_key(transaction)
+        existing_tx = deduped_transactions.get(tx_key)
+        if existing_tx is None or _dashboard_tx_priority(transaction) > _dashboard_tx_priority(existing_tx):
+            deduped_transactions[tx_key] = transaction
+
+    transacciones_procesadas = sorted(deduped_transactions.values(), key=lambda x: x['fecha'], reverse=True)
+    monto_total = round(sum(float(tx.get('monto') or 0) for tx in transacciones_procesadas), 2)
     total_transacciones = len(transacciones_procesadas)
-    
+
     # Calcular días analizados
     try:
         fecha_inicio_dt = datetime.strptime(fecha_inicio, '%Y-%m-%d')
@@ -8833,7 +8861,7 @@ def dashboard():
         dias_analizados = (fecha_fin_dt - fecha_inicio_dt).days + 1
     except:
         dias_analizados = 1
-    
+
     # Cargar nombres de juegos dinámicos para clasificación
     try:
         from dynamic_games import get_all_dynamic_games
@@ -8841,40 +8869,97 @@ def dashboard():
     except Exception:
         _dyn_game_names = []
 
-    # Estadísticas por juego
+    def extract_transaction_quantity(transaction):
+        raw_name = str(transaction.get('paquete') or transaction.get('paquete_nombre') or '').strip()
+        match = re.search(r'\sx(\d+)\s*$', raw_name, re.IGNORECASE)
+        if match:
+            try:
+                return max(1, int(match.group(1)))
+            except Exception:
+                pass
+
+        raw_pin = str(transaction.get('pin') or '')
+        pin_lines = [
+            line.strip() for line in raw_pin.replace('\r', '').split('\n')
+            if line.strip() and not line.strip().startswith('[') and not line.strip().startswith('ID:')
+        ]
+        if len(pin_lines) > 1:
+            return len(pin_lines)
+        return 1
+
+    def infer_item_from_package_name(nombre_paquete, is_bloodstriker=False):
+        raw_name = str(nombre_paquete or '').strip()
+        lower_name = raw_name.lower()
+        if is_bloodstriker or '🪙' in raw_name or 'blood' in lower_name:
+            return 'Blood Striker'
+        for dg_name in _dyn_game_names:
+            if raw_name.startswith(dg_name + ' - ') or raw_name == dg_name:
+                return dg_name
+        if '💎' in raw_name or 'free fire' in lower_name or 'ff id' in lower_name or 'tarjeta' in lower_name:
+            if any(x in raw_name for x in ['110 💎', '341 💎', '572 💎', '1.166 💎', '2.376 💎', '6.138 💎']) or 'tarjeta' in lower_name:
+                return 'Free Fire LATAM'
+            return 'Free Fire'
+        return 'Otros'
+
+    def normalize_package_display_name(nombre_paquete, item_name):
+        raw_name = str(nombre_paquete or '').strip()
+        raw_name = re.sub(r'\sx\d+\s*$', '', raw_name, flags=re.IGNORECASE)
+        raw_name = re.sub(r'\s*\([^)]*\)\s*$', '', raw_name)
+        raw_name = raw_name.replace('"', '').replace("'", '').replace('“', '').replace('”', '').strip()
+        if ' - ' in raw_name:
+            _, raw_name = raw_name.split(' - ', 1)
+            raw_name = raw_name.strip()
+
+        lower_name = raw_name.lower()
+        if item_name in ('Free Fire', 'Free Fire LATAM', 'Blood Striker'):
+            if any(word in lower_name for word in ['tarjeta', 'pase', 'elite', 'cofre']):
+                return raw_name
+            amount_match = re.search(r'(\d[\d\.,]*)', raw_name)
+            if amount_match:
+                amount_value = re.sub(r'\D', '', amount_match.group(1))
+                if amount_value:
+                    try:
+                        return str(int(amount_value))
+                    except Exception:
+                        return amount_value
+        return raw_name or 'Paquete'
+
+    def package_order_key(package_name):
+        normalized = str(package_name or '').strip().lower()
+        exact_number = re.fullmatch(r'(\d+)', normalized)
+        if exact_number:
+            return (0, int(exact_number.group(1)), normalized)
+        any_number = re.search(r'(\d+)', normalized)
+        if any_number:
+            return (1, int(any_number.group(1)), normalized)
+        return (2, 0, normalized)
+
+    def game_order_key(item_name):
+        name = (item_name or '').strip().lower()
+        if name == 'free fire':
+            return 0
+        if name == 'free fire latam':
+            return 1
+        if name == 'blood striker':
+            return 2
+        return 3
+
+    for transaction in transacciones_procesadas:
+        tx_quantity = extract_transaction_quantity(transaction)
+        tx_item = infer_item_from_package_name(transaction.get('paquete', ''), transaction.get('is_bloodstriker', False))
+        tx_package = normalize_package_display_name(transaction.get('paquete', 'Desconocido'), tx_item)
+        transaction['dashboard_quantity'] = tx_quantity
+        transaction['dashboard_item'] = tx_item
+        transaction['dashboard_package'] = tx_package
+
     stats_por_juego = {}
     for transaction in transacciones_procesadas:
-        # Determinar el juego basado en el paquete o si es Blood Striker
-        paq = transaction.get('paquete', '')
-        juego = None
-        if transaction.get('is_bloodstriker'):
-            juego = 'Blood Striker'
-        else:
-            # Verificar si es un juego dinámico ("GameName - PackageName")
-            for dg_name in _dyn_game_names:
-                if paq.startswith(dg_name + ' - ') or paq == dg_name:
-                    juego = dg_name
-                    break
-        if not juego:
-            if '💎' in paq:
-                if 'Tarjeta' in paq:
-                    juego = 'Free Fire LATAM'
-                else:
-                    if any(x in paq for x in ['110 💎', '341 💎', '572 💎', '1.166 💎', '2.376 💎', '6.138 💎']):
-                        juego = 'Free Fire LATAM'
-                    else:
-                        juego = 'Free Fire Global'
-            elif '🪙' in paq:
-                juego = 'Blood Striker'
-            else:
-                juego = 'Otros'
-        
+        juego = transaction.get('dashboard_item') or 'Otros'
         if juego not in stats_por_juego:
             stats_por_juego[juego] = {'cantidad': 0, 'monto': 0}
-        
-        stats_por_juego[juego]['cantidad'] += 1
-        stats_por_juego[juego]['monto'] += transaction['monto']
-    
+        stats_por_juego[juego]['cantidad'] += int(transaction.get('dashboard_quantity') or 1)
+        stats_por_juego[juego]['monto'] += float(transaction.get('monto') or 0)
+
     # Serie temporal por día (para gráfico) y gasto del día seleccionado
     from collections import OrderedDict
     try:
@@ -8891,11 +8976,9 @@ def dashboard():
         dias.append(current.strftime('%Y-%m-%d'))
         from datetime import timedelta as _td
         current += _td(days=1)
-    # Asegurar al menos 7 días para que la línea se dibuje y se vean los días de la semana
     if len(dias) < 7:
         from datetime import timedelta as _td
         faltan = 7 - len(dias)
-        # Prepend días anteriores al inicio
         prepend = []
         cur = fecha_inicio_dt - _td(days=1)
         for _ in range(faltan):
@@ -8904,87 +8987,43 @@ def dashboard():
         dias = list(reversed(prepend)) + dias
 
     serie_map = OrderedDict((d, 0.0) for d in dias)
-
-    def normalize_package_display_name(nombre_paquete):
-        """Acorta nombre para UI: quita sufijos entre paréntesis y comillas decorativas."""
-        s = str(nombre_paquete or '').strip()
-        # Quitar textos tipo: "100+5 🪙 (Blood Strike 100 + 5 Gold)"
-        s = re.sub(r'\s*\([^)]*\)\s*$', '', s)
-        # Quitar comillas decorativas/literales comunes
-        s = s.replace('"', '').replace("'", '').replace('“', '').replace('”', '')
-        return s.strip()
-    # Mapa de compras por día y por paquete para actualizar tabla desde el gráfico
     compras_por_dia_paquete = {d: {} for d in dias}
-    for t in transacciones_procesadas:
-        fecha_str = str(t['fecha']).split(' ')[0]
-        if fecha_str in serie_map:
-            serie_map[fecha_str] += float(t['monto'])
-            paquete_nombre = normalize_package_display_name(t.get('paquete', 'Desconocido'))
-            compras_por_dia_paquete[fecha_str][paquete_nombre] = compras_por_dia_paquete[fecha_str].get(paquete_nombre, 0) + 1
+    for transaction in transacciones_procesadas:
+        fecha_str = str(transaction['fecha']).split(' ')[0]
+        if fecha_str not in serie_map:
+            continue
+
+        serie_map[fecha_str] += float(transaction.get('monto') or 0)
+        item_name = transaction.get('dashboard_item') or 'Otros'
+        package_name = transaction.get('dashboard_package') or 'Paquete'
+        aggregate_key = f"{item_name}||{package_name}"
+        if aggregate_key not in compras_por_dia_paquete[fecha_str]:
+            compras_por_dia_paquete[fecha_str][aggregate_key] = {
+                'categoria': 'Juegos',
+                'item': item_name,
+                'paquete': package_name,
+                'cantidad': 0,
+            }
+        compras_por_dia_paquete[fecha_str][aggregate_key]['cantidad'] += int(transaction.get('dashboard_quantity') or 1)
 
     series_labels = list(serie_map.keys())
     series_values = [round(v, 2) for v in serie_map.values()]
 
-    # Gasto del día (usa el fin del rango como día seleccionado)
     gasto_dia = 0.0
     if fecha_fin in serie_map:
         gasto_dia = round(serie_map[fecha_fin], 2)
 
-    def infer_item_from_package_name(nombre_paquete):
-        """Clasifica el ítem/juego para la tabla de compras por paquete."""
-        # Juego dinámico: "Juego - Paquete"
-        if ' - ' in nombre_paquete:
-            return nombre_paquete.split(' - ', 1)[0].strip() or 'Otros'
-        if '🪙' in nombre_paquete or 'Blood' in nombre_paquete:
-            return 'Blood Striker'
-        if '💎' in nombre_paquete or 'Tarjeta' in nombre_paquete:
-            if any(x in nombre_paquete for x in ['110 💎', '341 💎', '572 💎', '1.166 💎', '2.376 💎', '6.138 💎', 'Tarjeta']):
-                return 'Freefire Bolivia'
-            return 'Freefire'
-        return 'Otros'
+    compras_paquete_counter = compras_por_dia_paquete.get(fecha_fin, {}) or {}
+    compras_paquete = sorted(
+        compras_paquete_counter.values(),
+        key=lambda row: (game_order_key(row.get('item')), str(row.get('item', '')).lower(), package_order_key(row.get('paquete')))
+    )
 
-    def game_order_key(item_name):
-        name = (item_name or '').strip().lower()
-        if 'freefire' in name:
-            return 0
-        if 'blood' in name:
-            return 1
-        return 2
-
-    # Conteo de compras por paquete en el día seleccionado
-    compras_paquete_counter = {}
-    for t in transacciones_procesadas:
-        fecha_str = str(t['fecha']).split(' ')[0]
-        if fecha_str == fecha_fin:
-            nombre = normalize_package_display_name(t.get('paquete', 'Desconocido'))
-            compras_paquete_counter[nombre] = compras_paquete_counter.get(nombre, 0) + 1
-
-    # Construir filas para tabla: Categoria, Ítem (juego), Paquete, Cantidad
-    compras_paquete = []
-    for nombre, cantidad in compras_paquete_counter.items():
-        item = infer_item_from_package_name(nombre)
-        compras_paquete.append({
-            'categoria': 'Juegos',
-            'item': item,
-            'paquete': nombre,
-            'cantidad': cantidad
-        })
-    compras_paquete.sort(key=lambda r: (game_order_key(r.get('item')), str(r.get('item', '')).lower(), str(r.get('paquete', '')).lower()))
-
-    # Mapa por día para refresco dinámico de tabla desde el gráfico
     compras_por_dia_detalle = {d: [] for d in dias}
-    for d in dias:
-        counts = compras_por_dia_paquete.get(d, {}) or {}
-        rows = []
-        for nombre, cantidad in counts.items():
-            rows.append({
-                'categoria': 'Juegos',
-                'item': infer_item_from_package_name(nombre),
-                'paquete': nombre,
-                'cantidad': cantidad
-            })
-        rows.sort(key=lambda r: (game_order_key(r.get('item')), str(r.get('item', '')).lower(), str(r.get('paquete', '')).lower()))
-        compras_por_dia_detalle[d] = rows
+    for day in dias:
+        rows = list((compras_por_dia_paquete.get(day, {}) or {}).values())
+        rows.sort(key=lambda row: (game_order_key(row.get('item')), str(row.get('item', '')).lower(), package_order_key(row.get('paquete'))))
+        compras_por_dia_detalle[day] = rows
 
     # Valores por defecto (si no existen tablas de stock/solicitudes)
     items_stock = 0
