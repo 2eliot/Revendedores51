@@ -732,12 +732,7 @@ def sync_dynamic_game_prices(game_id):
     if not game:
         return {'error': 'Juego no encontrado'}
 
-    myr_to_usd = float(get_gp_myr_rate())
-    if myr_to_usd > 1:
-        myr_to_usd = 1.0 / myr_to_usd
-    sync_mode = str(os.environ.get('GAMECLUB_PRICE_SYNC_MODE', 'api_fixed_profit')).strip().lower()
-    if sync_mode not in ('api_fixed_profit', 'per_package_margin'):
-        sync_mode = 'api_fixed_profit'
+    myr_to_usd = get_gp_myr_rate()
     default_profit = game.get('ganancia_default', 0.10)
     juego_key = f'dyn_{game["slug"]}'
 
@@ -852,10 +847,12 @@ def sync_dynamic_game_prices(game_id):
 
         nuevo_costo = round(gp_price_myr * myr_to_usd, 4)
         costo_actual = local_costs.get(local['id'], 0)
-        if sync_mode == 'per_package_margin' and costo_actual > 0:
-            ganancia = round(float(local['precio']) - float(costo_actual), 4)
+        if costo_actual > 0:
+            ganancia = round(local['precio'] - costo_actual, 4)
         else:
-            ganancia = round(float(default_profit), 4)
+            # Si falta costo histórico, inferir margen desde precio actual para
+            # mantener estable el precio base y que próximos cambios sigan el delta GP.
+            ganancia = round(float(local['precio']) - float(nuevo_costo), 4)
         nuevo_precio = round(nuevo_costo + ganancia, 2)
 
         entry = {
@@ -893,7 +890,6 @@ def sync_dynamic_game_prices(game_id):
     return {
         'success': True,
         'game': game['nombre'],
-        'sync_mode': sync_mode,
         'packages_updated': updated,
         'total_gp': len(gp_packages),
         'report': report,
