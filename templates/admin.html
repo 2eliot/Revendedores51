@@ -237,19 +237,11 @@
             </div>
           </div>
 
-          <!-- Blood Strike Mapping & Sync -->
-          <div class="card" style="margin-top:20px;border:1px solid rgba(167,139,250,0.3);">
-            <div class="card-header" style="background:rgba(167,139,250,0.1);"><h3>🎯 Blood Strike — Mapeo y Sync de Precios</h3></div>
-            <div class="card-body">
-              <p style="color:#aaa;font-size:13px;margin-bottom:12px;">Mapea paquetes locales con IDs de GamePoint y sincroniza precios manteniendo tu ganancia fija en USD.</p>
-              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
-                <button type="button" class="btn btn-secondary" onclick="loadBSMapping()">Cargar Mapeo</button>
-                <button type="button" class="btn btn-primary" onclick="syncBSPrices()" style="background:#a78bfa;">Sincronizar Precios</button>
-                <div id="bs-mapping-status" style="color:#aaa;font-size:13px;display:flex;align-items:center;"></div>
-              </div>
-              <div id="bs-mapping-table" style="overflow-x:auto;"></div>
-              <div id="bs-sync-report" style="margin-top:14px;display:none;"></div>
-            </div>
+          <!-- Blood Strike Mapping & Sync (oculto) -->
+          <div style="display:none;">
+            <div id="bs-mapping-status"></div>
+            <div id="bs-mapping-table"></div>
+            <div id="bs-sync-report"></div>
           </div>
 
           {% for dg in dyn_games %}
@@ -552,7 +544,6 @@
                 <label for="price_game_select">🎮 Juego:</label>
                 <select id="price_game_select">
                   <option value="freefire_global" selected>Free Fire</option>
-                  <option value="bloodstriker">Blood Striker</option>
                   <option value="freefire_id">Free Fire ID</option>
                   {% for dg in dyn_games %}
                   <option value="dyn_{{ dg.slug }}">{{ dg.nombre }}</option>
