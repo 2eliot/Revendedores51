@@ -2110,6 +2110,33 @@ _binance_verify_thread = threading.Thread(target=_binance_verification_loop, dae
 _binance_verify_thread.start()
 
 
+# === Juegos Dinámicos: Sincronización automática de precios cada 6 horas ===
+_DYN_SYNC_INTERVAL_HOURS = float(os.environ.get('DYN_SYNC_INTERVAL_HOURS', '6'))
+
+def _dyngame_price_sync_loop():
+    """Hilo en background que sincroniza precios de juegos dinámicos cada N horas.
+    Convierte precios GP (MYR) a USD usando la tasa configurada en el admin,
+    manteniendo la ganancia fija por paquete (precio_venta - costo_compra)."""
+    time_module.sleep(60)  # Esperar 60s al iniciar para que la app esté lista
+    while True:
+        try:
+            from dynamic_games import sync_all_dynamic_games_prices
+            results = sync_all_dynamic_games_prices()
+            for dr in results:
+                r = dr.get('result') or {}
+                if r.get('error') or dr.get('error'):
+                    logger.warning(f"[DynPrice AutoSync] {dr.get('game', '?')}: {r.get('error') or dr.get('error')}")
+                else:
+                    logger.info(f"[DynPrice AutoSync] {dr.get('game', '?')}: {r.get('packages_updated', 0)}/{r.get('total_gp', 0)} actualizados")
+        except Exception as e:
+            logger.error(f"[DynPrice AutoSync] Error: {e}")
+        time_module.sleep(_DYN_SYNC_INTERVAL_HOURS * 3600)
+
+_dyn_price_sync_thread = threading.Thread(target=_dyngame_price_sync_loop, daemon=True)
+_dyn_price_sync_thread.start()
+logger.info(f"[DynPrice AutoSync] Thread iniciado — sincronización cada {_DYN_SYNC_INTERVAL_HOURS}h")
+
+
 # === Gift Cards: Polling de seriales pendientes cada 60s ===
 def _dyngame_serial_poll_loop():
     """Hilo que verifica transacciones de Gift Cards pendientes y actualiza el serial."""
