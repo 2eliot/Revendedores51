@@ -1081,9 +1081,6 @@
           {% if games_active.freefire_id or session.get('is_admin') %}
           <li><a href="/juego/freefire_id">Free Fire ID</a></li>
           {% endif %}
-          {% if games_active.bloodstriker or session.get('is_admin') %}
-          <li><a href="/juego/bloodstriker">Blood Striker</a></li>
-          {% endif %}
           {% for dg in dynamic_games_id_menu %}
           <li><a href="/juego/d/{{ dg.slug }}">{{ dg.nombre }}</a></li>
           {% endfor %}
