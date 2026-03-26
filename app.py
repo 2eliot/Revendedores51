@@ -6670,10 +6670,14 @@ def admin_freefire_id_pin_log():
         SELECT fi.id, fi.usuario_id, fi.player_id, fi.pin_codigo, fi.paquete_id,
                fi.numero_control, fi.transaccion_id, fi.monto, fi.estado, fi.fecha,
                fi.fecha_procesado, fi.notas,
-               u.nombre || ' ' || u.apellido as usuario_nombre, u.correo,
+               CASE
+                   WHEN fi.usuario_id IS NULL THEN 'API Externa'
+                   ELSE TRIM(COALESCE(u.nombre, '') || ' ' || COALESCE(u.apellido, ''))
+               END as usuario_nombre,
+               COALESCE(u.correo, 'api@externa.local') as correo,
                p.nombre as paquete_nombre
         FROM transacciones_freefire_id fi
-        JOIN usuarios u ON fi.usuario_id = u.id
+        LEFT JOIN usuarios u ON fi.usuario_id = u.id
         LEFT JOIN precios_freefire_id p ON fi.paquete_id = p.id
         ORDER BY fi.fecha DESC
         LIMIT 100
@@ -10110,14 +10114,51 @@ def api_recharge_freefire_id():
         return jsonify({'ok': False, 'error': f'Sin stock para paquete {package_id}'}), 409
 
     pin_codigo = pin_disponible['pin_codigo']
+    transaction_data = None
 
     redeemer_config = get_redeemer_config_from_db(get_db_connection)
     import time as _t
     _start = _t.time()
+
+    try:
+        transaction_data = create_freefire_id_transaction(None, player_id, package_id, precio, pin_codigo=pin_codigo)
+    except Exception as e:
+        logger.error(f'[API FF-ID] Error creando registro FFID para pin log: {e}')
+        try:
+            _c = get_db_connection()
+            _c.execute('INSERT OR IGNORE INTO pines_freefire_global (monto_id, pin_codigo) VALUES (?,?)', (package_id, pin_codigo))
+            _c.commit()
+            _c.close()
+        except Exception:
+            pass
+        return jsonify({'ok': False, 'error': 'No se pudo crear el registro de la recarga'}), 500
+
+    def _update_ffid_api_transaction(status, note):
+        if not transaction_data or not transaction_data.get('id'):
+            return
+        try:
+            update_freefire_id_transaction_status(
+                transaction_data['id'],
+                status,
+                None,
+                note,
+                register_general_tx=False,
+            )
+        except Exception as _txe:
+            logger.warning(f'[API FF-ID] No se pudo actualizar transacción FFID {transaction_data.get("id")}: {_txe}')
+
     try:
         redeem_result = redeem_pin_vps(pin_codigo, player_id, redeemer_config)
     except Exception as e:
         logger.error(f'[API FF-ID] Error redención: {e}')
+        _update_ffid_api_transaction('rechazado', f'API externa falló por excepción: {str(e)[:200]}')
+        try:
+            _c = get_db_connection()
+            _c.execute('INSERT OR IGNORE INTO pines_freefire_global (monto_id, pin_codigo) VALUES (?,?)', (package_id, pin_codigo))
+            _c.commit()
+            _c.close()
+        except Exception:
+            pass
         return jsonify({'ok': False, 'error': f'Error interno: {e}'}), 500
     _dur = round(_t.time() - _start, 1)
 
@@ -10145,6 +10186,7 @@ def api_recharge_freefire_id():
 
     if redeem_result and redeem_result.success:
         pname = redeem_result.player_name or ''
+        _update_ffid_api_transaction('aprobado', f'API externa exitosa. Jugador: {pname}' if pname else 'API externa exitosa')
         _log_api_recharge(True, player_name=pname)
         logger.info(f'[API FF-ID] Recarga exitosa player={player_id} pkg={package_id} dur={_dur}s')
         return jsonify({'ok': True, 'player_name': pname, 'duration': _dur})
@@ -10158,6 +10200,7 @@ def api_recharge_freefire_id():
         except Exception:
             pass
         err_msg = (redeem_result.message if redeem_result else None) or 'Redención fallida'
+        _update_ffid_api_transaction('rechazado', f'API externa falló: {err_msg[:200]}')
         _log_api_recharge(False, error_msg=err_msg)
         logger.warning(f'[API FF-ID] Redención fallida player={player_id} pkg={package_id}: {err_msg}')
         return jsonify({'ok': False, 'error': err_msg}), 422
