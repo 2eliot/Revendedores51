@@ -228,8 +228,13 @@
         </div>
       </div>
       <div class="entrega-info">
+        {% if (estado or '')|lower == 'procesando' %}
+        <p>⏳ Tu recarga se está procesando ahora mismo.</p>
+        <p>📧 Si ocurre un problema, te mostraremos el resultado al regresar al panel.</p>
+        {% else %}
         <p>⏳ Tu solicitud está pendiente de aprobación.</p>
         <p>📧 Recibirás una notificación cuando sea procesada.</p>
+        {% endif %}
       </div>
       {% endif %}
     </div>

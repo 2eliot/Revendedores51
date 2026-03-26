@@ -225,7 +225,9 @@
             <div class="ffid-voucher">
               <div class="ffid-voucher-status">
                 <span class="ffid-voucher-status-label">Estado:</span>
-                {% if (transaction.get('estado') or '')|lower == 'pendiente' %}
+                {% if (transaction.get('estado') or '')|lower == 'procesando' %}
+                <span class="ffid-voucher-status-value">⏳ PROCESANDO</span>
+                {% elif (transaction.get('estado') or '')|lower == 'pendiente' %}
                 <span class="ffid-voucher-status-value">⏳ PENDIENTE</span>
                 {% else %}
                 <span class="ffid-voucher-status-value">✅ COMPLETADO</span>
