@@ -186,3 +186,10 @@ settings.local.py
 # Carpetas innecesarias
 Inefablepines/
 .continue/
+
+# Repositorios anidados (mantener fuera de este repo)
+3sRevendedores/
+_ext/Scripdescrapid/
+
+# Workspaces locales de VS Code
+*.code-workspace
