@@ -6883,8 +6883,8 @@ def admin_freefire_id_pin_log():
                 'API-' || t.id as log_id,
                 t.id,
                 t.usuario_id,
-                '' as player_id,
-                t.pin as pin_codigo,
+                COALESCE(ao.player_id, '') as player_id,
+                COALESCE(NULLIF(ao.redeemed_pin, ''), t.pin) as pin_codigo,
                 NULL as paquete_id,
                 t.numero_control,
                 t.transaccion_id,
@@ -6905,6 +6905,7 @@ def admin_freefire_id_pin_log():
                 'API PIN' as origen
             FROM transacciones t
             LEFT JOIN usuarios u ON t.usuario_id = u.id
+                        LEFT JOIN api_orders ao ON t.transaccion_id = ('WL-API-' || ao.id)
             WHERE (t.transaccion_id LIKE 'API-%' OR t.transaccion_id LIKE 'WL-API-%')
               AND t.pin IS NOT NULL
               AND TRIM(t.pin) <> ''

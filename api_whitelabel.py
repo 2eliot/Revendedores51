@@ -84,6 +84,7 @@ def _clear_idempotent_order(conn, usuario_id, endpoint, request_id):
 
 
 def _order_payload(row):
+    redeemed_pin = row['redeemed_pin'] if row and 'redeemed_pin' in row else ''
     return {
         'ok': True,
         'order': {
@@ -99,6 +100,7 @@ def _order_payload(row):
             'reference_no': row['reference_no'],
             'error': row['error_msg'],
             'duration': row['duration_seconds'],
+            'redeemed_pin': redeemed_pin,
             'external_order_id': row['external_order_id'],
             'created_at': str(row['fecha']),
             'completed_at': str(row['fecha_completada']) if row['fecha_completada'] else None,
@@ -148,12 +150,17 @@ def init_whitelabel_tables(cursor):
             duration_seconds REAL DEFAULT 0,
             webhook_sent BOOLEAN DEFAULT FALSE,
             external_order_id TEXT DEFAULT '',
+            redeemed_pin TEXT DEFAULT '',
             fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
             fecha_completada DATETIME,
             FOREIGN KEY (account_id) REFERENCES webservice_accounts (id),
             FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
         )
     ''')
+    try:
+        cursor.execute('ALTER TABLE api_orders ADD COLUMN redeemed_pin TEXT DEFAULT \'''\'')
+    except Exception:
+        pass
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_api_orders_account ON api_orders(account_id, fecha DESC)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_api_orders_estado ON api_orders(estado)')
 
@@ -598,10 +605,10 @@ def _execute_recharge(order_id, game_type, package_id, player_id, player_id2,
             conn.execute('''
                 UPDATE api_orders
                 SET estado = 'completada', reference_no = ?, player_name = ?,
-                    duration_seconds = ?, fecha_completada = CURRENT_TIMESTAMP
+                    duration_seconds = ?, redeemed_pin = ?, fecha_completada = CURRENT_TIMESTAMP
                 WHERE id = ?
             ''', (result.get('reference_no', ''), result.get('player_name', ''),
-                  _duration, order_id))
+                  _duration, result.get('redeemed_pin', ''), order_id))
 
             # ── Registrar en historial general (transacciones + historial_compras) ──
             try:
@@ -775,6 +782,7 @@ def _execute_freefire_id_recharge(order_id, package_id, player_id):
             'ok': True,
             'player_name': redeem_result.player_name or '',
             'reference_no': '',
+            'redeemed_pin': pin_codigo,
         }
     else:
         # Devolver pin al stock
