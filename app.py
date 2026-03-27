@@ -6905,11 +6905,12 @@ def admin_freefire_id_pin_log():
                 END as usuario_nombre,
                 COALESCE(u.correo, 'api@externa.local') as correo,
                 COALESCE(t.paquete_nombre, 'Compra API') as paquete_nombre,
-                'API PIN' as origen
+                                'API FF ID' as origen
             FROM transacciones t
             LEFT JOIN usuarios u ON t.usuario_id = u.id
                         LEFT JOIN api_orders ao ON t.transaccion_id = ('WL-API-' || ao.id)
-            WHERE (t.transaccion_id LIKE 'API-%' OR t.transaccion_id LIKE 'WL-API-%')
+                        WHERE t.transaccion_id LIKE 'WL-API-%'
+                            AND ao.game_type = 'freefire_id'
               AND t.pin IS NOT NULL
               AND TRIM(t.pin) <> ''
                             AND DATE(t.fecha, '-4 hours') = ?
@@ -7087,7 +7088,7 @@ PIN_LOG_TEMPLATE = r'''
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Log Diario de PINes FreeFire ID y API</title>
+    <title>Log Diario de PINes FreeFire ID</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', sans-serif; background: #0a0a1a; color: #e0e0e0; padding: 20px; }
@@ -7123,8 +7124,8 @@ PIN_LOG_TEMPLATE = r'''
 </head>
 <body>
     <a href="/admin" class="back-link">&#8592; Volver al Panel Admin</a>
-    <h1>Log Diario de PINes FreeFire ID y API</h1>
-    <p class="subtitle">Compras registradas hoy ({{ venezuela_day }}) en horario de Venezuela. El tablero se reinicia automáticamente al cambiar el día.</p>
+    <h1>Log Diario de PINes FreeFire ID</h1>
+    <p class="subtitle">Compras registradas hoy ({{ venezuela_day }}) en horario de Venezuela. Solo incluye Free Fire ID web y compras API que redimen PIN real.</p>
 
     <div class="stats">
         <div class="stat-box success">
