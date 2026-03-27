@@ -6850,7 +6850,7 @@ def admin_freefire_id_pin_log():
         return redirect('/auth')
     
     conn = get_db_connection()
-    transactions = conn.execute('''
+    rows = conn.execute('''
         SELECT * FROM (
             SELECT
                 'FFID-' || fi.id as log_id,
@@ -6883,17 +6883,7 @@ def admin_freefire_id_pin_log():
                 'API-' || t.id as log_id,
                 t.id,
                 t.usuario_id,
-                CASE
-                    WHEN t.pin LIKE 'ID: %' THEN
-                        TRIM(
-                            CASE
-                                WHEN instr(substr(t.pin, 5), ' - ') > 0 THEN substr(substr(t.pin, 5), 1, instr(substr(t.pin, 5), ' - ') - 1)
-                                WHEN instr(substr(t.pin, 5), ' [API:') > 0 THEN substr(substr(t.pin, 5), 1, instr(substr(t.pin, 5), ' [API:') - 1)
-                                ELSE substr(t.pin, 5)
-                            END
-                        )
-                    ELSE ''
-                END as player_id,
+                '' as player_id,
                 t.pin as pin_codigo,
                 NULL as paquete_id,
                 t.numero_control,
@@ -6912,10 +6902,7 @@ def admin_freefire_id_pin_log():
                 END as usuario_nombre,
                 COALESCE(u.correo, 'api@externa.local') as correo,
                 COALESCE(t.paquete_nombre, 'Compra API') as paquete_nombre,
-                CASE
-                    WHEN t.pin LIKE 'ID: %' OR COALESCE(t.paquete_nombre, '') LIKE '%Free Fire ID%' THEN 'API FF ID'
-                    ELSE 'API PIN'
-                END as origen
+                'API PIN' as origen
             FROM transacciones t
             LEFT JOIN usuarios u ON t.usuario_id = u.id
             WHERE (t.transaccion_id LIKE 'API-%' OR t.transaccion_id LIKE 'WL-API-%')
@@ -6926,6 +6913,26 @@ def admin_freefire_id_pin_log():
         LIMIT 100
     ''').fetchall()
     conn.close()
+
+    transactions = []
+    for row in rows:
+        item = dict(row)
+        pin_codigo = (item.get('pin_codigo') or '').strip()
+        paquete_nombre = item.get('paquete_nombre') or ''
+
+        if pin_codigo.startswith('ID: '):
+            player_data = pin_codigo[4:]
+            player_id = player_data
+            for separator in (' - ', ' [API:'):
+                if separator in player_data:
+                    player_id = player_data.split(separator, 1)[0]
+                    break
+            item['player_id'] = player_id.strip()
+            item['origen'] = 'API FF ID'
+        elif 'Free Fire ID' in paquete_nombre:
+            item['origen'] = 'API FF ID'
+
+        transactions.append(item)
     
     return render_template_string(PIN_LOG_TEMPLATE, transactions=transactions)
 
