@@ -6883,7 +6883,17 @@ def admin_freefire_id_pin_log():
                 'API-' || t.id as log_id,
                 t.id,
                 t.usuario_id,
-                '' as player_id,
+                CASE
+                    WHEN t.pin LIKE 'ID: %' THEN
+                        TRIM(
+                            CASE
+                                WHEN instr(substr(t.pin, 5), ' - ') > 0 THEN substr(substr(t.pin, 5), 1, instr(substr(t.pin, 5), ' - ') - 1)
+                                WHEN instr(substr(t.pin, 5), ' [API:') > 0 THEN substr(substr(t.pin, 5), 1, instr(substr(t.pin, 5), ' [API:') - 1)
+                                ELSE substr(t.pin, 5)
+                            END
+                        )
+                    ELSE ''
+                END as player_id,
                 t.pin as pin_codigo,
                 NULL as paquete_id,
                 t.numero_control,
@@ -6902,13 +6912,15 @@ def admin_freefire_id_pin_log():
                 END as usuario_nombre,
                 COALESCE(u.correo, 'api@externa.local') as correo,
                 COALESCE(t.paquete_nombre, 'Compra API') as paquete_nombre,
-                'API PIN' as origen
+                CASE
+                    WHEN t.pin LIKE 'ID: %' OR COALESCE(t.paquete_nombre, '') LIKE '%Free Fire ID%' THEN 'API FF ID'
+                    ELSE 'API PIN'
+                END as origen
             FROM transacciones t
             LEFT JOIN usuarios u ON t.usuario_id = u.id
             WHERE (t.transaccion_id LIKE 'API-%' OR t.transaccion_id LIKE 'WL-API-%')
               AND t.pin IS NOT NULL
               AND TRIM(t.pin) <> ''
-              AND t.pin NOT LIKE 'ID:%'
         ) tx
         ORDER BY tx.fecha DESC
         LIMIT 100
