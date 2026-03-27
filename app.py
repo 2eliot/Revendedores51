@@ -6851,19 +6851,66 @@ def admin_freefire_id_pin_log():
     
     conn = get_db_connection()
     transactions = conn.execute('''
-        SELECT fi.id, fi.usuario_id, fi.player_id, fi.pin_codigo, fi.paquete_id,
-               fi.numero_control, fi.transaccion_id, fi.monto, fi.estado, fi.fecha,
-               fi.fecha_procesado, fi.notas,
-               CASE
-                   WHEN fi.usuario_id IS NULL THEN 'API Externa'
-                   ELSE TRIM(COALESCE(u.nombre, '') || ' ' || COALESCE(u.apellido, ''))
-               END as usuario_nombre,
-               COALESCE(u.correo, 'api@externa.local') as correo,
-               p.nombre as paquete_nombre
-        FROM transacciones_freefire_id fi
-        LEFT JOIN usuarios u ON fi.usuario_id = u.id
-        LEFT JOIN precios_freefire_id p ON fi.paquete_id = p.id
-        ORDER BY fi.fecha DESC
+        SELECT * FROM (
+            SELECT
+                'FFID-' || fi.id as log_id,
+                fi.id,
+                fi.usuario_id,
+                fi.player_id,
+                fi.pin_codigo,
+                fi.paquete_id,
+                fi.numero_control,
+                fi.transaccion_id,
+                fi.monto,
+                fi.estado,
+                fi.fecha,
+                fi.fecha_procesado,
+                COALESCE(fi.notas, '') as notas,
+                CASE
+                    WHEN fi.usuario_id IS NULL THEN 'API Externa'
+                    ELSE TRIM(COALESCE(u.nombre, '') || ' ' || COALESCE(u.apellido, ''))
+                END as usuario_nombre,
+                COALESCE(u.correo, 'api@externa.local') as correo,
+                p.nombre as paquete_nombre,
+                'Free Fire ID' as origen
+            FROM transacciones_freefire_id fi
+            LEFT JOIN usuarios u ON fi.usuario_id = u.id
+            LEFT JOIN precios_freefire_id p ON fi.paquete_id = p.id
+
+            UNION ALL
+
+            SELECT
+                'API-' || t.id as log_id,
+                t.id,
+                t.usuario_id,
+                '' as player_id,
+                t.pin as pin_codigo,
+                NULL as paquete_id,
+                t.numero_control,
+                t.transaccion_id,
+                t.monto,
+                'aprobado' as estado,
+                t.fecha,
+                t.fecha as fecha_procesado,
+                CASE
+                    WHEN t.request_id IS NOT NULL AND TRIM(t.request_id) <> '' THEN 'Compra API registrada con request_id'
+                    ELSE 'Compra API registrada'
+                END as notas,
+                CASE
+                    WHEN t.usuario_id IS NULL THEN 'API Externa'
+                    ELSE TRIM(COALESCE(u.nombre, '') || ' ' || COALESCE(u.apellido, ''))
+                END as usuario_nombre,
+                COALESCE(u.correo, 'api@externa.local') as correo,
+                COALESCE(t.paquete_nombre, 'Compra API') as paquete_nombre,
+                'API PIN' as origen
+            FROM transacciones t
+            LEFT JOIN usuarios u ON t.usuario_id = u.id
+            WHERE (t.transaccion_id LIKE 'API-%' OR t.transaccion_id LIKE 'WL-API-%')
+              AND t.pin IS NOT NULL
+              AND TRIM(t.pin) <> ''
+              AND t.pin NOT LIKE 'ID:%'
+        ) tx
+        ORDER BY tx.fecha DESC
         LIMIT 100
     ''').fetchall()
     conn.close()
@@ -7017,7 +7064,7 @@ PIN_LOG_TEMPLATE = r'''
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Log de PINes FreeFire ID</title>
+    <title>Log de PINes FreeFire ID y API</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', sans-serif; background: #0a0a1a; color: #e0e0e0; padding: 20px; }
@@ -7053,8 +7100,8 @@ PIN_LOG_TEMPLATE = r'''
 </head>
 <body>
     <a href="/admin" class="back-link">&#8592; Volver al Panel Admin</a>
-    <h1>Log de PINes FreeFire ID</h1>
-    <p class="subtitle">Ultimas 100 transacciones con PIN completo, player ID y estado</p>
+    <h1>Log de PINes FreeFire ID y API</h1>
+    <p class="subtitle">Ultimas 100 transacciones con PIN completo, incluyendo compras web y compras de PIN via API</p>
 
     <div class="stats">
         <div class="stat-box success">
@@ -7078,12 +7125,13 @@ PIN_LOG_TEMPLATE = r'''
     <table id="pinTable">
         <thead>
             <tr>
-                <th>#</th>
+                <th>Ref</th>
                 <th>Fecha</th>
                 <th>Usuario</th>
                 <th>Player ID</th>
                 <th>PIN Completo</th>
                 <th>Paquete</th>
+                <th>Origen</th>
                 <th>Monto</th>
                 <th>Estado</th>
                 <th>Notas</th>
@@ -7092,12 +7140,13 @@ PIN_LOG_TEMPLATE = r'''
         <tbody>
             {% for t in transactions %}
             <tr>
-                <td>{{ t.id }}</td>
+                <td>{{ t.log_id }}</td>
                 <td>{{ t.fecha|format_date('%Y-%m-%d %H:%M') if t.fecha else '-' }}</td>
                 <td>{{ t.usuario_nombre }}<br><small style="color:#666">{{ t.correo }}</small></td>
-                <td class="player-id">{{ t.player_id }}</td>
+                <td class="player-id">{{ t.player_id or '-' }}</td>
                 <td class="pin-code" onclick="copyPin(this)" title="Click para copiar">{{ t.pin_codigo or 'N/A' }}</td>
                 <td>{{ t.paquete_nombre or '-' }}</td>
+                <td>{{ t.origen or '-' }}</td>
                 <td>${{ '%.2f'|format(t.monto|abs) }}</td>
                 <td class="estado-{{ t.estado }}">{{ t.estado|upper }}</td>
                 <td class="notas" title="{{ t.notas or '' }}">{{ t.notas or '-' }}</td>
