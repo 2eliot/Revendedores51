@@ -63,18 +63,6 @@
     </p>
   </section>
 
-  {% if session.get('is_admin') %}
-  <section class="transactions admin-shortcuts">
-    <div class="admin-shortcut-card">
-      <div>
-        <h2 class="transaction-title">🔎 Acceso rápido</h2>
-        <p class="admin-shortcut-text">Entra directo al log de PINes usados por Free Fire ID y compras de PIN vía API.</p>
-      </div>
-      <a href="/admin/freefire_id_pin_log" class="admin-log-button">Ver log de PINes</a>
-    </div>
-  </section>
-  {% endif %}
-
   <!-- Notificaciones Personalizadas (solo para usuarios normales) -->
   {% if not is_admin and notificaciones_personalizadas %}
   <section class="transactions">
@@ -231,51 +219,6 @@
       padding: 3rem 1rem;
     }
 
-    .admin-shortcuts {
-      margin-bottom: 1.5rem;
-    }
-
-    .admin-shortcut-card {
-      max-width: 800px;
-      margin: 0 auto;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-      background: linear-gradient(135deg, rgba(0,255,136,0.12) 0%, rgba(20,28,48,0.95) 100%);
-      border: 1px solid rgba(0,255,136,0.25);
-      border-radius: 14px;
-      padding: 1.25rem 1.5rem;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.22);
-    }
-
-    .admin-shortcut-text {
-      margin: 0.35rem 0 0;
-      color: #b8c4d8;
-      line-height: 1.5;
-    }
-
-    .admin-log-button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 190px;
-      padding: 0.9rem 1.2rem;
-      border-radius: 10px;
-      background: #00ff88;
-      color: #07131f;
-      text-decoration: none;
-      font-weight: 700;
-      transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
-      box-shadow: 0 10px 20px rgba(0, 255, 136, 0.2);
-    }
-
-    .admin-log-button:hover {
-      background: #4dffad;
-      transform: translateY(-1px);
-      box-shadow: 0 14px 28px rgba(0, 255, 136, 0.28);
-    }
-
     /* Estilos para notificaciones personalizadas */
     .personal-notification {
       border-left: 4px solid #28a745;
@@ -335,16 +278,6 @@
 
     /* Responsive para noticias */
     @media (max-width: 768px) {
-      .admin-shortcut-card {
-        flex-direction: column;
-        align-items: stretch;
-      }
-
-      .admin-log-button {
-        width: 100%;
-        min-width: 0;
-      }
-
       .news-container {
         margin: 0 1rem;
         gap: 1rem;
