@@ -44,6 +44,87 @@ def get_user_by_email(email):
     conn.close()
     return user
 
+def ensure_idempotency_schema(conn):
+    """Asegura columnas y tabla necesarias para idempotencia en compras API."""
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS purchase_request_idempotency (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER NOT NULL,
+            endpoint TEXT NOT NULL,
+            request_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'processing',
+            response_payload TEXT,
+            transaccion_id TEXT,
+            numero_control TEXT,
+            fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+            fecha_actualizacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(usuario_id, endpoint, request_id)
+        )
+    ''')
+    try:
+        conn.execute('ALTER TABLE transacciones ADD COLUMN request_id TEXT')
+    except Exception:
+        pass
+    conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_user_request_id_simple ON transacciones(usuario_id, request_id)')
+
+def debit_user_balance_atomic(conn, user_id, amount):
+    """Descuenta saldo de forma atómica y valida fondos en la misma operación."""
+    amount = round(float(amount), 2)
+    cursor = conn.execute(
+        'UPDATE usuarios SET saldo = saldo - ? WHERE id = ? AND saldo >= ?',
+        (amount, user_id, amount)
+    )
+
+    if cursor.rowcount == 0:
+        row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+        return {
+            'ok': False,
+            'saldo_actual': float(row['saldo']) if row else 0.0,
+        }
+
+    row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+    saldo_despues = float(row['saldo']) if row else 0.0
+    return {
+        'ok': True,
+        'saldo_antes': round(saldo_despues + amount, 2),
+        'saldo_despues': saldo_despues,
+    }
+
+def begin_idempotent_purchase(conn, user_id, endpoint, request_id):
+    ensure_idempotency_schema(conn)
+    try:
+        conn.execute(
+            'INSERT INTO purchase_request_idempotency (usuario_id, endpoint, request_id, status) VALUES (?, ?, ?, ?)',
+            (user_id, endpoint, request_id, 'processing')
+        )
+        return {'state': 'new'}
+    except Exception:
+        row = conn.execute(
+            'SELECT status, response_payload FROM purchase_request_idempotency WHERE usuario_id = ? AND endpoint = ? AND request_id = ?',
+            (user_id, endpoint, request_id)
+        ).fetchone()
+        payload = {}
+        if row and row['response_payload']:
+            try:
+                payload = json.loads(row['response_payload'])
+            except Exception:
+                payload = {}
+        return {'state': row['status'] if row else 'processing', 'payload': payload}
+
+def complete_idempotent_purchase(conn, user_id, endpoint, request_id, payload, transaction_id='', control_number=''):
+    conn.execute(
+        '''UPDATE purchase_request_idempotency
+           SET status = 'completed', response_payload = ?, transaccion_id = ?, numero_control = ?, fecha_actualizacion = CURRENT_TIMESTAMP
+           WHERE usuario_id = ? AND endpoint = ? AND request_id = ?''',
+        (json.dumps(payload, ensure_ascii=False), transaction_id, control_number, user_id, endpoint, request_id)
+    )
+
+def clear_idempotent_purchase(conn, user_id, endpoint, request_id):
+    conn.execute(
+        'DELETE FROM purchase_request_idempotency WHERE usuario_id = ? AND endpoint = ? AND request_id = ?',
+        (user_id, endpoint, request_id)
+    )
+
 def get_package_info_with_prices():
     """Obtiene información de paquetes con precios dinámicos"""
     conn = get_db_connection()
@@ -66,14 +147,18 @@ def get_package_info_with_prices():
     
     return package_dict
 
-def create_transaction_record(user_id, pin_code, paquete_nombre, precio):
+def create_transaction_record(user_id, pin_code, paquete_nombre, precio, conn=None, request_id=None):
     """Crea un registro de transacción, persistiendo paquete_nombre"""
     # Generar datos de la transacción
     numero_control = ''.join(random.choices(string.digits, k=10))
     transaccion_id = 'API-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-    
-    conn = get_db_connection()
+
+    owns_connection = conn is None
+    if owns_connection:
+        conn = get_db_connection()
+
     try:
+        ensure_idempotency_schema(conn)
         # Asegurar columna paquete_nombre (si la API corre independiente del init)
         try:
             conn.execute("ALTER TABLE transacciones ADD COLUMN paquete_nombre TEXT")
@@ -81,9 +166,9 @@ def create_transaction_record(user_id, pin_code, paquete_nombre, precio):
             pass
         # Registrar la transacción
         conn.execute('''
-            INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (user_id, numero_control, pin_code, transaccion_id, paquete_nombre, -precio))
+            INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto, request_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (user_id, numero_control, pin_code, transaccion_id, paquete_nombre, -precio, request_id))
         
         # Limitar transacciones a 30 por usuario
         conn.execute('''
@@ -95,17 +180,20 @@ def create_transaction_record(user_id, pin_code, paquete_nombre, precio):
                 LIMIT 30
             )
         ''', (user_id, user_id))
-        
-        conn.commit()
+
+        if owns_connection:
+            conn.commit()
         return {
             'numero_control': numero_control,
             'transaccion_id': transaccion_id
         }
     except Exception as e:
-        conn.rollback()
+        if owns_connection:
+            conn.rollback()
         raise e
     finally:
-        conn.close()
+        if owns_connection:
+            conn.close()
 
 @app.route('/api.php', methods=['GET'])
 def api_endpoint():
@@ -131,6 +219,7 @@ def api_endpoint():
         tipo = request.args.get('tipo', '').lower()
         monto = request.args.get('monto', '1')
         numero = request.args.get('numero', '1')
+        request_id = (request.args.get('request_id', '') or '').strip()
         
         # Validar parámetros básicos
         if not all([action, usuario, clave, tipo]):
@@ -197,12 +286,38 @@ def api_endpoint():
                 'code': '401',
                 'message': 'Credenciales incorrectas'
             }), 401
+
+        endpoint_key = 'simple_connection_api_purchase'
+        if request_id:
+            conn_idem = get_db_connection()
+            try:
+                idem_state = begin_idempotent_purchase(conn_idem, user['id'], endpoint_key, request_id)
+                conn_idem.commit()
+            except Exception:
+                conn_idem.rollback()
+                conn_idem.close()
+                return jsonify({'status': 'error', 'code': '500', 'message': 'No se pudo registrar la solicitud idempotente'}), 500
+            finally:
+                try:
+                    conn_idem.close()
+                except Exception:
+                    pass
+
+            if idem_state['state'] == 'completed' and idem_state.get('payload'):
+                return jsonify(idem_state['payload'])
+            if idem_state['state'] == 'processing':
+                return jsonify({'status': 'error', 'code': '409', 'message': 'Esta compra ya se está procesando'}), 409
         
         # Obtener información del paquete
         packages_info = get_package_info_with_prices()
         package_info = packages_info.get(package_id)
         
         if not package_info:
+            if request_id:
+                conn_cleanup = get_db_connection()
+                clear_idempotent_purchase(conn_cleanup, user['id'], endpoint_key, request_id)
+                conn_cleanup.commit()
+                conn_cleanup.close()
             return jsonify({
                 'status': 'error',
                 'code': '404',
@@ -215,6 +330,11 @@ def api_endpoint():
         
         # Verificar saldo suficiente
         if saldo_actual < precio_total:
+            if request_id:
+                conn_cleanup = get_db_connection()
+                clear_idempotent_purchase(conn_cleanup, user['id'], endpoint_key, request_id)
+                conn_cleanup.commit()
+                conn_cleanup.close()
             return jsonify({
                 'status': 'error',
                 'code': '402',
@@ -229,6 +349,11 @@ def api_endpoint():
             result = pin_manager.request_pin(package_id)
             
             if result.get('status') != 'success':
+                if request_id:
+                    conn_cleanup = get_db_connection()
+                    clear_idempotent_purchase(conn_cleanup, user['id'], endpoint_key, request_id)
+                    conn_cleanup.commit()
+                    conn_cleanup.close()
                 return jsonify({
                     'status': 'error',
                     'code': '503',
@@ -242,6 +367,11 @@ def api_endpoint():
             result = pin_manager.request_multiple_pins(package_id, quantity)
             
             if result.get('status') not in ['success', 'partial_success']:
+                if request_id:
+                    conn_cleanup = get_db_connection()
+                    clear_idempotent_purchase(conn_cleanup, user['id'], endpoint_key, request_id)
+                    conn_cleanup.commit()
+                    conn_cleanup.close()
                 return jsonify({
                     'status': 'error',
                     'code': '503',
@@ -256,46 +386,60 @@ def api_endpoint():
                 quantity = len(pins_list)
                 precio_total = precio_unitario * quantity
         
-        # Descontar saldo
         conn = get_db_connection()
-        nuevo_saldo = saldo_actual - precio_total
-        conn.execute('UPDATE usuarios SET saldo = ? WHERE id = ?', (nuevo_saldo, user['id']))
-        
-        # Crear registro de transacción
-        pins_texto = '\n'.join(pins_list)
-        paquete_nombre = f"{package_info['nombre']} x{quantity}" if quantity > 1 else package_info['nombre']
-        transaction_data = create_transaction_record(user['id'], pins_texto, paquete_nombre, precio_total)
-        
-        conn.commit()
-        conn.close()
-        
-        # Preparar respuesta exitosa
-        response_data = {
-            'status': 'success',
-            'code': '200',
-            'message': f'{"PIN obtenido" if quantity == 1 else f"{quantity} PINs obtenidos"} exitosamente',
-            'data': {
-                'usuario': f"{user['nombre']} {user['apellido']}",
-                'email': user['correo'],
-                'paquete': package_info['nombre'],
-                'precio_unitario': float(precio_unitario),
-                'cantidad': quantity,
-                'precio_total': float(precio_total),
-                'saldo_anterior': float(saldo_actual),
-                'saldo_nuevo': float(nuevo_saldo),
-                'numero_control': transaction_data['numero_control'],
-                'transaccion_id': transaction_data['transaccion_id'],
-                'fecha': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        try:
+            debit_result = debit_user_balance_atomic(conn, user['id'], precio_total)
+            if not debit_result['ok']:
+                if request_id:
+                    clear_idempotent_purchase(conn, user['id'], endpoint_key, request_id)
+                return jsonify({
+                    'status': 'error',
+                    'code': '402',
+                    'message': f'Saldo insuficiente. Necesitas ${precio_total:.2f} pero tienes ${debit_result["saldo_actual"]:.2f}'
+                }), 402
+
+            saldo_actual = debit_result['saldo_antes']
+            nuevo_saldo = debit_result['saldo_despues']
+
+            # Crear registro de transacción en la misma transacción
+            pins_texto = '\n'.join(pins_list)
+            paquete_nombre = f"{package_info['nombre']} x{quantity}" if quantity > 1 else package_info['nombre']
+            transaction_data = create_transaction_record(user['id'], pins_texto, paquete_nombre, precio_total, conn=conn, request_id=request_id)
+
+            final_payload = {
+                'status': 'success',
+                'code': '200',
+                'message': f'{"PIN obtenido" if quantity == 1 else f"{quantity} PINs obtenidos"} exitosamente',
+                'data': {
+                    'usuario': f"{user['nombre']} {user['apellido']}",
+                    'email': user['correo'],
+                    'paquete': package_info['nombre'],
+                    'precio_unitario': float(precio_unitario),
+                    'cantidad': quantity,
+                    'precio_total': float(precio_total),
+                    'saldo_anterior': float(saldo_actual),
+                    'saldo_nuevo': float(nuevo_saldo),
+                    'numero_control': transaction_data['numero_control'],
+                    'transaccion_id': transaction_data['transaccion_id'],
+                    'fecha': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
             }
-        }
-        
-        # Agregar PIN(s) a la respuesta
-        if quantity == 1:
-            response_data['data']['pin'] = pins_list[0]
-        else:
-            response_data['data']['pines'] = pins_list
-        
-        return jsonify(response_data)
+            if quantity == 1:
+                final_payload['data']['pin'] = pins_list[0]
+            else:
+                final_payload['data']['pines'] = pins_list
+
+            if request_id:
+                complete_idempotent_purchase(conn, user['id'], endpoint_key, request_id, final_payload, transaction_data['transaccion_id'], transaction_data['numero_control'])
+
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+        return jsonify(final_payload)
         
     except Exception as e:
         return jsonify({

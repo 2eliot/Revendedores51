@@ -98,7 +98,8 @@
   <section class="juego-container">
     <h1 class="juego-titulo">Free Fire</h1>
 
-    <form method="POST" action="/validar/freefire" class="juego-form">
+    <form method="POST" action="/validar/freefire" class="juego-form" id="freefire-purchase-form">
+      <input type="hidden" name="request_id" id="request_id" value="">
       <div class="form-row">
         <div class="form-col">
           <label for="monto">Selecciona tu paquete:</label>
@@ -256,6 +257,39 @@
     document.addEventListener('DOMContentLoaded', function() {
       const montoSelect = document.getElementById('monto');
       const cantidadSelect = document.getElementById('cantidad');
+      const purchaseForm = document.getElementById('freefire-purchase-form');
+      const requestIdInput = document.getElementById('request_id');
+      const submitButton = document.getElementById('submit-btn');
+
+      function generateRequestId() {
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+          return window.crypto.randomUUID();
+        }
+        return 'req-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+      }
+
+      function ensureRequestId() {
+        if (requestIdInput && !requestIdInput.value) {
+          requestIdInput.value = generateRequestId();
+        }
+      }
+
+      ensureRequestId();
+
+      if (purchaseForm) {
+        purchaseForm.addEventListener('submit', function(event) {
+          ensureRequestId();
+          if (purchaseForm.dataset.submitting === '1') {
+            event.preventDefault();
+            return false;
+          }
+          purchaseForm.dataset.submitting = '1';
+          if (submitButton) {
+            submitButton.disabled = true;
+            submitButton.textContent = 'Procesando...';
+          }
+        });
+      }
       
       if (montoSelect) {
         montoSelect.addEventListener('change', function() {

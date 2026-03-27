@@ -141,6 +141,7 @@
 
     <form method="POST" action="/validar/dinamico/{{ game.slug }}" class="juego-form" id="dg-form">
       <input type="hidden" name="dg_form_nonce" value="{{ dg_form_nonce }}">
+      <input type="hidden" name="request_id" id="dg-request-id" value="">
       {% if game.modo == 'id' %}
         {% if campos.get('campo_id2', {}).get('enabled') %}
           <div class="form-row">
@@ -235,7 +236,20 @@
     (function() {
       var form = document.getElementById('dg-form');
       var btn = document.getElementById('btn-recargar');
+      var requestIdInput = document.getElementById('dg-request-id');
       var submitted = false;
+
+      function generateRequestId() {
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+          return window.crypto.randomUUID();
+        }
+        return 'req-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+      }
+
+      if (requestIdInput && !requestIdInput.value) {
+        requestIdInput.value = generateRequestId();
+      }
+
       form.addEventListener('submit', function(e) {
         if (submitted) { e.preventDefault(); return false; }
         submitted = true;

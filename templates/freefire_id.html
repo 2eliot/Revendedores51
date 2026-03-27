@@ -145,6 +145,7 @@
 
     <form method="POST" action="/validar/freefire_id" class="juego-form" id="ffid-form">
       <input type="hidden" name="ffid_form_nonce" value="{{ ffid_form_nonce }}">
+      <input type="hidden" name="request_id" id="ffid-request-id" value="">
       <div class="form-row">
         <div class="form-col">
           <label for="player_id">ID de Jugador:</label>
@@ -173,7 +174,20 @@
     (function() {
       var form = document.getElementById('ffid-form');
       var btn = document.getElementById('btn-recargar');
+      var requestIdInput = document.getElementById('ffid-request-id');
       var submitted = false;
+
+      function generateRequestId() {
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+          return window.crypto.randomUUID();
+        }
+        return 'req-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+      }
+
+      if (requestIdInput && !requestIdInput.value) {
+        requestIdInput.value = generateRequestId();
+      }
+
       form.addEventListener('submit', function(e) {
         if (submitted) {
           e.preventDefault();

@@ -959,6 +959,7 @@ def validar_dinamico(slug):
 
     package_id = int(package_id)
     user_id = session.get('user_db_id')
+    request_id = (request.form.get('request_id') or '').strip()
     pkg = get_dynamic_package_by_id(package_id)
     if not pkg or pkg['juego_id'] != game['id']:
         flash('Paquete no encontrado.', 'error')
@@ -974,6 +975,36 @@ def validar_dinamico(slug):
         flash('Este paquete no tiene configurado el ID de GamePoint.', 'error')
         return redirect(redirect_url)
 
+    if not request_id:
+        flash('Solicitud inválida. Recarga la página e intenta nuevamente.', 'error')
+        return redirect(redirect_url)
+
+    from app import begin_idempotent_purchase, complete_idempotent_purchase, clear_idempotent_purchase
+    endpoint_key = f'dynamic_game:{game["slug"]}'
+    conn_idempotency = _get_conn()
+    try:
+        idempotency_state = begin_idempotent_purchase(conn_idempotency, user_id, endpoint_key, request_id)
+        conn_idempotency.commit()
+    except Exception:
+        conn_idempotency.rollback()
+        conn_idempotency.close()
+        flash('No se pudo registrar la solicitud de compra. Intenta nuevamente.', 'error')
+        return redirect(redirect_url)
+    finally:
+        try:
+            conn_idempotency.close()
+        except Exception:
+            pass
+
+    if idempotency_state['state'] == 'completed':
+        session[f'compra_dyn_{slug}_exitosa'] = idempotency_state.get('payload') or {}
+        flash('La compra ya había sido procesada. Se muestra el resultado anterior.', 'info')
+        return redirect(f'/juego/d/{slug}?compra=exitosa')
+
+    if idempotency_state['state'] == 'processing':
+        flash('Esta compra ya se está procesando. Espera unos segundos.', 'warning')
+        return redirect(redirect_url)
+
     # Check balance
     if not is_admin:
         conn = _get_conn()
@@ -982,6 +1013,10 @@ def validar_dinamico(slug):
         saldo_actual = row['saldo'] if row else 0
         session['saldo'] = saldo_actual
         if saldo_actual < precio:
+            conn_cleanup = _get_conn()
+            clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
+            conn_cleanup.commit()
+            conn_cleanup.close()
             flash(f'Saldo insuficiente. Necesitas ${precio:.2f} pero tienes ${saldo_actual:.2f}', 'error')
             return redirect(redirect_url)
 
@@ -998,6 +1033,10 @@ def validar_dinamico(slug):
         ).fetchone()
         conn_dup.close()
         if dup:
+            conn_cleanup = _get_conn()
+            clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
+            conn_cleanup.commit()
+            conn_cleanup.close()
             flash('Ya se está procesando tu recarga. Espera unos segundos y revisa tu historial.', 'error')
             return redirect(redirect_url)
     except Exception:
@@ -1014,6 +1053,8 @@ def validar_dinamico(slug):
             conn = _get_conn()
             cursor = conn.execute('UPDATE usuarios SET saldo = saldo - ? WHERE id = ? AND saldo >= ?', (precio, user_id, precio))
             if cursor.rowcount == 0:
+                clear_idempotent_purchase(conn, user_id, endpoint_key, request_id)
+                conn.commit()
                 conn.close()
                 flash('Saldo insuficiente al momento de procesar.', 'error')
                 return redirect(redirect_url)
@@ -1043,17 +1084,21 @@ def validar_dinamico(slug):
             cur_proc = conn_proc.execute('''
                 INSERT INTO transacciones_dinamicas
                 (juego_id, usuario_id, player_id, player_id2, servidor, paquete_id,
-                 numero_control, transaccion_id, monto, estado)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'procesando')
+                 numero_control, transaccion_id, monto, estado, request_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'procesando', ?)
                 RETURNING id
             ''', (game['id'], user_id, player_id, player_id2 or None, servidor or None,
-                  package_id, numero_control, merchant_code, precio))
+                  package_id, numero_control, merchant_code, precio, request_id))
             _tx_procesando_id = cur_proc.fetchone()[0]
             conn_proc.commit()
             conn_proc.close()
         except Exception as e_proc:
             logger.error(f"[DynGame:{game['slug']}] Error insertando procesando: {e_proc}")
             _refund(user_id, precio, is_admin)
+            conn_cleanup = _get_conn()
+            clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
+            conn_cleanup.commit()
+            conn_cleanup.close()
             flash('Error al procesar. Tu saldo ha sido devuelto.', 'error')
             return redirect(redirect_url)
 
@@ -1062,6 +1107,10 @@ def validar_dinamico(slug):
         if not gc_token:
             _update_tx_error(_tx_procesando_id, 'No se pudo obtener token GP')
             _refund(user_id, precio, is_admin)
+            conn_cleanup = _get_conn()
+            clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
+            conn_cleanup.commit()
+            conn_cleanup.close()
             flash(f'Error de conexión con proveedor. Tu saldo ha sido devuelto.', 'error')
             return redirect(redirect_url)
 
@@ -1078,6 +1127,10 @@ def validar_dinamico(slug):
         if validate_code != 200 or not (validate_data or {}).get('validation_token'):
             _update_tx_error(_tx_procesando_id, f"validate failed: code={validate_code}")
             _refund(user_id, precio, is_admin)
+            conn_cleanup = _get_conn()
+            clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
+            conn_cleanup.commit()
+            conn_cleanup.close()
             err_msg = (validate_data or {}).get('message', 'Error validando orden')
             logger.error(f"[DynGame:{game['slug']}] validate failed: code={validate_code} msg={err_msg}")
             flash(f'Error al validar: {err_msg}. Tu saldo ha sido devuelto.', 'error')
@@ -1145,10 +1198,7 @@ def validar_dinamico(slug):
                     (reference_no, _tx_procesando_id)
                 ).fetchone()
                 if dup_td:
-                    conn.execute('DELETE FROM transacciones_dinamicas WHERE id = ?', (_tx_procesando_id,))
-                    conn.commit()
-                    conn.close()
-                    session[f'compra_dyn_{slug}_exitosa'] = {
+                    success_payload = {
                         'paquete_nombre': pkg['nombre'],
                         'monto_compra': precio,
                         'numero_control': numero_control,
@@ -1161,6 +1211,11 @@ def validar_dinamico(slug):
                         'gamepoint_ref': reference_no,
                         'serial_key': serial_key,
                     }
+                    conn.execute('DELETE FROM transacciones_dinamicas WHERE id = ?', (_tx_procesando_id,))
+                    complete_idempotent_purchase(conn, user_id, endpoint_key, request_id, success_payload, transaccion_id, numero_control)
+                    conn.commit()
+                    conn.close()
+                    session[f'compra_dyn_{slug}_exitosa'] = success_payload
                     return redirect(f'/juego/d/{slug}?compra=exitosa')
 
             # Actualizar registro 'procesando' con resultados finales
@@ -1185,9 +1240,9 @@ def validar_dinamico(slug):
 
             paquete_display = f"{game['nombre']} - {pkg['nombre']}"
             conn.execute('''
-                INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto, duracion_segundos)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (user_id, numero_control, pin_info, transaccion_id, paquete_display, -precio, _duration))
+                INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto, duracion_segundos, request_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (user_id, numero_control, pin_info, transaccion_id, paquete_display, -precio, _duration, request_id))
 
             # Record in historial_compras
             _saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
@@ -1222,9 +1277,6 @@ def validar_dinamico(slug):
                 except Exception:
                     pass
 
-            conn.commit()
-            conn.close()
-
             # Weekly sale
             if not is_admin:
                 try:
@@ -1240,7 +1292,7 @@ def validar_dinamico(slug):
             else:
                 estado_txt = 'completado' if create_code == 100 else 'procesando'
             logger.info(f"[DynGame:{game['slug']}] storing in session: player_name='{ingame_name}' | player_id={player_id} | ref={reference_no}")
-            session[f'compra_dyn_{slug}_exitosa'] = {
+            success_payload = {
                 'paquete_nombre': pkg['nombre'],
                 'monto_compra': precio,
                 'numero_control': numero_control,
@@ -1253,6 +1305,10 @@ def validar_dinamico(slug):
                 'gamepoint_ref': reference_no,
                 'serial_key': serial_key,
             }
+            complete_idempotent_purchase(conn, user_id, endpoint_key, request_id, success_payload, transaccion_id, numero_control)
+            conn.commit()
+            conn.close()
+            session[f'compra_dyn_{slug}_exitosa'] = success_payload
             return redirect(f'/juego/d/{slug}?compra=exitosa')
 
         else:
@@ -1271,6 +1327,10 @@ def validar_dinamico(slug):
             conn.close()
 
             _refund(user_id, precio, is_admin)
+            conn_cleanup = _get_conn()
+            clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
+            conn_cleanup.commit()
+            conn_cleanup.close()
             flash(f'La recarga falló: {err_msg}. Tu saldo ha sido devuelto.', 'error')
             return redirect(redirect_url)
 
@@ -1278,6 +1338,13 @@ def validar_dinamico(slug):
         logger.error(f"[DynGame:{game['slug']}] Error general: {str(e)}")
         _update_tx_error(_tx_procesando_id, str(e)[:500])
         _refund(user_id, precio, is_admin)
+        try:
+            conn_cleanup = _get_conn()
+            clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
+            conn_cleanup.commit()
+            conn_cleanup.close()
+        except Exception:
+            pass
         flash('Error al procesar la compra. Tu saldo ha sido devuelto.', 'error')
         return redirect(redirect_url)
 

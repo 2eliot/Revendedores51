@@ -412,6 +412,26 @@ def init_db():
             cursor.execute("ALTER TABLE transacciones ADD COLUMN duracion_segundos REAL")
         except Exception:
             pass
+        try:
+            cursor.execute("ALTER TABLE transacciones ADD COLUMN request_id TEXT")
+        except Exception:
+            pass
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS purchase_request_idempotency (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                usuario_id INTEGER NOT NULL,
+                endpoint TEXT NOT NULL,
+                request_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'processing',
+                response_payload TEXT,
+                transaccion_id TEXT,
+                numero_control TEXT,
+                fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+                fecha_actualizacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (usuario_id) REFERENCES usuarios (id),
+                UNIQUE(usuario_id, endpoint, request_id)
+            )
+        ''')
         
         # Tabla historial_compras: registro permanente independiente de transacciones
         cursor.execute('''
@@ -587,6 +607,10 @@ def init_db():
                 FOREIGN KEY (admin_id) REFERENCES usuarios (id)
             )
         ''')
+        try:
+            cursor.execute("ALTER TABLE transacciones_freefire_id ADD COLUMN request_id TEXT")
+        except Exception:
+            pass
         
         # Tabla de configuración de fuentes de pines por monto
         cursor.execute('''
@@ -930,6 +954,10 @@ def init_db():
                 FOREIGN KEY (paquete_id) REFERENCES paquetes_dinamicos(id)
             )
         ''')
+        try:
+            cursor.execute("ALTER TABLE transacciones_dinamicas ADD COLUMN request_id TEXT")
+        except Exception:
+            pass
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_tx_din_usuario ON transacciones_dinamicas(usuario_id, fecha DESC)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_tx_din_juego ON transacciones_dinamicas(juego_id, fecha DESC)')
 
@@ -985,6 +1013,10 @@ def create_optimized_indexes(cursor):
         'CREATE INDEX IF NOT EXISTS idx_usuarios_correo ON usuarios(correo)',
         'CREATE INDEX IF NOT EXISTS idx_transacciones_usuario_fecha ON transacciones(usuario_id, fecha DESC)',
         'CREATE INDEX IF NOT EXISTS idx_transacciones_fecha ON transacciones(fecha DESC)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_transacciones_usuario_request_id ON transacciones(usuario_id, request_id)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_ffid_usuario_request_id ON transacciones_freefire_id(usuario_id, request_id)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_din_usuario_request_id ON transacciones_dinamicas(usuario_id, request_id)',
+        'CREATE INDEX IF NOT EXISTS idx_purchase_idempotency_lookup ON purchase_request_idempotency(usuario_id, endpoint, request_id)',
         'CREATE INDEX IF NOT EXISTS idx_pines_monto_usado ON pines_freefire(monto_id, usado)',
         'CREATE INDEX IF NOT EXISTS idx_pines_global_monto_usado ON pines_freefire_global(monto_id, usado)',
         'CREATE INDEX IF NOT EXISTS idx_ventas_semanales_juego_semana ON ventas_semanales(juego, semana_year)',
@@ -2831,6 +2863,80 @@ def update_user_balance(user_id, new_balance):
     conn.commit()
     conn.close()
 
+def debit_user_balance_atomic(conn, user_id, amount):
+    """Descuenta saldo de forma atómica y valida fondos en la misma operación."""
+    amount = round(float(amount), 2)
+    cursor = conn.execute(
+        'UPDATE usuarios SET saldo = saldo - ? WHERE id = ? AND saldo >= ?',
+        (amount, user_id, amount)
+    )
+
+    if cursor.rowcount == 0:
+        row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+        return {
+            'ok': False,
+            'saldo_actual': float(row['saldo']) if row else 0.0,
+        }
+
+    row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+    saldo_despues = float(row['saldo']) if row else 0.0
+    return {
+        'ok': True,
+        'saldo_antes': round(saldo_despues + amount, 2),
+        'saldo_despues': saldo_despues,
+    }
+
+def begin_idempotent_purchase(conn, user_id, endpoint, request_id):
+    """Reserva un request_id por usuario para evitar doble cobro por reintentos."""
+    try:
+        conn.execute('''
+            INSERT INTO purchase_request_idempotency (usuario_id, endpoint, request_id, status, fecha_actualizacion)
+            VALUES (?, ?, ?, 'processing', CURRENT_TIMESTAMP)
+        ''', (user_id, endpoint, request_id))
+        return {'state': 'new'}
+    except Exception:
+        row = conn.execute('''
+            SELECT status, response_payload, transaccion_id, numero_control
+            FROM purchase_request_idempotency
+            WHERE usuario_id = ? AND endpoint = ? AND request_id = ?
+        ''', (user_id, endpoint, request_id)).fetchone()
+        if not row:
+            raise
+
+        payload_raw = row['response_payload'] if 'response_payload' in row else None
+        payload = {}
+        if payload_raw:
+            try:
+                payload = json.loads(payload_raw)
+            except Exception:
+                payload = {}
+
+        return {
+            'state': row['status'],
+            'payload': payload,
+            'transaccion_id': row['transaccion_id'],
+            'numero_control': row['numero_control'],
+        }
+
+def complete_idempotent_purchase(conn, user_id, endpoint, request_id, payload, transaccion_id, numero_control):
+    """Marca una compra idempotente como completada y guarda la respuesta a reutilizar."""
+    conn.execute('''
+        UPDATE purchase_request_idempotency
+        SET status = 'completed',
+            response_payload = ?,
+            transaccion_id = ?,
+            numero_control = ?,
+            fecha_actualizacion = CURRENT_TIMESTAMP
+        WHERE usuario_id = ? AND endpoint = ? AND request_id = ?
+    ''', (json.dumps(payload, ensure_ascii=False), transaccion_id, numero_control, user_id, endpoint, request_id))
+
+def clear_idempotent_purchase(conn, user_id, endpoint, request_id):
+    """Libera un request_id cuando la compra no llegó a completarse."""
+    conn.execute('''
+        DELETE FROM purchase_request_idempotency
+        WHERE usuario_id = ? AND endpoint = ? AND request_id = ?
+    ''', (user_id, endpoint, request_id))
+
 def delete_user(user_id):
     """Elimina un usuario y todos sus datos relacionados"""
     conn = get_db_connection()
@@ -3412,7 +3518,7 @@ def get_freefire_id_prices_cached():
     finally:
         return_db_connection(conn)
 
-def create_freefire_id_transaction(user_id, player_id, package_id, precio, pin_codigo=None):
+def create_freefire_id_transaction(user_id, player_id, package_id, precio, pin_codigo=None, request_id=None):
     """Crea una transacción activa de Free Fire ID en estado procesando."""
     import random
     import string
@@ -3424,9 +3530,9 @@ def create_freefire_id_transaction(user_id, player_id, package_id, precio, pin_c
     try:
         conn.execute('''
             INSERT INTO transacciones_freefire_id 
-            (usuario_id, player_id, paquete_id, numero_control, transaccion_id, monto, estado, pin_codigo)
-            VALUES (?, ?, ?, ?, ?, ?, 'procesando', ?)
-        ''', (user_id, player_id, package_id, numero_control, transaccion_id, -precio, pin_codigo))
+            (usuario_id, player_id, paquete_id, numero_control, transaccion_id, monto, estado, pin_codigo, request_id)
+            VALUES (?, ?, ?, ?, ?, ?, 'procesando', ?, ?)
+        ''', (user_id, player_id, package_id, numero_control, transaccion_id, -precio, pin_codigo, request_id))
         conn.commit()
         row = conn.execute('SELECT id FROM transacciones_freefire_id WHERE transaccion_id = ?', (transaccion_id,)).fetchone()
         transaction_id = row['id'] if row else None
@@ -6251,6 +6357,11 @@ def validar_freefire_id():
     if not package_id or not player_id:
         flash('Por favor complete todos los campos', 'error')
         return redirect('/juego/freefire_id')
+
+    request_id = (request.form.get('request_id') or '').strip()
+    if not request_id and not _is_api_call:
+        flash('Solicitud inválida. Recarga la página e intenta nuevamente.', 'error')
+        return redirect('/juego/freefire_id')
     
     package_id = int(package_id)
     user_id = session.get('user_db_id')
@@ -6266,6 +6377,33 @@ def validar_freefire_id():
     if precio == 0:
         flash('Paquete no encontrado o inactivo', 'error')
         return redirect('/juego/freefire_id')
+
+    endpoint_key = 'validar_freefire_id'
+    idempotency_enabled = bool(request_id)
+    if idempotency_enabled:
+        conn_idempotency = get_db_connection()
+        try:
+            idempotency_state = begin_idempotent_purchase(conn_idempotency, user_id, endpoint_key, request_id)
+            conn_idempotency.commit()
+        except Exception:
+            conn_idempotency.rollback()
+            conn_idempotency.close()
+            flash('No se pudo registrar la solicitud de recarga. Intenta nuevamente.', 'error')
+            return redirect('/juego/freefire_id')
+        finally:
+            try:
+                conn_idempotency.close()
+            except Exception:
+                pass
+
+        if idempotency_state['state'] == 'completed':
+            session['compra_freefire_id_exitosa'] = idempotency_state.get('payload') or {}
+            flash('La recarga ya había sido procesada. Se muestra el resultado anterior.', 'info')
+            return redirect('/juego/freefire_id?compra=exitosa')
+
+        if idempotency_state['state'] == 'processing':
+            flash('Esta recarga ya se está procesando. Espera unos segundos.', 'warning')
+            return redirect('/juego/freefire_id')
 
         # Evitar doble envío: solo bloquear mientras exista una transacción realmente activa.
         # No usar ventanas fijas de tiempo, porque eso impone una espera artificial entre recargas.
@@ -6286,6 +6424,11 @@ def validar_freefire_id():
         ).fetchone()
         conn_dup.close()
         if dup:
+            if idempotency_enabled:
+                conn_cleanup = get_db_connection()
+                clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
+                conn_cleanup.commit()
+                conn_cleanup.close()
             flash('Ya se está procesando tu recarga. Espera unos segundos y revisa tu dashboard.', 'error')
             return redirect('/juego/freefire_id')
     except Exception:
@@ -6302,6 +6445,11 @@ def validar_freefire_id():
         saldo_actual = session.get('saldo', 0)
     
     if not is_admin and saldo_actual < precio:
+        if idempotency_enabled:
+            conn_cleanup = get_db_connection()
+            clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
+            conn_cleanup.commit()
+            conn_cleanup.close()
         flash(f'Saldo insuficiente. Necesitas ${precio:.2f} pero tienes ${saldo_actual:.2f}', 'error')
         return redirect('/juego/freefire_id')
     
@@ -6314,6 +6462,11 @@ def validar_freefire_id():
         # 1. Verificar si hay PIN disponible en stock de FF Global ANTES de cobrar
         pin_disponible = get_available_pin_freefire_global(package_id)
         if not pin_disponible:
+            if idempotency_enabled:
+                conn_cleanup = get_db_connection()
+                clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
+                conn_cleanup.commit()
+                conn_cleanup.close()
             flash(f'No hay stock disponible para este paquete en este momento. Intenta más tarde.', 'error')
             return redirect('/juego/freefire_id')
         
@@ -6326,6 +6479,9 @@ def validar_freefire_id():
                 'UPDATE usuarios SET saldo = saldo - ? WHERE id = ? AND saldo >= ?',
                 (precio, user_id, precio))
             if cursor.rowcount == 0:
+                if idempotency_enabled:
+                    clear_idempotent_purchase(conn, user_id, endpoint_key, request_id)
+                    conn.commit()
                 conn.close()
                 # Devolver PIN al stock
                 try:
@@ -6345,7 +6501,7 @@ def validar_freefire_id():
             session['saldo'] = new_saldo['saldo'] if new_saldo else 0
         
         # 3. Crear transacción (con PIN incluido directamente)
-        transaction_data = create_freefire_id_transaction(user_id, player_id, package_id, precio, pin_codigo=pin_codigo)
+        transaction_data = create_freefire_id_transaction(user_id, player_id, package_id, precio, pin_codigo=pin_codigo, request_id=request_id)
         
         # 4. Actualizar gastos mensuales
         if not is_admin:
@@ -6384,10 +6540,10 @@ def validar_freefire_id():
             conn = get_db_connection()
             pin_info = f"ID: {player_id} - Jugador: {player_name}"
             conn.execute('''
-                INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto, duracion_segundos)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                                INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto, duracion_segundos, request_id)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (user_id, transaction_data['numero_control'], pin_info, 
-                  transaction_data['transaccion_id'], package_info.get('nombre', 'FF ID'), -precio, _redeem_duration))
+                                    transaction_data['transaccion_id'], package_info.get('nombre', 'FF ID'), -precio, _redeem_duration, request_id))
             
             # Registrar en historial permanente
             _ff_saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
@@ -6418,6 +6574,19 @@ def validar_freefire_id():
                 'player_name': player_name,
                 'estado': 'completado'
             }
+
+            if idempotency_enabled:
+                complete_idempotent_purchase(
+                    conn,
+                    user_id,
+                    endpoint_key,
+                    request_id,
+                    session['compra_freefire_id_exitosa'],
+                    transaction_data['transaccion_id'],
+                    transaction_data['numero_control']
+                )
+                conn.commit()
+            conn.close()
             
             return redirect('/juego/freefire_id?compra=exitosa')
         
@@ -6455,6 +6624,12 @@ def validar_freefire_id():
             
             # Actualizar transacción como rechazada
             update_freefire_id_transaction_status(transaction_data['id'], 'rechazado', user_id, f'Auto-redención fallida: {error_msg}')
+
+            if idempotency_enabled:
+                conn_cleanup = get_db_connection()
+                clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
+                conn_cleanup.commit()
+                conn_cleanup.close()
             
             flash(f'La recarga falló. Tu saldo ha sido devuelto. Puedes intentar nuevamente con otro PIN. Error: {error_msg}', 'error')
             return redirect('/juego/freefire_id')
@@ -6520,6 +6695,15 @@ def validar_freefire_id():
                     conn_fix.close()
                 except Exception:
                     pass
+
+        if idempotency_enabled:
+            try:
+                conn_cleanup = get_db_connection()
+                clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
+                conn_cleanup.commit()
+                conn_cleanup.close()
+            except Exception:
+                pass
 
         flash('Error al procesar la compra. Intente nuevamente.', 'error')
         return redirect('/juego/freefire_id')
@@ -8341,6 +8525,36 @@ def validar_freefire():
     
     user_id = session.get('user_db_id')
     is_admin = session.get('is_admin', False)
+    request_id = (request.form.get('request_id') or '').strip()
+
+    if not request_id:
+        flash('Solicitud inválida. Recarga la página e intenta nuevamente.', 'error')
+        return redirect('/juego/freefire')
+
+    endpoint_key = 'validar_freefire_global'
+    conn_idempotency = get_db_connection()
+    try:
+        idempotency_state = begin_idempotent_purchase(conn_idempotency, user_id, endpoint_key, request_id)
+        conn_idempotency.commit()
+    except Exception:
+        conn_idempotency.rollback()
+        conn_idempotency.close()
+        flash('No se pudo registrar la solicitud de compra. Intenta nuevamente.', 'error')
+        return redirect('/juego/freefire')
+    finally:
+        try:
+            conn_idempotency.close()
+        except Exception:
+            pass
+
+    if idempotency_state['state'] == 'completed':
+        session['compra_freefire_global_exitosa'] = idempotency_state.get('payload') or {}
+        flash('La compra ya había sido procesada. Se muestra el resultado anterior.', 'info')
+        return redirect('/juego/freefire?compra=exitosa')
+
+    if idempotency_state['state'] == 'processing':
+        flash('Esta compra ya se está procesando. Espera unos segundos.', 'warning')
+        return redirect('/juego/freefire')
     
     # Obtener precio dinámico de la base de datos
     if is_admin:
@@ -8356,6 +8570,10 @@ def validar_freefire():
     paquete_nombre = f"{package_info.get('nombre', 'Paquete')} x{cantidad}" if cantidad > 1 else package_info.get('nombre', 'Paquete')
     
     if precio_unitario == 0:
+        conn_cleanup = get_db_connection()
+        clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
+        conn_cleanup.commit()
+        conn_cleanup.close()
         flash('Paquete no encontrado o inactivo', 'error')
         return redirect('/juego/freefire')
     
@@ -8363,6 +8581,10 @@ def validar_freefire():
     
     # Solo verificar saldo para usuarios normales, admin puede comprar sin saldo
     if not is_admin and saldo_actual < precio_total:
+        conn_cleanup = get_db_connection()
+        clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
+        conn_cleanup.commit()
+        conn_cleanup.close()
         flash(f'Saldo insuficiente. Necesitas ${precio_total:.2f} pero tienes ${saldo_actual:.2f}', 'error')
         return redirect('/juego/freefire')
     
@@ -8375,6 +8597,10 @@ def validar_freefire():
     conn.close()
     
     if stock_disponible < cantidad:
+        conn_cleanup = get_db_connection()
+        clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
+        conn_cleanup.commit()
+        conn_cleanup.close()
         flash(f'Stock insuficiente. Solo hay {stock_disponible} pines disponibles para este paquete.', 'error')
         return redirect('/juego/freefire')
     
@@ -8400,6 +8626,10 @@ def validar_freefire():
                 except Exception:
                     pass
             flash('Stock insuficiente para completar la cantidad solicitada. Intente con una cantidad menor.', 'error')
+            conn_cleanup = get_db_connection()
+            clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
+            conn_cleanup.commit()
+            conn_cleanup.close()
             return redirect('/juego/freefire')
     
     # Generar datos de la transacción
@@ -8413,7 +8643,13 @@ def validar_freefire():
     try:
         # Solo actualizar saldo si no es admin
         if not is_admin:
-            conn.execute('UPDATE usuarios SET saldo = saldo - ? WHERE id = ?', (precio_total, user_id))
+            debit_result = debit_user_balance_atomic(conn, user_id, precio_total)
+            if not debit_result['ok']:
+                clear_idempotent_purchase(conn, user_id, endpoint_key, request_id)
+                conn.commit()
+                flash(f'Saldo insuficiente. Necesitas ${precio_total:.2f} pero tienes ${debit_result["saldo_actual"]:.2f}', 'error')
+                return redirect('/juego/freefire')
+            saldo_actual = debit_result['saldo_antes']
         
         # Registrar la transacción
         pines_texto = '\n'.join(pines_obtenidos)
@@ -8426,9 +8662,9 @@ def validar_freefire():
             monto_transaccion = -precio_total
         
         conn.execute('''
-            INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (user_id, numero_control, pines_texto, transaccion_id, paquete_nombre, monto_transaccion))
+            INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto, request_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (user_id, numero_control, pines_texto, transaccion_id, paquete_nombre, monto_transaccion, request_id))
         
         # Registrar en historial permanente
         _g_saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
@@ -8460,6 +8696,19 @@ def validar_freefire():
             )
         ''', (user_id, user_id, limit))
         
+        success_payload = {
+            'paquete_nombre': paquete_nombre,
+            'monto_compra': precio_total,
+            'numero_control': numero_control,
+            'transaccion_id': transaccion_id,
+        }
+        if cantidad == 1:
+            success_payload['pin'] = pines_obtenidos[0]
+        else:
+            success_payload['pines_list'] = pines_obtenidos
+            success_payload['cantidad_comprada'] = cantidad
+
+        complete_idempotent_purchase(conn, user_id, endpoint_key, request_id, success_payload, transaccion_id, numero_control)
         conn.commit()
         
     except Exception as e:
@@ -8478,6 +8727,14 @@ def validar_freefire():
             logger.info(f"[FreeFire Global] {len(pines_obtenidos)} PINs devueltos al stock exitosamente")
         except Exception as return_error:
             logger.error(f"[FreeFire Global] Error devolviendo PINs al stock: {str(return_error)}")
+
+        try:
+            conn_cleanup = get_db_connection()
+            clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
+            conn_cleanup.commit()
+            conn_cleanup.close()
+        except Exception:
+            pass
         
         flash('Error al procesar la transacción. Los PINs han sido devueltos al stock. Intente nuevamente.', 'error')
         return redirect('/juego/freefire')
@@ -8495,23 +8752,10 @@ def validar_freefire():
     # Guardar datos de la compra en la sesión para mostrar después del redirect
     if cantidad == 1:
         # Para un solo pin
-        session['compra_freefire_global_exitosa'] = {
-            'paquete_nombre': paquete_nombre,
-            'monto_compra': precio_total,
-            'numero_control': numero_control,
-            'pin': pines_obtenidos[0],
-            'transaccion_id': transaccion_id
-        }
+        session['compra_freefire_global_exitosa'] = success_payload
     else:
         # Para múltiples pines
-        session['compra_freefire_global_exitosa'] = {
-            'paquete_nombre': paquete_nombre,
-            'monto_compra': precio_total,
-            'numero_control': numero_control,
-            'pines_list': pines_obtenidos,
-            'transaccion_id': transaccion_id,
-            'cantidad_comprada': cantidad
-        }
+        session['compra_freefire_global_exitosa'] = success_payload
     
     # Redirect para evitar reenvío del formulario (patrón POST-Redirect-GET)
     return redirect('/juego/freefire?compra=exitosa')
@@ -9147,10 +9391,19 @@ def api_simple_endpoint():
                 quantity = len(pins_list)
                 precio_total = precio_unitario * quantity
         
-        # Descontar saldo
+        # Descontar saldo de forma atómica
         conn = get_db_connection()
-        nuevo_saldo = saldo_actual - precio_total
-        conn.execute('UPDATE usuarios SET saldo = ? WHERE id = ?', (nuevo_saldo, user['id']))
+        debit_result = debit_user_balance_atomic(conn, user['id'], precio_total)
+        if not debit_result['ok']:
+            conn.close()
+            return jsonify({
+                'status': 'error',
+                'code': '402',
+                'message': f'Saldo insuficiente. Necesitas ${precio_total:.2f} pero tienes ${debit_result["saldo_actual"]:.2f}'
+            }), 402
+
+        saldo_actual = debit_result['saldo_antes']
+        nuevo_saldo = debit_result['saldo_despues']
         
         # Crear registro de transacción
         pins_texto = '\n'.join(pins_list)

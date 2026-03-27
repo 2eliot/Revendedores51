@@ -42,6 +42,70 @@ def _get_conn():
     return get_db_connection()
 
 
+def _begin_idempotent_order(conn, usuario_id, endpoint, request_id):
+    try:
+        conn.execute('''
+            INSERT INTO purchase_request_idempotency (usuario_id, endpoint, request_id, status, fecha_actualizacion)
+            VALUES (?, ?, ?, 'processing', CURRENT_TIMESTAMP)
+        ''', (usuario_id, endpoint, request_id))
+        return {'state': 'new'}
+    except Exception:
+        row = conn.execute('''
+            SELECT status, response_payload, transaccion_id, numero_control
+            FROM purchase_request_idempotency
+            WHERE usuario_id = ? AND endpoint = ? AND request_id = ?
+        ''', (usuario_id, endpoint, request_id)).fetchone()
+        payload = {}
+        if row and row.get('response_payload'):
+            try:
+                payload = json.loads(row['response_payload'])
+            except Exception:
+                payload = {}
+        return {
+            'state': row['status'] if row else 'processing',
+            'payload': payload,
+        }
+
+
+def _complete_idempotent_order(conn, usuario_id, endpoint, request_id, payload, transaccion_id=''):
+    conn.execute('''
+        UPDATE purchase_request_idempotency
+        SET status = 'completed',
+            response_payload = ?,
+            transaccion_id = ?,
+            fecha_actualizacion = CURRENT_TIMESTAMP
+        WHERE usuario_id = ? AND endpoint = ? AND request_id = ?
+    ''', (json.dumps(payload, ensure_ascii=False), transaccion_id, usuario_id, endpoint, request_id))
+
+
+def _clear_idempotent_order(conn, usuario_id, endpoint, request_id):
+    conn.execute('DELETE FROM purchase_request_idempotency WHERE usuario_id = ? AND endpoint = ? AND request_id = ?',
+                 (usuario_id, endpoint, request_id))
+
+
+def _order_payload(row):
+    return {
+        'ok': True,
+        'order': {
+            'id': row['id'],
+            'status': row['estado'],
+            'game_type': row['game_type'],
+            'game_name': row['game_name'],
+            'package_id': row['package_id'],
+            'package_name': row['package_name'],
+            'player_id': row['player_id'],
+            'player_name': row['player_name'],
+            'precio': float(row['precio']),
+            'reference_no': row['reference_no'],
+            'error': row['error_msg'],
+            'duration': row['duration_seconds'],
+            'external_order_id': row['external_order_id'],
+            'created_at': str(row['fecha']),
+            'completed_at': str(row['fecha_completada']) if row['fecha_completada'] else None,
+        }
+    }
+
+
 # ---------------------------------------------------------------------------
 # DDL – llamar desde init_db() de app.py
 # ---------------------------------------------------------------------------
@@ -330,6 +394,36 @@ def api_v1_recharge():
     if not game_type:
         return jsonify({'ok': False, 'error': f'Paquete {package_id} no encontrado o inactivo'}), 404
 
+    endpoint_key = f'api_whitelabel_recharge:{account["id"]}'
+    if external_order_id:
+        conn_idem = _get_conn()
+        try:
+            idem_state = _begin_idempotent_order(conn_idem, usuario_id, endpoint_key, external_order_id)
+            conn_idem.commit()
+        except Exception:
+            conn_idem.rollback()
+            conn_idem.close()
+            return jsonify({'ok': False, 'error': 'No se pudo registrar la solicitud idempotente'}), 500
+        finally:
+            try:
+                conn_idem.close()
+            except Exception:
+                pass
+
+        if idem_state['state'] in ('completed', 'processing'):
+            conn_existing = _get_conn()
+            row_existing = conn_existing.execute(
+                'SELECT * FROM api_orders WHERE external_order_id = ? AND account_id = ? ORDER BY id DESC LIMIT 1',
+                (external_order_id, account['id'])
+            ).fetchone()
+            conn_existing.close()
+            if row_existing:
+                status_code = 200 if row_existing['estado'] != 'procesando' else 202
+                return jsonify(_order_payload(row_existing)), status_code
+            if idem_state['payload']:
+                return jsonify(idem_state['payload']), 200
+            return jsonify({'ok': False, 'error': 'La orden ya se está procesando'}), 202
+
     # --- Verificar y descontar saldo atómicamente ---
     conn = _get_conn()
     try:
@@ -338,6 +432,9 @@ def api_v1_recharge():
             (precio, usuario_id, precio)
         )
         if cursor.rowcount == 0:
+            if external_order_id:
+                _clear_idempotent_order(conn, usuario_id, endpoint_key, external_order_id)
+                conn.commit()
             conn.close()
             # Obtener saldo actual para info
             conn2 = _get_conn()
@@ -364,6 +461,8 @@ def api_v1_recharge():
         conn.commit()
     except Exception as e:
         try:
+            if external_order_id:
+                _clear_idempotent_order(conn, usuario_id, endpoint_key, external_order_id)
             conn.rollback()
         except Exception:
             pass
@@ -381,6 +480,20 @@ def api_v1_recharge():
     result = _execute_recharge(order_id, game_type, package_id, player_id, player_id2,
                                precio, gp_package_id, gp_product_id, usuario_id, account,
                                game_name=game_name, pkg_name=pkg_name)
+
+    if external_order_id:
+        try:
+            conn_done = _get_conn()
+            row_done = conn_done.execute('SELECT * FROM api_orders WHERE id = ?', (order_id,)).fetchone()
+            if row_done:
+                _complete_idempotent_order(conn_done, usuario_id, endpoint_key, external_order_id, _order_payload(row_done), str(order_id))
+                conn_done.commit()
+            else:
+                _clear_idempotent_order(conn_done, usuario_id, endpoint_key, external_order_id)
+                conn_done.commit()
+            conn_done.close()
+        except Exception:
+            pass
 
     return result
 
