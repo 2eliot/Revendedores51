@@ -6848,6 +6848,8 @@ def admin_freefire_id_pin_log():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
         return redirect('/auth')
+
+    venezuela_day = datetime.now(pytz.timezone('America/Caracas')).strftime('%Y-%m-%d')
     
     conn = get_db_connection()
     rows = conn.execute('''
@@ -6876,6 +6878,7 @@ def admin_freefire_id_pin_log():
             FROM transacciones_freefire_id fi
             LEFT JOIN usuarios u ON fi.usuario_id = u.id
             LEFT JOIN precios_freefire_id p ON fi.paquete_id = p.id
+            WHERE DATE(fi.fecha, '-4 hours') = ?
 
             UNION ALL
 
@@ -6909,10 +6912,10 @@ def admin_freefire_id_pin_log():
             WHERE (t.transaccion_id LIKE 'API-%' OR t.transaccion_id LIKE 'WL-API-%')
               AND t.pin IS NOT NULL
               AND TRIM(t.pin) <> ''
+                            AND DATE(t.fecha, '-4 hours') = ?
         ) tx
         ORDER BY tx.fecha DESC
-        LIMIT 100
-    ''').fetchall()
+        ''', (venezuela_day, venezuela_day)).fetchall()
     conn.close()
 
     transactions = []
@@ -6935,7 +6938,7 @@ def admin_freefire_id_pin_log():
 
         transactions.append(item)
     
-    return render_template_string(PIN_LOG_TEMPLATE, transactions=transactions)
+    return render_template_string(PIN_LOG_TEMPLATE, transactions=transactions, venezuela_day=venezuela_day)
 
 @app.route('/admin/freefire_id_audit')
 def admin_freefire_id_audit():
@@ -7084,7 +7087,7 @@ PIN_LOG_TEMPLATE = r'''
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Log de PINes FreeFire ID y API</title>
+    <title>Log Diario de PINes FreeFire ID y API</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', sans-serif; background: #0a0a1a; color: #e0e0e0; padding: 20px; }
@@ -7120,8 +7123,8 @@ PIN_LOG_TEMPLATE = r'''
 </head>
 <body>
     <a href="/admin" class="back-link">&#8592; Volver al Panel Admin</a>
-    <h1>Log de PINes FreeFire ID y API</h1>
-    <p class="subtitle">Ultimas 100 transacciones con PIN completo, incluyendo compras web y compras de PIN via API</p>
+    <h1>Log Diario de PINes FreeFire ID y API</h1>
+    <p class="subtitle">Compras registradas hoy ({{ venezuela_day }}) en horario de Venezuela. El tablero se reinicia automáticamente al cambiar el día.</p>
 
     <div class="stats">
         <div class="stat-box success">
