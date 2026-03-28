@@ -3449,7 +3449,7 @@ def get_user_pending_bloodstriker_transactions(user_id):
     conn.close()
     return formatted_transactions
 
-def get_admin_special_voucher_transactions():
+def get_admin_special_voucher_transactions(limit_per_source=100):
     """Obtiene vouchers especiales para el historial del admin en index."""
     conn = get_db_connection()
     formatted_transactions = []
@@ -3462,8 +3462,8 @@ def get_admin_special_voucher_transactions():
             JOIN precios_bloodstriker p ON bs.paquete_id = p.id
             WHERE bs.estado IN ('pendiente', 'rechazado', 'error')
             ORDER BY bs.fecha DESC
-            LIMIT 100
-        ''').fetchall()
+            LIMIT ?
+        ''', (limit_per_source,)).fetchall()
 
         for transaction in bloodstriker_rows:
             pin_text = f"ID: {transaction['player_id']}"
@@ -3495,8 +3495,8 @@ def get_admin_special_voucher_transactions():
             JOIN precios_freefire_id p ON fi.paquete_id = p.id
             WHERE fi.estado = 'rechazado'
             ORDER BY fi.fecha DESC
-            LIMIT 100
-        ''').fetchall()
+            LIMIT ?
+        ''', (limit_per_source,)).fetchall()
 
         for transaction in freefire_id_rows:
             formatted_transactions.append({
@@ -3523,8 +3523,8 @@ def get_admin_special_voucher_transactions():
             JOIN usuarios u ON ao.usuario_id = u.id
             WHERE ao.game_type = 'freefire_id' AND ao.estado = 'fallida'
             ORDER BY ao.fecha DESC
-            LIMIT 100
-        ''').fetchall()
+            LIMIT ?
+        ''', (limit_per_source,)).fetchall()
 
         for transaction in api_ffid_rows:
             formatted_transactions.append({
@@ -3554,8 +3554,8 @@ def get_admin_special_voucher_transactions():
             JOIN paquetes_dinamicos pd ON td.paquete_id = pd.id
             WHERE td.estado IN ('rechazado', 'error')
             ORDER BY td.fecha DESC
-            LIMIT 100
-        ''').fetchall()
+            LIMIT ?
+        ''', (limit_per_source,)).fetchall()
 
         for transaction in dynamic_rows:
             player_id = transaction['player_id'] or ''
@@ -3594,6 +3594,48 @@ def get_admin_special_voucher_transactions():
         conn.close()
 
     return formatted_transactions
+
+def get_admin_special_voucher_total_count():
+    """Cuenta vouchers especiales del historial del admin sin cargarlos completos."""
+    conn = get_db_connection()
+    try:
+        bloodstriker_count = conn.execute("SELECT COUNT(*) FROM transacciones_bloodstriker WHERE estado IN ('pendiente', 'rechazado', 'error')").fetchone()[0]
+        freefire_id_count = conn.execute("SELECT COUNT(*) FROM transacciones_freefire_id WHERE estado = 'rechazado'").fetchone()[0]
+        api_ffid_count = conn.execute("SELECT COUNT(*) FROM api_orders WHERE game_type = 'freefire_id' AND estado = 'fallida'").fetchone()[0]
+        dynamic_count = conn.execute("SELECT COUNT(*) FROM transacciones_dinamicas WHERE estado IN ('rechazado', 'error')").fetchone()[0]
+        return bloodstriker_count + freefire_id_count + api_ffid_count + dynamic_count
+    finally:
+        conn.close()
+
+def get_admin_combined_transactions_page(page=1, per_page=30):
+    """Combina transacciones normales y vouchers especiales del admin con paginación liviana."""
+    fetch_limit = max(page * per_page, per_page)
+    normal_transactions = get_user_transactions(None, is_admin=True, page=1, per_page=fetch_limit)
+    special_transactions = get_admin_special_voucher_transactions(limit_per_source=fetch_limit)
+
+    all_transactions = list(normal_transactions['transactions']) + list(special_transactions)
+    all_transactions.sort(key=lambda tx: (tx or {}).get('fecha', ''), reverse=True)
+
+    total_count = normal_transactions['pagination']['total'] + get_admin_special_voucher_total_count()
+    total_pages = (total_count + per_page - 1) // per_page if total_count else 0
+    has_prev = page > 1
+    has_next = page < total_pages
+    start = (page - 1) * per_page
+    end = start + per_page
+
+    return {
+        'transactions': all_transactions[start:end],
+        'pagination': {
+            'page': page,
+            'per_page': per_page,
+            'total': total_count,
+            'total_pages': total_pages,
+            'has_prev': has_prev,
+            'has_next': has_next,
+            'prev_num': page - 1 if has_prev else None,
+            'next_num': page + 1 if has_next else None
+        }
+    }
 
 def update_bloodstriker_transaction_status(transaction_id, new_status, admin_id, notas=None):
     """Actualiza el estado de una transacción de Blood Striker"""
@@ -5015,15 +5057,8 @@ def validar_freefire_latam():
 
     is_admin = session.get('is_admin', False)
     if not is_admin:
-        ga = get_games_active()
-        if not ga.get('freefire', False):
-            flash('Este juego está desactivado temporalmente.', 'error')
-            return redirect('/')
-    
-    monto_id = request.form.get('monto')
-    cantidad = request.form.get('cantidad')
-    
-    if not monto_id or not cantidad:
+        # Admin ve transacciones normales + vouchers especiales en una sola cola paginada.
+        transactions_data = get_admin_combined_transactions_page(page=page, per_page=per_page)
         flash('Por favor selecciona un paquete y cantidad', 'error')
         return redirect('/juego/freefire_latam')
     
