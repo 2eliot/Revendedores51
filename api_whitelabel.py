@@ -762,16 +762,6 @@ def _execute_freefire_id_recharge(order_id, package_id, player_id):
 
     pin_codigo = pin_disponible['pin_codigo']
 
-    # Persistir el pin reservado antes de redimir para que el voucher fallido
-    # conserve el PIN intentado incluso si la automatización falla después.
-    try:
-        conn_pin = _get_conn()
-        conn_pin.execute('UPDATE api_orders SET redeemed_pin = ? WHERE id = ?', (pin_codigo, order_id))
-        conn_pin.commit()
-        conn_pin.close()
-    except Exception as e:
-        logger.warning(f'[WL API] No se pudo persistir PIN reservado order={order_id}: {e}')
-
     redeemer_config = get_redeemer_config_from_db(_get_conn)
     try:
         redeem_result = redeem_pin_vps(pin_codigo, player_id, redeemer_config)

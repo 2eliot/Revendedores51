@@ -1228,7 +1228,7 @@ def create_user(nombre, apellido, telefono, correo, contraseña):
             return None
         raise
 
-def get_user_transactions(user_id, is_admin=False, page=1, per_page=10, paginate=True):
+def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
     """Obtiene las transacciones de un usuario con información del paquete y paginación"""
     conn = get_db_connection()
     
@@ -1237,21 +1237,13 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10, paginate
     
     if is_admin:
         # Admin ve todas las transacciones de todos los usuarios (incluyendo las propias)
-        if paginate:
-            transactions = conn.execute('''
-                SELECT t.*, u.nombre, u.apellido
-                FROM transacciones t
-                JOIN usuarios u ON t.usuario_id = u.id
-                ORDER BY t.fecha DESC
-                LIMIT ? OFFSET ?
-            ''', (per_page, offset)).fetchall()
-        else:
-            transactions = conn.execute('''
-                SELECT t.*, u.nombre, u.apellido
-                FROM transacciones t
-                JOIN usuarios u ON t.usuario_id = u.id
-                ORDER BY t.fecha DESC
-            ''').fetchall()
+        transactions = conn.execute('''
+            SELECT t.*, u.nombre, u.apellido
+            FROM transacciones t
+            JOIN usuarios u ON t.usuario_id = u.id
+            ORDER BY t.fecha DESC
+            LIMIT ? OFFSET ?
+        ''', (per_page, offset)).fetchall()
         
         # Obtener total de transacciones para paginación
         total_count = conn.execute('''
@@ -2617,30 +2609,15 @@ def index():
         return str(v or '')
     
     if is_admin:
-        # Admin ve transacciones normales + vouchers especiales en una sola paginación.
-        transactions_data = get_user_transactions(None, is_admin=True, page=1, per_page=per_page, paginate=False)
-        special_transactions = get_admin_special_voucher_transactions()
-        all_transactions = list(transactions_data['transactions']) + list(special_transactions)
-        all_transactions.sort(key=_tx_fecha_sort_key, reverse=True)
-
-        total_count = len(all_transactions)
-        total_pages = (total_count + per_page - 1) // per_page if total_count else 0
-        has_prev = page > 1
-        has_next = page < total_pages
-        start = (page - 1) * per_page
-        end = start + per_page
-
-        transactions_data['transactions'] = all_transactions[start:end]
-        transactions_data['pagination'] = {
-            'page': page,
-            'per_page': per_page,
-            'total': total_count,
-            'total_pages': total_pages,
-            'has_prev': has_prev,
-            'has_next': has_next,
-            'prev_num': page - 1 if has_prev else None,
-            'next_num': page + 1 if has_next else None
-        }
+        # Admin ve todas las transacciones de todos los usuarios con paginación
+        transactions_data = get_user_transactions(None, is_admin=True, page=page, per_page=per_page)
+        
+        # Para admin, agregar vouchers especiales solo en la primera página.
+        if page == 1:
+            special_transactions = get_admin_special_voucher_transactions()
+            all_transactions = list(transactions_data['transactions']) + list(special_transactions)
+            all_transactions.sort(key=_tx_fecha_sort_key, reverse=True)
+            transactions_data['transactions'] = all_transactions
         
         balance = 0  # Admin no tiene saldo
     else:
