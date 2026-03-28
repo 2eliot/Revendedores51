@@ -1318,6 +1318,39 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
                 except Exception:
                     pass
 
+            elif txid.startswith('WL-API-'):
+                try:
+                    api_order_id = int(txid.replace('WL-API-', '', 1))
+                except Exception:
+                    api_order_id = None
+
+                if api_order_id is not None:
+                    try:
+                        c_api = get_db_connection()
+                        try:
+                            row_api = c_api.execute(
+                                'SELECT game_type, player_id, player_name, redeemed_pin, estado, error_msg, reference_no FROM api_orders WHERE id = ? LIMIT 1',
+                                (api_order_id,)
+                            ).fetchone()
+                        finally:
+                            c_api.close()
+
+                        if row_api and row_api.get('game_type') == 'freefire_id':
+                            transaction_dict['is_freefire_id'] = True
+                            transaction_dict['estado'] = row_api.get('estado') or transaction_dict.get('estado') or 'completado'
+                            if row_api.get('player_id'):
+                                transaction_dict['player_id'] = row_api['player_id']
+                            if row_api.get('player_name'):
+                                transaction_dict['player_name'] = row_api['player_name']
+                            if row_api.get('redeemed_pin'):
+                                transaction_dict['pin_voucher_code'] = row_api['redeemed_pin']
+                            if row_api.get('reference_no'):
+                                transaction_dict['gamepoint_ref'] = row_api['reference_no']
+                            if row_api.get('error_msg'):
+                                transaction_dict['notas'] = row_api['error_msg']
+                    except Exception:
+                        pass
+
             elif txid.startswith('BS-'):
                 transaction_dict['is_bloodstriker'] = True
                 transaction_dict['estado'] = transaction_dict.get('estado') or 'completado'
@@ -3481,6 +3514,35 @@ def get_admin_special_voucher_transactions():
                 'notas': transaction['notas'],
                 'player_id': transaction['player_id'],
                 'pin_voucher_code': transaction['pin_codigo'],
+                'is_freefire_id': True,
+            })
+
+        api_ffid_rows = conn.execute('''
+            SELECT ao.*, u.nombre, u.apellido
+            FROM api_orders ao
+            JOIN usuarios u ON ao.usuario_id = u.id
+            WHERE ao.game_type = 'freefire_id' AND ao.estado = 'fallida'
+            ORDER BY ao.fecha DESC
+            LIMIT 100
+        ''').fetchall()
+
+        for transaction in api_ffid_rows:
+            formatted_transactions.append({
+                'id': transaction['id'],
+                'usuario_id': transaction['usuario_id'],
+                'numero_control': transaction['external_order_id'] or f"WL-API-{transaction['id']}",
+                'transaccion_id': f"WL-API-{transaction['id']}",
+                'monto': -abs(transaction['precio']),
+                'fecha': convert_to_venezuela_time(transaction['fecha']),
+                'nombre': transaction['nombre'],
+                'apellido': transaction['apellido'],
+                'paquete': f"{transaction['game_name']} - {transaction['package_name']}" if transaction['game_name'] else transaction['package_name'],
+                'pin': f"ID: {transaction['player_id']}",
+                'estado': transaction['estado'],
+                'notas': transaction['error_msg'],
+                'player_id': transaction['player_id'],
+                'player_name': transaction['player_name'],
+                'pin_voucher_code': transaction['redeemed_pin'],
                 'is_freefire_id': True,
             })
 

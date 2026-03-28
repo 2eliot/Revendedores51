@@ -650,10 +650,10 @@ def _execute_recharge(order_id, game_type, package_id, player_id, player_id2,
             conn.execute('UPDATE usuarios SET saldo = saldo + ? WHERE id = ?', (precio, usuario_id))
             conn.execute('''
                 UPDATE api_orders
-                SET estado = 'fallida', error_msg = ?, duration_seconds = ?,
+                SET estado = 'fallida', error_msg = ?, duration_seconds = ?, redeemed_pin = ?,
                     fecha_completada = CURRENT_TIMESTAMP
                 WHERE id = ?
-            ''', (result.get('error', 'Error desconocido'), _duration, order_id))
+            ''', (result.get('error', 'Error desconocido'), _duration, result.get('redeemed_pin', ''), order_id))
         conn.commit()
     except Exception as e:
         try:
@@ -775,7 +775,7 @@ def _execute_freefire_id_recharge(order_id, package_id, player_id):
             conn.close()
         except Exception:
             pass
-        return {'ok': False, 'error': f'Error redención: {str(e)}'}
+        return {'ok': False, 'error': f'Error redención: {str(e)}', 'redeemed_pin': pin_codigo}
 
     if redeem_result and redeem_result.success:
         return {
@@ -795,7 +795,7 @@ def _execute_freefire_id_recharge(order_id, package_id, player_id):
         except Exception:
             pass
         err_msg = (redeem_result.message if redeem_result else None) or 'Redención fallida'
-        return {'ok': False, 'error': err_msg}
+        return {'ok': False, 'error': err_msg, 'redeemed_pin': pin_codigo}
 
 
 # ---------------------------------------------------------------------------

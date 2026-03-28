@@ -229,7 +229,7 @@
                 <span class="ffid-voucher-status-value">⏳ PROCESANDO</span>
                 {% elif (transaction.get('estado') or '')|lower == 'pendiente' %}
                 <span class="ffid-voucher-status-value">⏳ PENDIENTE</span>
-                {% elif (transaction.get('estado') or '')|lower in ['rechazado', 'error'] %}
+                {% elif (transaction.get('estado') or '')|lower in ['rechazado', 'error', 'fallida'] %}
                 <span class="ffid-voucher-status-value" style="color:#ff6b6b;">❌ FALLIDA</span>
                 {% else %}
                 <span class="ffid-voucher-status-value">✅ COMPLETADO</span>
@@ -265,9 +265,9 @@
                 <div class="ffid-voucher-line"><strong>Usuario:</strong> {{ transaction.nombre }} {{ transaction.apellido }}</div>
                 {% endif %}
                 {% if transaction.get('pin_voucher_code') %}
-                <div class="ffid-voucher-line"><strong>{{ 'PIN no usado' if (transaction.get('estado') or '')|lower in ['rechazado', 'error'] else 'PIN redimido' }}:</strong> {{ transaction.pin_voucher_code }}</div>
+                <div class="ffid-voucher-line"><strong>{{ 'PIN no usado' if (transaction.get('estado') or '')|lower in ['rechazado', 'error', 'fallida'] else 'PIN redimido' }}:</strong> {{ transaction.pin_voucher_code }}</div>
                 {% endif %}
-                {% if session.get('is_admin') and (transaction.get('estado') or '')|lower in ['rechazado', 'error'] and transaction.get('notas') %}
+                {% if session.get('is_admin') and (transaction.get('estado') or '')|lower in ['rechazado', 'error', 'fallida'] and transaction.get('notas') %}
                 <div class="ffid-voucher-line"><strong>Motivo:</strong> {{ transaction.notas }}</div>
                 {% endif %}
               </div>
