@@ -133,7 +133,16 @@ def _gameclub_post(endpoint_path: str, payload: dict):
     body = {'payload': jwt_token}
     try:
         proxies = _gameclub_build_proxies()
-        res = requests.post(url, json=body, headers=headers, timeout=25, proxies=proxies)
+        session = requests.Session()
+        session.trust_env = False
+        request_kwargs = {
+            'json': body,
+            'headers': headers,
+            'timeout': 25,
+        }
+        if proxies:
+            request_kwargs['proxies'] = proxies
+        res = session.post(url, **request_kwargs)
         try:
             data = res.json()
         except Exception:
