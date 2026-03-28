@@ -10710,7 +10710,7 @@ def api_recharge_freefire_id():
         logger.error(f'[API FF-ID] Error creando registro FFID para pin log: {e}')
         try:
             _c = get_db_connection()
-            _c.execute('INSERT OR IGNORE INTO pines_freefire_global (monto_id, pin_codigo) VALUES (?,?)', (package_id, pin_codigo))
+            _c.execute('INSERT INTO pines_freefire_global (monto_id, pin_codigo, usado) VALUES (?, ?, FALSE)', (package_id, pin_codigo))
             _c.commit()
             _c.close()
         except Exception:
@@ -10738,7 +10738,7 @@ def api_recharge_freefire_id():
         _update_ffid_api_transaction('rechazado', f'API externa falló por excepción: {str(e)[:200]}')
         try:
             _c = get_db_connection()
-            _c.execute('INSERT OR IGNORE INTO pines_freefire_global (monto_id, pin_codigo) VALUES (?,?)', (package_id, pin_codigo))
+            _c.execute('INSERT INTO pines_freefire_global (monto_id, pin_codigo, usado) VALUES (?, ?, FALSE)', (package_id, pin_codigo))
             _c.commit()
             _c.close()
         except Exception:
@@ -10778,7 +10778,7 @@ def api_recharge_freefire_id():
         # Devolver el PIN al stock
         try:
             _c = get_db_connection()
-            _c.execute('INSERT OR IGNORE INTO pines_freefire_global (monto_id, pin_codigo) VALUES (?,?)', (package_id, pin_codigo))
+            _c.execute('INSERT INTO pines_freefire_global (monto_id, pin_codigo, usado) VALUES (?, ?, FALSE)', (package_id, pin_codigo))
             _c.commit()
             _c.close()
         except Exception:

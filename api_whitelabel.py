@@ -769,7 +769,7 @@ def _execute_freefire_id_recharge(order_id, package_id, player_id):
         # Devolver pin al stock
         try:
             conn = _get_conn()
-            conn.execute('INSERT OR IGNORE INTO pines_freefire_global (monto_id, pin_codigo) VALUES (?,?)',
+            conn.execute('INSERT INTO pines_freefire_global (monto_id, pin_codigo, usado) VALUES (?, ?, FALSE)',
                          (package_id, pin_codigo))
             conn.commit()
             conn.close()
@@ -788,7 +788,7 @@ def _execute_freefire_id_recharge(order_id, package_id, player_id):
         # Devolver pin al stock
         try:
             conn = _get_conn()
-            conn.execute('INSERT OR IGNORE INTO pines_freefire_global (monto_id, pin_codigo) VALUES (?,?)',
+            conn.execute('INSERT INTO pines_freefire_global (monto_id, pin_codigo, usado) VALUES (?, ?, FALSE)',
                          (package_id, pin_codigo))
             conn.commit()
             conn.close()
