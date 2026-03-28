@@ -1299,6 +1299,25 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
                 if m_name:
                     transaction_dict['player_name'] = m_name.group(1).strip()
 
+                try:
+                    c_ffid = get_db_connection()
+                    try:
+                        row_ffid = c_ffid.execute(
+                            'SELECT pin_codigo, estado, notas FROM transacciones_freefire_id WHERE transaccion_id = ? LIMIT 1',
+                            (txid,)
+                        ).fetchone()
+                    finally:
+                        c_ffid.close()
+                    if row_ffid:
+                        if row_ffid.get('pin_codigo'):
+                            transaction_dict['pin_voucher_code'] = row_ffid['pin_codigo']
+                        if row_ffid.get('estado'):
+                            transaction_dict['estado'] = row_ffid['estado']
+                        if row_ffid.get('notas'):
+                            transaction_dict['notas'] = row_ffid['notas']
+                except Exception:
+                    pass
+
             elif txid.startswith('BS-'):
                 transaction_dict['is_bloodstriker'] = True
                 transaction_dict['estado'] = transaction_dict.get('estado') or 'completado'
@@ -2560,16 +2579,12 @@ def index():
         # Admin ve todas las transacciones de todos los usuarios con paginación
         transactions_data = get_user_transactions(None, is_admin=True, page=page, per_page=per_page)
         
-        # Para admin, también agregar transacciones pendientes de Blood Striker solo en la primera página
-        # (Free Fire ID es 100% automático, no requiere aprobación manual)
+        # Para admin, agregar vouchers especiales solo en la primera página.
         if page == 1:
-            bloodstriker_transactions = get_pending_bloodstriker_transactions()
-            # Combinar transacciones normales con las de Blood Striker
-            all_transactions = list(transactions_data['transactions']) + list(bloodstriker_transactions)
-            # Ordenar por fecha
+            special_transactions = get_admin_special_voucher_transactions()
+            all_transactions = list(transactions_data['transactions']) + list(special_transactions)
             all_transactions.sort(key=_tx_fecha_sort_key, reverse=True)
-            # Tomar solo las primeras per_page transacciones
-            transactions_data['transactions'] = all_transactions[:per_page]
+            transactions_data['transactions'] = all_transactions
         
         balance = 0  # Admin no tiene saldo
     else:
@@ -3399,6 +3414,123 @@ def get_user_pending_bloodstriker_transactions(user_id):
         formatted_transactions.append(formatted_transaction)
     
     conn.close()
+    return formatted_transactions
+
+def get_admin_special_voucher_transactions():
+    """Obtiene vouchers especiales para el historial del admin en index."""
+    conn = get_db_connection()
+    formatted_transactions = []
+
+    try:
+        bloodstriker_rows = conn.execute('''
+            SELECT bs.*, u.nombre, u.apellido, p.nombre as paquete_nombre
+            FROM transacciones_bloodstriker bs
+            JOIN usuarios u ON bs.usuario_id = u.id
+            JOIN precios_bloodstriker p ON bs.paquete_id = p.id
+            WHERE bs.estado IN ('pendiente', 'rechazado', 'error')
+            ORDER BY bs.fecha DESC
+            LIMIT 100
+        ''').fetchall()
+
+        for transaction in bloodstriker_rows:
+            pin_text = f"ID: {transaction['player_id']}"
+            if transaction.get('gamepoint_referenceno'):
+                pin_text += f" - Ref: {transaction['gamepoint_referenceno']}"
+
+            formatted_transactions.append({
+                'id': transaction['id'],
+                'usuario_id': transaction['usuario_id'],
+                'numero_control': transaction['numero_control'],
+                'transaccion_id': transaction['transaccion_id'],
+                'monto': transaction['monto'],
+                'fecha': convert_to_venezuela_time(transaction['fecha']),
+                'nombre': transaction['nombre'],
+                'apellido': transaction['apellido'],
+                'paquete': transaction['paquete_nombre'],
+                'pin': pin_text,
+                'estado': transaction['estado'],
+                'notas': transaction['notas'],
+                'player_id': transaction['player_id'],
+                'gamepoint_ref': transaction['gamepoint_referenceno'],
+                'is_bloodstriker': True,
+            })
+
+        freefire_id_rows = conn.execute('''
+            SELECT fi.*, u.nombre, u.apellido, p.nombre as paquete_nombre
+            FROM transacciones_freefire_id fi
+            JOIN usuarios u ON fi.usuario_id = u.id
+            JOIN precios_freefire_id p ON fi.paquete_id = p.id
+            WHERE fi.estado = 'rechazado'
+            ORDER BY fi.fecha DESC
+            LIMIT 100
+        ''').fetchall()
+
+        for transaction in freefire_id_rows:
+            formatted_transactions.append({
+                'id': transaction['id'],
+                'usuario_id': transaction['usuario_id'],
+                'numero_control': transaction['numero_control'],
+                'transaccion_id': transaction['transaccion_id'],
+                'monto': transaction['monto'],
+                'fecha': convert_to_venezuela_time(transaction['fecha']),
+                'nombre': transaction['nombre'],
+                'apellido': transaction['apellido'],
+                'paquete': transaction['paquete_nombre'],
+                'pin': f"ID: {transaction['player_id']}",
+                'estado': transaction['estado'],
+                'notas': transaction['notas'],
+                'player_id': transaction['player_id'],
+                'pin_voucher_code': transaction['pin_codigo'],
+                'is_freefire_id': True,
+            })
+
+        dynamic_rows = conn.execute('''
+            SELECT td.*, u.nombre, u.apellido, jd.nombre as juego_nombre, jd.modo, pd.nombre as paquete_nombre
+            FROM transacciones_dinamicas td
+            JOIN usuarios u ON td.usuario_id = u.id
+            JOIN juegos_dinamicos jd ON td.juego_id = jd.id
+            JOIN paquetes_dinamicos pd ON td.paquete_id = pd.id
+            WHERE td.estado IN ('rechazado', 'error')
+            ORDER BY td.fecha DESC
+            LIMIT 100
+        ''').fetchall()
+
+        for transaction in dynamic_rows:
+            player_id = transaction['player_id'] or ''
+            player_name = transaction['ingame_name'] or ''
+            pin_text = ''
+
+            if player_name:
+                pin_text = f"ID: {player_id} - Jugador: {player_name}"
+            elif player_id:
+                pin_text = f"ID: {player_id}"
+
+            if transaction.get('gamepoint_referenceno'):
+                pin_text = f"{pin_text} - Ref: {transaction['gamepoint_referenceno']}" if pin_text else f"Ref: {transaction['gamepoint_referenceno']}"
+
+            formatted_transactions.append({
+                'id': transaction['id'],
+                'usuario_id': transaction['usuario_id'],
+                'numero_control': transaction['numero_control'],
+                'transaccion_id': transaction['transaccion_id'],
+                'monto': transaction['monto'],
+                'fecha': convert_to_venezuela_time(transaction['fecha']),
+                'nombre': transaction['nombre'],
+                'apellido': transaction['apellido'],
+                'paquete': f"{transaction['juego_nombre']} - {transaction['paquete_nombre']}",
+                'pin': pin_text,
+                'estado': transaction['estado'],
+                'notas': transaction['notas'],
+                'player_id': player_id or None,
+                'player_name': player_name or None,
+                'gamepoint_ref': transaction['gamepoint_referenceno'],
+                'juego_nombre': transaction['juego_nombre'],
+                'serial_key': transaction['pin_entregado'],
+                'is_dynamic_game': True,
+            })
+    finally:
+        conn.close()
+
     return formatted_transactions
 
 def update_bloodstriker_transaction_status(transaction_id, new_status, admin_id, notas=None):
