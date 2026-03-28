@@ -343,6 +343,8 @@ def api_endpoint():
         
         # Usar pin manager para obtener PINs
         pin_manager = create_pin_manager(DATABASE)
+        pins_list = []
+        local_pins_reserved = []
         
         if quantity == 1:
             # Para un solo PIN
@@ -362,6 +364,8 @@ def api_endpoint():
             
             pin_code = result.get('pin_code')
             pins_list = [pin_code]
+            if result.get('source') == 'local_stock' and pin_code:
+                local_pins_reserved = [pin_code]
         else:
             # Para múltiples PINs
             result = pin_manager.request_multiple_pins(package_id, quantity)
@@ -380,6 +384,7 @@ def api_endpoint():
             
             pines_data = result.get('pins', [])
             pins_list = [pin['pin_code'] for pin in pines_data]
+            local_pins_reserved = [pin['pin_code'] for pin in pines_data if pin.get('source') == 'local_stock' and pin.get('pin_code')]
             
             if len(pins_list) < quantity:
                 # Ajustar cantidad y precio si no se obtuvieron todos los PINs
@@ -390,6 +395,9 @@ def api_endpoint():
         try:
             debit_result = debit_user_balance_atomic(conn, user['id'], precio_total)
             if not debit_result['ok']:
+                if local_pins_reserved:
+                    pin_manager.restore_local_pins(package_id, local_pins_reserved)
+                    local_pins_reserved = []
                 if request_id:
                     clear_idempotent_purchase(conn, user['id'], endpoint_key, request_id)
                 return jsonify({
@@ -435,6 +443,9 @@ def api_endpoint():
             conn.commit()
         except Exception:
             conn.rollback()
+            if local_pins_reserved:
+                pin_manager.restore_local_pins(package_id, local_pins_reserved)
+                local_pins_reserved = []
             raise
         finally:
             conn.close()
@@ -442,6 +453,11 @@ def api_endpoint():
         return jsonify(final_payload)
         
     except Exception as e:
+        try:
+            if 'pin_manager' in locals() and local_pins_reserved:
+                pin_manager.restore_local_pins(package_id, local_pins_reserved)
+        except Exception:
+            pass
         return jsonify({
             'status': 'error',
             'code': '500',

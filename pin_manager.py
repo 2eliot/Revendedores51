@@ -92,6 +92,30 @@ class PinManager:
             conn.close()
             logger.error(f"Error al agregar pin local: {str(e)}")
             return False, f"Error al agregar pin: {str(e)}"
+
+    def restore_local_pins(self, monto_id, pin_codes):
+        """Devuelve una lista de pines al stock local."""
+        restored = 0
+        errors = []
+
+        for pin_code in pin_codes or []:
+            if not pin_code:
+                continue
+
+            success, message = self.add_local_pin(monto_id, pin_code, source='rollback')
+            if success:
+                restored += 1
+            else:
+                errors.append({'pin_code': pin_code, 'message': message})
+
+        if restored:
+            logger.info(f"{restored} PIN(s) devueltos al stock local para monto_id {monto_id}")
+
+        return {
+            'restored': restored,
+            'errors': errors,
+            'requested': len([pin for pin in (pin_codes or []) if pin])
+        }
     
     def get_pin_source_config(self, monto_id):
         """Obtiene la configuración de fuente para un monto específico"""
@@ -322,6 +346,7 @@ class PinManager:
                 'timestamp': datetime.now().isoformat()
             }
         else:
+            self.restore_local_pins(monto_id, [pin['pin_code'] for pin in pines_obtenidos])
             return {
                 'status': 'error',
                 'message': f'Solo se pudieron obtener {len(pines_obtenidos)} de {cantidad} pines',

@@ -9431,6 +9431,8 @@ def api_simple_endpoint():
         
         # Usar pin manager para obtener PINs
         pin_manager = create_pin_manager(DATABASE)
+        pins_list = []
+        local_pins_reserved = []
         
         if quantity == 1:
             # Para un solo PIN
@@ -9445,6 +9447,8 @@ def api_simple_endpoint():
             
             pin_code = result.get('pin_code')
             pins_list = [pin_code]
+            if result.get('source') == 'local_stock' and pin_code:
+                local_pins_reserved = [pin_code]
         else:
             # Para múltiples PINs
             result = pin_manager.request_multiple_pins(package_id, quantity)
@@ -9458,6 +9462,7 @@ def api_simple_endpoint():
             
             pines_data = result.get('pins', [])
             pins_list = [pin['pin_code'] for pin in pines_data]
+            local_pins_reserved = [pin['pin_code'] for pin in pines_data if pin.get('source') == 'local_stock' and pin.get('pin_code')]
             
             if len(pins_list) < quantity:
                 # Ajustar cantidad y precio si no se obtuvieron todos los PINs
@@ -9469,6 +9474,8 @@ def api_simple_endpoint():
         debit_result = debit_user_balance_atomic(conn, user['id'], precio_total)
         if not debit_result['ok']:
             conn.close()
+            if local_pins_reserved:
+                pin_manager.restore_local_pins(package_id, local_pins_reserved)
             return jsonify({
                 'status': 'error',
                 'code': '402',
@@ -9554,6 +9561,11 @@ def api_simple_endpoint():
         return jsonify(response_data)
         
     except Exception as e:
+        try:
+            if 'pin_manager' in locals() and local_pins_reserved:
+                pin_manager.restore_local_pins(package_id, local_pins_reserved)
+        except Exception:
+            pass
         return jsonify({
             'status': 'error',
             'code': '500',
