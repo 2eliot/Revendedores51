@@ -2605,20 +2605,18 @@ def index():
     def _tx_fecha_sort_key(tx):
         v = (tx or {}).get('fecha', '')
         if isinstance(v, datetime):
-            return v.isoformat(sep=' ')
-        return str(v or '')
+            return v.timestamp()
+        if isinstance(v, str) and v:
+            for fmt in ('%Y-%m-%d %H:%M:%S', '%d/%m/%Y %I:%M %p', '%d/%m/%Y %H:%M:%S', '%d/%m/%Y %H:%M'):
+                try:
+                    return datetime.strptime(v, fmt).timestamp()
+                except ValueError:
+                    continue
+        return 0
     
     if is_admin:
-        # Admin ve todas las transacciones de todos los usuarios con paginación
-        transactions_data = get_user_transactions(None, is_admin=True, page=page, per_page=per_page)
-        
-        # Para admin, agregar vouchers especiales solo en la primera página.
-        if page == 1:
-            special_transactions = get_admin_special_voucher_transactions()
-            all_transactions = list(transactions_data['transactions']) + list(special_transactions)
-            all_transactions.sort(key=_tx_fecha_sort_key, reverse=True)
-            transactions_data['transactions'] = all_transactions
-        
+        # Admin ve transacciones normales + vouchers especiales en una sola cola paginada.
+        transactions_data = get_admin_combined_transactions_page(page=page, per_page=per_page)
         balance = 0  # Admin no tiene saldo
     else:
         # Usuario normal ve solo sus transacciones
@@ -3609,12 +3607,24 @@ def get_admin_special_voucher_total_count():
 
 def get_admin_combined_transactions_page(page=1, per_page=30):
     """Combina transacciones normales y vouchers especiales del admin con paginación liviana."""
+    def _combined_sort_key(tx):
+        value = (tx or {}).get('fecha', '')
+        if isinstance(value, datetime):
+            return value.timestamp()
+        if isinstance(value, str) and value:
+            for fmt in ('%Y-%m-%d %H:%M:%S', '%d/%m/%Y %I:%M %p', '%d/%m/%Y %H:%M:%S', '%d/%m/%Y %H:%M'):
+                try:
+                    return datetime.strptime(value, fmt).timestamp()
+                except ValueError:
+                    continue
+        return 0
+
     fetch_limit = max(page * per_page, per_page)
     normal_transactions = get_user_transactions(None, is_admin=True, page=1, per_page=fetch_limit)
     special_transactions = get_admin_special_voucher_transactions(limit_per_source=fetch_limit)
 
     all_transactions = list(normal_transactions['transactions']) + list(special_transactions)
-    all_transactions.sort(key=lambda tx: (tx or {}).get('fecha', ''), reverse=True)
+    all_transactions.sort(key=_combined_sort_key, reverse=True)
 
     total_count = normal_transactions['pagination']['total'] + get_admin_special_voucher_total_count()
     total_pages = (total_count + per_page - 1) // per_page if total_count else 0
@@ -5057,8 +5067,6 @@ def validar_freefire_latam():
 
     is_admin = session.get('is_admin', False)
     if not is_admin:
-        # Admin ve transacciones normales + vouchers especiales en una sola cola paginada.
-        transactions_data = get_admin_combined_transactions_page(page=page, per_page=per_page)
         flash('Por favor selecciona un paquete y cantidad', 'error')
         return redirect('/juego/freefire_latam')
     
