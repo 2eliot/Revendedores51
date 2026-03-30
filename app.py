@@ -37,10 +37,12 @@ import threading
 import hmac as hmac_module
 import time as time_module
 import urllib.parse
+import socket
 import requests
 from pin_manager import create_pin_manager
 from pin_redeemer import PinRedeemResult, get_redeemer_config_from_db
 from redeem_hype_vps import redeem_pin_vps
+from contextlib import contextmanager
 from functools import lru_cache
 import random
 import string
@@ -110,6 +112,40 @@ def _gameclub_build_proxies():
     return proxies or None
 
 
+_gameclub_ipv4_lock = threading.Lock()
+
+
+def _gameclub_force_ipv4_enabled() -> bool:
+    raw = os.environ.get('GAMECLUB_FORCE_IPV4')
+    if raw is None:
+        return True
+    return str(raw).strip().lower() not in ('0', 'false', 'no', 'off')
+
+
+@contextmanager
+def _gameclub_ipv4_only(enabled: bool):
+    if not enabled:
+        yield
+        return
+
+    original_getaddrinfo = socket.getaddrinfo
+
+    def ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        if family not in (0, socket.AF_UNSPEC):
+            return original_getaddrinfo(host, port, family, type, proto, flags)
+
+        results = original_getaddrinfo(host, port, socket.AF_UNSPEC, type, proto, flags)
+        ipv4_results = [result for result in results if result[0] == socket.AF_INET]
+        return ipv4_results or results
+
+    with _gameclub_ipv4_lock:
+        socket.getaddrinfo = ipv4_only_getaddrinfo
+        try:
+            yield
+        finally:
+            socket.getaddrinfo = original_getaddrinfo
+
+
 def _gameclub_post(endpoint_path: str, payload: dict):
     base_url, partnerid, secret = _gameclub_config()
     if not partnerid or not secret:
@@ -133,16 +169,17 @@ def _gameclub_post(endpoint_path: str, payload: dict):
     body = {'payload': jwt_token}
     try:
         proxies = _gameclub_build_proxies()
-        session = requests.Session()
-        session.trust_env = False
-        request_kwargs = {
-            'json': body,
-            'headers': headers,
-            'timeout': 25,
-        }
-        if proxies:
-            request_kwargs['proxies'] = proxies
-        res = session.post(url, **request_kwargs)
+        with requests.Session() as session:
+            session.trust_env = False
+            request_kwargs = {
+                'json': body,
+                'headers': headers,
+                'timeout': 25,
+            }
+            if proxies:
+                request_kwargs['proxies'] = proxies
+            with _gameclub_ipv4_only(_gameclub_force_ipv4_enabled()):
+                res = session.post(url, **request_kwargs)
         try:
             data = res.json()
         except Exception:
