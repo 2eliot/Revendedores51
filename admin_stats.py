@@ -313,42 +313,46 @@ def _is_dashboard_business_sale_for_admin(row):
     return pin_text.startswith('ID:') and abs(saldo_antes) < 0.000001 and abs(saldo_despues) < 0.000001
 
 
+def _load_dashboard_sales_rows(conn, start_utc: str, end_utc: str, tz_name: str = 'America/Caracas'):
+    if not table_exists(conn, 'historial_compras'):
+        return []
+
+    tz = pytz.timezone(tz_name)
+    start_dt = _parse_utc_datetime(start_utc)
+    end_dt = _parse_utc_datetime(end_utc)
+    if start_dt is None or end_dt is None:
+        return []
+
+    start_day = start_dt.astimezone(tz).date().isoformat()
+    end_day = end_dt.astimezone(tz).date().isoformat()
+
+    return conn.execute(
+        '''
+        SELECT h.usuario_id, h.monto, h.fecha, h.paquete_nombre, h.pin,
+               h.saldo_antes, h.saldo_despues, u.correo, u.sin_ganancia,
+               DATE(h.fecha, '-4 hours') AS local_day
+        FROM historial_compras h
+        LEFT JOIN usuarios u ON u.id = h.usuario_id
+        WHERE h.tipo_evento = 'compra'
+          AND DATE(h.fecha, '-4 hours') >= ?
+          AND DATE(h.fecha, '-4 hours') < ?
+        ORDER BY h.fecha
+        ''',
+        (start_day, end_day)
+    ).fetchall()
+
+
 def compute_dashboard_profit_by_day(conn, start_utc: str, end_utc: str, tz_name: str = 'America/Caracas'):
     if not table_exists(conn, 'historial_compras') or not table_exists(conn, 'usuarios') or not table_exists(conn, 'precios_compra'):
         return []
 
-    admin_ids, admin_emails = get_admin_exclusions()
-    admin_ids = set(admin_ids)
-    admin_emails = {str(email).strip().lower() for email in admin_emails if str(email).strip()}
     dynamic_game_names = _load_dynamic_game_names(conn)
     profit_catalog = _load_dashboard_profit_catalog(conn)
-    tz = pytz.timezone(tz_name)
+    rows = _load_dashboard_sales_rows(conn, start_utc, end_utc, tz_name)
 
-    rows = conn.execute(
-        '''
-        SELECT h.usuario_id, h.monto, h.fecha, h.paquete_nombre, h.pin,
-               h.saldo_antes, h.saldo_despues, u.correo, u.sin_ganancia
-        FROM historial_compras h
-        LEFT JOIN usuarios u ON u.id = h.usuario_id
-        WHERE h.tipo_evento = 'compra'
-          AND h.fecha >= ?
-          AND h.fecha < ?
-        ORDER BY h.fecha
-        ''',
-        (start_utc, end_utc)
-    ).fetchall()
-
-    profit_by_day = {}
+    grouped_sales = {}
     for row in rows:
         try:
-            if _is_truthy_db_value(row['sin_ganancia']):
-                continue
-
-            user_email = str(row['correo'] or '').strip().lower()
-            is_admin_user = row['usuario_id'] in admin_ids or user_email in admin_emails
-            if is_admin_user and not _is_dashboard_business_sale_for_admin(row):
-                continue
-
             package_name = str(row['paquete_nombre'] or '').strip()
             if not package_name:
                 continue
@@ -356,17 +360,30 @@ def compute_dashboard_profit_by_day(conn, start_utc: str, end_utc: str, tz_name:
             quantity = max(1, _extract_dashboard_quantity(package_name, row['pin']))
             item_name = _infer_dashboard_item_name(package_name, dynamic_game_names)
             normalized_package = _normalize_dashboard_package_name(package_name, item_name)
-            sale_total = abs(float(row['monto'] or 0.0))
+            local_day = str(row['local_day'] or '').strip()
+            if not local_day:
+                continue
+
+            grouped_key = (local_day, item_name, normalized_package)
+            group = grouped_sales.setdefault(grouped_key, {
+                'quantity': 0,
+                'sale_total': 0.0,
+            })
+            group['quantity'] += quantity
+            group['sale_total'] += abs(float(row['monto'] or 0.0))
+        except Exception:
+            continue
+
+    profit_by_day = {}
+    for (local_day, item_name, normalized_package), group in grouped_sales.items():
+        try:
+            quantity = max(1, int(group.get('quantity') or 1))
+            sale_total = float(group.get('sale_total') or 0.0)
             sale_unit = round(sale_total / quantity, 6) if quantity else sale_total
             profit_unit = _resolve_dashboard_profit_unit(profit_catalog, item_name, normalized_package, sale_unit)
             if profit_unit is None:
                 continue
-
-            fecha_utc = _parse_utc_datetime(row['fecha'])
-            if fecha_utc is None:
-                continue
-            day = fecha_utc.astimezone(tz).date().isoformat()
-            profit_by_day[day] = profit_by_day.get(day, 0.0) + round(profit_unit * quantity, 6)
+            profit_by_day[local_day] = profit_by_day.get(local_day, 0.0) + round(profit_unit * quantity, 6)
         except Exception:
             continue
 
