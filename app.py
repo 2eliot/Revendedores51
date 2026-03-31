@@ -8195,13 +8195,13 @@ def admin_profitability():
     
     try:
         profit_analysis = get_profit_analysis()
-        from admin_stats import compute_legacy_profit_by_day, compute_profit_ledger_by_day, to_utc_iso, tz_ranges
+        from admin_stats import compute_admin_profit_by_day, compute_legacy_profit_by_day, to_utc_iso, tz_ranges
         conn = get_db_connection()
         tz_name = os.environ.get('DEFAULT_TZ', 'America/Caracas')
         rng = tz_ranges(tz_name)
         month_start = to_utc_iso(rng['month_start'])
         month_end = to_utc_iso(rng['month_end'])
-        daily_list = compute_profit_ledger_by_day(conn, month_start, month_end, tz_name)
+        daily_list = compute_admin_profit_by_day(conn, month_start, month_end, tz_name)
         if not daily_list:
             daily_list = compute_legacy_profit_by_day(conn, month_start, month_end)
         # Convertir a dict: {día:int: profit:float}

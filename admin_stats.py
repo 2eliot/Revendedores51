@@ -469,6 +469,47 @@ def sync_closed_dashboard_profit_days(conn, start_utc: str, end_utc: str, tz_nam
     return closed_days
 
 
+def compute_admin_profit_by_day(conn, start_utc: str, end_utc: str, tz_name: str = 'America/Caracas'):
+    tz = pytz.timezone(tz_name)
+    start_dt = _parse_utc_datetime(start_utc)
+    end_dt = _parse_utc_datetime(end_utc)
+    if start_dt is None or end_dt is None:
+        return []
+
+    start_day = start_dt.astimezone(tz).date().isoformat()
+    end_day = end_dt.astimezone(tz).date().isoformat()
+
+    aggregate_rows = []
+    if table_exists(conn, 'profit_daily_aggregate'):
+        try:
+            sync_closed_dashboard_profit_days(conn, start_utc, end_utc, tz_name)
+        except Exception:
+            pass
+        aggregate_rows = _load_profit_daily_aggregate_rows(conn, start_day, end_day)
+
+    dashboard_rows = compute_dashboard_profit_by_day(conn, start_utc, end_utc, tz_name)
+    today_local = datetime.now(tz).date().isoformat()
+    aggregate_days = {
+        str(item.get('day') or '').strip()
+        for item in aggregate_rows
+        if str(item.get('day') or '').strip()
+    }
+
+    live_rows = []
+    for item in dashboard_rows:
+        day = str(item.get('day') or '').strip()
+        if not day:
+            continue
+        if day == today_local or day not in aggregate_days:
+            live_rows.append({'day': day, 'profit': round(float(item.get('profit') or 0.0), 6)})
+
+    combined_rows = _overlay_profit_series(aggregate_rows, live_rows)
+    if combined_rows:
+        return combined_rows
+
+    return compute_profit_ledger_by_day(conn, start_utc, end_utc, tz_name)
+
+
 def _get_inefable_profit_config():
     ff_tipo = os.environ.get('WEBB_FF_TIPO', 'freefire_id').strip().lower()
     if ff_tipo == 'freefire_global':
@@ -1113,18 +1154,12 @@ def summary():
     # Profit total del mes (excluyendo admin)
     try:
         conn = get_conn()
-        if table_exists(conn, 'profit_ledger') and table_exists(conn, 'usuarios'):
+        if table_exists(conn, 'historial_compras') or table_exists(conn, 'profit_daily_aggregate'):
+            lst = compute_admin_profit_by_day(conn, ms, me, tz_name)
+            parts['profit_month_total'] = round(sum(item.get('profit', 0) for item in lst), 6) if lst else 0
+        elif table_exists(conn, 'profit_ledger') and table_exists(conn, 'usuarios'):
             lst = compute_profit_ledger_by_day(conn, ms, me, tz_name)
-            if lst:
-                parts['profit_month_total'] = round(sum(item.get('profit', 0) for item in lst), 6)
-            elif table_exists(conn, 'profit_daily_aggregate'):
-                row = conn.execute(
-                    "SELECT COALESCE(SUM(profit_total),0) AS s FROM profit_daily_aggregate WHERE day >= ? AND day < ?",
-                    (month_start_day, month_end_day)
-                ).fetchone()
-                parts['profit_month_total'] = row['s'] if row else 0
-            else:
-                parts['profit_month_total'] = 0
+            parts['profit_month_total'] = round(sum(item.get('profit', 0) for item in lst), 6) if lst else 0
         elif table_exists(conn, 'package_purchases_ledger') and table_exists(conn, 'users'):
             r = conn.execute(
                 """
@@ -1247,13 +1282,10 @@ def timeseries():
         res['daily_spent_week_error'] = str(e)
     try:
         conn = get_conn()
-        if table_exists(conn, 'profit_ledger') and table_exists(conn, 'usuarios'):
+        if table_exists(conn, 'historial_compras') or table_exists(conn, 'profit_daily_aggregate'):
+            q3 = compute_admin_profit_by_day(conn, ms, me, tz_name)
+        elif table_exists(conn, 'profit_ledger') and table_exists(conn, 'usuarios'):
             q3 = compute_profit_ledger_by_day(conn, ms, me, tz_name)
-            if not q3 and table_exists(conn, 'profit_daily_aggregate'):
-                q3 = conn.execute(
-                    "SELECT day, profit_total AS profit FROM profit_daily_aggregate WHERE day >= ? AND day < ? ORDER BY day",
-                    (ms_day, me_day)
-                ).fetchall()
         elif table_exists(conn, 'package_purchases_ledger') and table_exists(conn, 'users'):
             q3 = conn.execute(
                 """
@@ -1280,13 +1312,10 @@ def timeseries():
         res['profit_daily_month_error'] = str(e)
     try:
         conn = get_conn()
-        if table_exists(conn, 'profit_ledger') and table_exists(conn, 'usuarios'):
+        if table_exists(conn, 'historial_compras') or table_exists(conn, 'profit_daily_aggregate'):
+            q4 = compute_admin_profit_by_day(conn, pms, pme, tz_name)
+        elif table_exists(conn, 'profit_ledger') and table_exists(conn, 'usuarios'):
             q4 = compute_profit_ledger_by_day(conn, pms, pme, tz_name)
-            if not q4 and table_exists(conn, 'profit_daily_aggregate'):
-                q4 = conn.execute(
-                    "SELECT day, profit_total AS profit FROM profit_daily_aggregate WHERE day >= ? AND day < ? ORDER BY day",
-                    (pms_day, pme_day)
-                ).fetchall()
         elif table_exists(conn, 'package_purchases_ledger') and table_exists(conn, 'users'):
             q4 = conn.execute(
                 """
