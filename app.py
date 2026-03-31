@@ -10011,6 +10011,16 @@ def api_v1_ejecutar_recarga():
         # Registrar en historial permanente (antes de cerrar conn)
         _api_precio = float(package_info.get('precio', 0))
         registrar_historial_compra(conn, admin_uid, _api_precio, paquete_nombre, f"ID: {player_id}", 'compra', None, 0, 0)
+        try:
+            profit_game_key = 'freefire_id'
+            if ff_tipo == 'freefire_global':
+                profit_game_key = 'freefire_global'
+            elif ff_tipo == 'latam':
+                profit_game_key = 'freefire_latam'
+            # Estas ventas API pertenecen al negocio aunque se registren bajo un admin para trazabilidad.
+            record_profit_for_transaction(conn, admin_uid, False, profit_game_key, package_id, 1, _api_precio, transaccion_id)
+        except Exception:
+            pass
         conn.commit()
         conn.close()
     except Exception as e:
