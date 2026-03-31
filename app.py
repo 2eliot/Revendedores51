@@ -4063,6 +4063,100 @@ def update_freefire_id_transaction_status(transaction_id, new_status, admin_id, 
 
     conn.close()
 
+
+def sync_freefire_id_purchase_records(conn, transaction_id):
+    """Asegura transacción general, historial permanente y profit para compras FF ID aprobadas."""
+    tx = conn.execute('''
+        SELECT fi.usuario_id, fi.numero_control, fi.transaccion_id, fi.player_id,
+               fi.monto, fi.paquete_id, p.nombre AS paquete_nombre, p.precio
+        FROM transacciones_freefire_id fi
+        JOIN precios_freefire_id p ON fi.paquete_id = p.id
+        WHERE fi.id = ?
+    ''', (transaction_id,)).fetchone()
+    if not tx:
+        return False
+
+    pin_info = f"ID: {tx['player_id']}"
+    precio_total = abs(float(tx['monto'] or 0.0))
+
+    general_tx = conn.execute(
+        'SELECT 1 FROM transacciones WHERE transaccion_id = ?',
+        (tx['transaccion_id'],)
+    ).fetchone()
+    if not general_tx:
+        conn.execute('''
+            INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            tx['usuario_id'],
+            tx['numero_control'],
+            pin_info,
+            tx['transaccion_id'],
+            tx['paquete_nombre'],
+            -precio_total
+        ))
+
+    history_row = conn.execute('''
+        SELECT 1 FROM historial_compras
+        WHERE usuario_id = ?
+          AND tipo_evento = 'compra'
+          AND monto = ?
+          AND paquete_nombre = ?
+          AND pin = ?
+          AND fecha >= datetime('now', '-7 days')
+        LIMIT 1
+    ''', (
+        tx['usuario_id'],
+        precio_total,
+        tx['paquete_nombre'],
+        pin_info
+    )).fetchone()
+    if not history_row:
+        saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (tx['usuario_id'],)).fetchone()
+        saldo_actual = saldo_row['saldo'] if saldo_row else 0
+        registrar_historial_compra(
+            conn,
+            tx['usuario_id'],
+            precio_total,
+            tx['paquete_nombre'],
+            pin_info,
+            'compra',
+            None,
+            saldo_actual + precio_total,
+            saldo_actual
+        )
+
+    profit_row = conn.execute(
+        'SELECT 1 FROM profit_ledger WHERE transaccion_id = ? LIMIT 1',
+        (tx['transaccion_id'],)
+    ).fetchone()
+    if not profit_row:
+        try:
+            admin_ids_env = os.environ.get('ADMIN_USER_IDS', '').strip()
+            admin_emails_env = os.environ.get('ADMIN_EMAILS', '').strip()
+            single_admin_email = os.environ.get('ADMIN_EMAIL', '').strip()
+            admin_ids = [int(x.strip()) for x in admin_ids_env.split(',') if x.strip().isdigit()]
+            admin_emails = [x.strip().lower() for x in admin_emails_env.split(',') if x.strip()]
+            if single_admin_email and single_admin_email.lower() not in admin_emails:
+                admin_emails.append(single_admin_email.lower())
+            user_row = conn.execute('SELECT correo FROM usuarios WHERE id = ?', (tx['usuario_id'],)).fetchone()
+            user_email = str(user_row['correo'] or '').strip().lower() if user_row else ''
+            is_admin_target = (tx['usuario_id'] in admin_ids) or (user_email in admin_emails)
+            record_profit_for_transaction(
+                conn,
+                tx['usuario_id'],
+                is_admin_target,
+                'freefire_id',
+                tx['paquete_id'],
+                1,
+                tx['precio'],
+                tx['transaccion_id']
+            )
+        except Exception:
+            pass
+
+    return True
+
 def update_freefire_id_price(package_id, new_price):
     """Actualiza el precio de un paquete de Free Fire ID"""
     conn = get_db_connection_optimized()
@@ -7012,6 +7106,15 @@ def admin_freefire_id_approve():
     
     if transaction_id:
         update_freefire_id_transaction_status(int(transaction_id), 'aprobado', session.get('user_db_id'), notas)
+        conn = get_db_connection()
+        try:
+            sync_freefire_id_purchase_records(conn, int(transaction_id))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"[FFID] Error sincronizando compra aprobada manualmente: {e}")
+        finally:
+            conn.close()
         flash('Transacción aprobada exitosamente', 'success')
     else:
         flash('ID de transacción inválido', 'error')
@@ -8092,18 +8195,15 @@ def admin_profitability():
     
     try:
         profit_analysis = get_profit_analysis()
-        # Calcular profit diario del mes actual
-        from datetime import datetime
-        import calendar
-        from admin_stats import compute_legacy_profit_by_day
+        from admin_stats import compute_legacy_profit_by_day, compute_profit_ledger_by_day, to_utc_iso, tz_ranges
         conn = get_db_connection()
-        now = datetime.now()
-        year = now.year
-        month = now.month
-        first_day = f"{year}-{month:02d}-01"
-        last_day = f"{year}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
-        # Usar compute_legacy_profit_by_day para obtener lista de dicts
-        daily_list = compute_legacy_profit_by_day(conn, first_day, last_day)
+        tz_name = os.environ.get('DEFAULT_TZ', 'America/Caracas')
+        rng = tz_ranges(tz_name)
+        month_start = to_utc_iso(rng['month_start'])
+        month_end = to_utc_iso(rng['month_end'])
+        daily_list = compute_profit_ledger_by_day(conn, month_start, month_end, tz_name)
+        if not daily_list:
+            daily_list = compute_legacy_profit_by_day(conn, month_start, month_end)
         # Convertir a dict: {día:int: profit:float}
         daily_profit = {int(item['day'][-2:]): item['profit'] for item in daily_list if 'day' in item and item['day'][-2:].isdigit()}
         conn.close()
