@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
 import os
+import re
 from datetime import datetime, timedelta
 import pytz
 from pg_compat import get_db_connection, table_exists as pg_table_exists
@@ -115,6 +116,317 @@ def _merge_profit_series(*series_groups):
         {'day': day, 'profit': round(amount, 6)}
         for day, amount in sorted(merged.items())
     ]
+
+
+def _overlay_profit_series(base_series, override_series):
+    merged = {
+        str(item.get('day') or '').strip(): float(item.get('profit') or 0.0)
+        for item in base_series or []
+        if str(item.get('day') or '').strip()
+    }
+    for item in override_series or []:
+        day = str(item.get('day') or '').strip()
+        if not day:
+            continue
+        merged[day] = float(item.get('profit') or 0.0)
+    return [
+        {'day': day, 'profit': round(amount, 6)}
+        for day, amount in sorted(merged.items())
+    ]
+
+
+def _extract_dashboard_quantity(package_name, pin_text):
+    raw_name = str(package_name or '').strip()
+    match = re.search(r'\sx(\d+)\s*$', raw_name, re.IGNORECASE)
+    if match:
+        try:
+            return max(1, int(match.group(1)))
+        except Exception:
+            pass
+
+    raw_pin = str(pin_text or '')
+    pin_lines = [
+        line.strip() for line in raw_pin.replace('\r', '').split('\n')
+        if line.strip() and not line.strip().startswith('[') and not line.strip().startswith('ID:')
+    ]
+    if len(pin_lines) > 1:
+        return len(pin_lines)
+    return 1
+
+
+def _extract_base_package_amount(package_name):
+    raw_name = str(package_name or '').strip()
+    if not raw_name:
+        return None
+
+    amount_match = re.search(r'(\d{1,3}(?:[\.,]\d{3})+|\d+)', raw_name)
+    if not amount_match:
+        return None
+
+    raw_amount = amount_match.group(1)
+    normalized_amount = re.sub(r'[^\d]', '', raw_amount)
+    if not normalized_amount:
+        return None
+    try:
+        return int(normalized_amount)
+    except Exception:
+        return None
+
+
+def _normalize_dashboard_package_name(package_name, item_name):
+    raw_name = str(package_name or '').strip()
+    raw_name = re.sub(r'\sx\d+\s*$', '', raw_name, flags=re.IGNORECASE)
+    raw_name = re.sub(r'\s*\([^)]*\)\s*$', '', raw_name)
+    raw_name = raw_name.replace('"', '').replace("'", '').replace('“', '').replace('”', '').strip()
+    if ' - ' in raw_name:
+        _, raw_name = raw_name.split(' - ', 1)
+        raw_name = raw_name.strip()
+
+    lower_name = raw_name.lower()
+    if item_name in ('Free Fire', 'Free Fire LATAM', 'Blood Striker'):
+        if any(word in lower_name for word in ['tarjeta', 'pase', 'elite', 'cofre']):
+            return raw_name
+        base_amount = _extract_base_package_amount(raw_name)
+        if base_amount is not None:
+            return str(base_amount)
+    return raw_name or 'Paquete'
+
+
+def _load_dynamic_game_names(conn):
+    if not table_exists(conn, 'juegos_dinamicos'):
+        return []
+    try:
+        rows = conn.execute('SELECT nombre FROM juegos_dinamicos').fetchall()
+        return [str(row['nombre'] or '').strip() for row in rows if str(row['nombre'] or '').strip()]
+    except Exception:
+        return []
+
+
+def _infer_dashboard_item_name(package_name, dynamic_game_names):
+    raw_name = str(package_name or '').strip()
+    lower_name = raw_name.lower()
+    if '🪙' in raw_name or 'blood' in lower_name:
+        return 'Blood Striker'
+    for dynamic_name in dynamic_game_names:
+        if raw_name.startswith(dynamic_name + ' - ') or raw_name == dynamic_name:
+            return dynamic_name
+    if '💎' in raw_name or 'free fire' in lower_name or 'ff id' in lower_name or 'tarjeta' in lower_name:
+        if any(x in raw_name for x in ['110 💎', '341 💎', '572 💎', '1.166 💎', '2.376 💎', '6.138 💎']) or 'tarjeta' in lower_name:
+            return 'Free Fire LATAM'
+        return 'Free Fire'
+    return 'Otros'
+
+
+def _load_dashboard_profit_catalog(conn):
+    cost_map = _load_cost_map(conn)
+    catalog = {}
+
+    def add_entry(game_key, item_name, package_id, raw_package_name, sale_price):
+        try:
+            package_id = int(package_id)
+            sale_price = float(sale_price or 0.0)
+        except Exception:
+            return
+        profit_unit = round(sale_price - float(cost_map.get((game_key, package_id), 0.0)), 6)
+        normalized_package = _normalize_dashboard_package_name(raw_package_name, item_name)
+        key = (str(item_name or '').strip(), normalized_package)
+        catalog.setdefault(key, []).append({
+            'profit_unit': profit_unit,
+            'sale_price': sale_price,
+            'game_key': str(game_key or '').strip(),
+            'package_id': package_id,
+        })
+
+    table_specs = [
+        ('precios_freefire_id', 'freefire_id', 'Free Fire'),
+        ('precios_freefire_global', 'freefire_global', 'Free Fire'),
+        ('precios_paquetes', 'freefire_latam', 'Free Fire LATAM'),
+        ('precios_bloodstriker', 'bloodstriker', 'Blood Striker'),
+    ]
+    for table_name, game_key, item_name in table_specs:
+        if not table_exists(conn, table_name):
+            continue
+        try:
+            rows = conn.execute(f'SELECT id, nombre, precio FROM {table_name}').fetchall()
+        except Exception:
+            continue
+        for row in rows:
+            add_entry(game_key, item_name, row['id'], row['nombre'], row['precio'])
+
+    if table_exists(conn, 'paquetes_dinamicos') and table_exists(conn, 'juegos_dinamicos'):
+        try:
+            rows = conn.execute(
+                '''
+                SELECT pd.id, pd.nombre, pd.precio, jd.nombre AS juego_nombre, jd.slug
+                FROM paquetes_dinamicos pd
+                JOIN juegos_dinamicos jd ON jd.id = pd.juego_id
+                '''
+            ).fetchall()
+            for row in rows:
+                item_name = str(row['juego_nombre'] or '').strip()
+                slug = str(row['slug'] or '').strip()
+                if not item_name or not slug:
+                    continue
+                add_entry(f'dyn_{slug}', item_name, row['id'], row['nombre'], row['precio'])
+        except Exception:
+            pass
+
+    return catalog
+
+
+def _resolve_dashboard_profit_unit(catalog, item_name, package_name, sale_unit):
+    candidates = catalog.get((str(item_name or '').strip(), str(package_name or '').strip()), [])
+    if not candidates:
+        return None
+
+    try:
+        sale_unit = float(sale_unit or 0.0)
+    except Exception:
+        sale_unit = 0.0
+
+    exact_match = None
+    nearest_match = None
+    nearest_delta = None
+    for candidate in candidates:
+        delta = abs(float(candidate.get('sale_price') or 0.0) - sale_unit)
+        if delta <= 0.011:
+            exact_match = candidate
+            break
+        if nearest_delta is None or delta < nearest_delta:
+            nearest_match = candidate
+            nearest_delta = delta
+
+    chosen = exact_match or nearest_match
+    if not chosen:
+        return None
+    return float(chosen.get('profit_unit') or 0.0)
+
+
+def _is_dashboard_business_sale_for_admin(row):
+    try:
+        saldo_antes = float(row['saldo_antes'] or 0.0)
+        saldo_despues = float(row['saldo_despues'] or 0.0)
+    except Exception:
+        saldo_antes = 0.0
+        saldo_despues = 0.0
+    pin_text = str(row['pin'] or '').strip()
+    return pin_text.startswith('ID:') and abs(saldo_antes) < 0.000001 and abs(saldo_despues) < 0.000001
+
+
+def compute_dashboard_profit_by_day(conn, start_utc: str, end_utc: str, tz_name: str = 'America/Caracas'):
+    if not table_exists(conn, 'historial_compras') or not table_exists(conn, 'usuarios') or not table_exists(conn, 'precios_compra'):
+        return []
+
+    admin_ids, admin_emails = get_admin_exclusions()
+    admin_ids = set(admin_ids)
+    admin_emails = {str(email).strip().lower() for email in admin_emails if str(email).strip()}
+    dynamic_game_names = _load_dynamic_game_names(conn)
+    profit_catalog = _load_dashboard_profit_catalog(conn)
+    tz = pytz.timezone(tz_name)
+
+    rows = conn.execute(
+        '''
+        SELECT h.usuario_id, h.monto, h.fecha, h.paquete_nombre, h.pin,
+               h.saldo_antes, h.saldo_despues, u.correo, u.sin_ganancia
+        FROM historial_compras h
+        LEFT JOIN usuarios u ON u.id = h.usuario_id
+        WHERE h.tipo_evento = 'compra'
+          AND h.fecha >= ?
+          AND h.fecha < ?
+        ORDER BY h.fecha
+        ''',
+        (start_utc, end_utc)
+    ).fetchall()
+
+    profit_by_day = {}
+    for row in rows:
+        try:
+            if _is_truthy_db_value(row['sin_ganancia']):
+                continue
+
+            user_email = str(row['correo'] or '').strip().lower()
+            is_admin_user = row['usuario_id'] in admin_ids or user_email in admin_emails
+            if is_admin_user and not _is_dashboard_business_sale_for_admin(row):
+                continue
+
+            package_name = str(row['paquete_nombre'] or '').strip()
+            if not package_name:
+                continue
+
+            quantity = max(1, _extract_dashboard_quantity(package_name, row['pin']))
+            item_name = _infer_dashboard_item_name(package_name, dynamic_game_names)
+            normalized_package = _normalize_dashboard_package_name(package_name, item_name)
+            sale_total = abs(float(row['monto'] or 0.0))
+            sale_unit = round(sale_total / quantity, 6) if quantity else sale_total
+            profit_unit = _resolve_dashboard_profit_unit(profit_catalog, item_name, normalized_package, sale_unit)
+            if profit_unit is None:
+                continue
+
+            fecha_utc = _parse_utc_datetime(row['fecha'])
+            if fecha_utc is None:
+                continue
+            day = fecha_utc.astimezone(tz).date().isoformat()
+            profit_by_day[day] = profit_by_day.get(day, 0.0) + round(profit_unit * quantity, 6)
+        except Exception:
+            continue
+
+    return [
+        {'day': day, 'profit': round(amount, 6)}
+        for day, amount in sorted(profit_by_day.items())
+    ]
+
+
+def _load_profit_daily_aggregate_rows(conn, start_day: str, end_day: str):
+    if not table_exists(conn, 'profit_daily_aggregate'):
+        return []
+    rows = conn.execute(
+        "SELECT day, profit_total AS profit FROM profit_daily_aggregate WHERE day >= ? AND day < ? ORDER BY day",
+        (start_day, end_day)
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def sync_closed_dashboard_profit_days(conn, start_utc: str, end_utc: str, tz_name: str = 'America/Caracas'):
+    if not table_exists(conn, 'profit_daily_aggregate'):
+        return []
+
+    tz = pytz.timezone(tz_name)
+    today_local = datetime.now(tz).date().isoformat()
+    dashboard_rows = compute_dashboard_profit_by_day(conn, start_utc, end_utc, tz_name)
+    closed_days = [
+        item for item in dashboard_rows
+        if str(item.get('day') or '').strip() and str(item.get('day')) < today_local
+    ]
+    if not closed_days:
+        return []
+
+    cur = conn.cursor()
+    changed = False
+    for item in closed_days:
+        day = str(item.get('day') or '').strip()
+        total = round(float(item.get('profit') or 0.0), 6)
+        existing = cur.execute(
+            "SELECT profit_total FROM profit_daily_aggregate WHERE day = ?",
+            (day,)
+        ).fetchone()
+        if existing:
+            existing_total = round(float(existing['profit_total'] if hasattr(existing, 'keys') else existing[0]) or 0.0, 6)
+            if abs(existing_total - total) > 0.000001:
+                cur.execute(
+                    "UPDATE profit_daily_aggregate SET profit_total = ?, updated_at = datetime('now') WHERE day = ?",
+                    (total, day)
+                )
+                changed = True
+        else:
+            cur.execute(
+                "INSERT INTO profit_daily_aggregate(day, profit_total) VALUES(?, ?)",
+                (day, total)
+            )
+            changed = True
+
+    if changed:
+        conn.commit()
+    return closed_days
 
 
 def _get_inefable_profit_config():
@@ -249,7 +561,7 @@ def compute_missing_whitelabel_profit_by_day(conn, start_utc: str, end_utc: str,
     ]
 
 
-def compute_profit_ledger_by_day(conn, start_utc: str, end_utc: str, tz_name: str = 'America/Caracas'):
+def compute_profit_ledger_base_by_day(conn, start_utc: str, end_utc: str, tz_name: str = 'America/Caracas'):
     if not table_exists(conn, 'profit_ledger') or not table_exists(conn, 'usuarios'):
         return _merge_profit_series(
             compute_missing_whitelabel_profit_by_day(conn, start_utc, end_utc, tz_name),
@@ -300,6 +612,35 @@ def compute_profit_ledger_by_day(conn, start_utc: str, end_utc: str, tz_name: st
     missing_whitelabel_rows = compute_missing_whitelabel_profit_by_day(conn, start_utc, end_utc, tz_name)
     missing_inefable_rows = compute_missing_inefable_profit_by_day(conn, start_utc, end_utc, tz_name)
     return _merge_profit_series(ledger_rows, missing_whitelabel_rows, missing_inefable_rows)
+
+
+def compute_profit_ledger_by_day(conn, start_utc: str, end_utc: str, tz_name: str = 'America/Caracas'):
+    tz = pytz.timezone(tz_name)
+    base_rows = compute_profit_ledger_base_by_day(conn, start_utc, end_utc, tz_name)
+
+    aggregate_rows = []
+    if table_exists(conn, 'profit_daily_aggregate'):
+        try:
+            sync_closed_dashboard_profit_days(conn, start_utc, end_utc, tz_name)
+        except Exception:
+            pass
+
+        start_dt = _parse_utc_datetime(start_utc)
+        end_dt = _parse_utc_datetime(end_utc)
+        if start_dt is not None and end_dt is not None:
+            start_day = start_dt.astimezone(tz).date().isoformat()
+            end_day = end_dt.astimezone(tz).date().isoformat()
+            aggregate_rows = _load_profit_daily_aggregate_rows(conn, start_day, end_day)
+
+    dashboard_today = []
+    today_local = datetime.now(tz).date().isoformat()
+    for item in compute_dashboard_profit_by_day(conn, start_utc, end_utc, tz_name):
+        day = str(item.get('day') or '').strip()
+        if day == today_local:
+            dashboard_today.append(item)
+
+    merged_rows = _overlay_profit_series(base_rows, aggregate_rows)
+    return _overlay_profit_series(merged_rows, dashboard_today)
 
 
 def compute_legacy_profit_by_day(conn, start_utc: str, end_utc: str):
