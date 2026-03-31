@@ -332,6 +332,21 @@
       font-weight: 600;
     }
 
+    .qty-stack {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .qty-profit {
+      font-size: 12px;
+      color: #4ade80;
+      font-weight: 600;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+
     /* Separador visual entre categorías */
     .category-separator td {
       border-top: 2px solid rgba(255,255,255,0.1);
@@ -1208,14 +1223,30 @@
       </div>
 
       <!-- Tarjetas de estadísticas (estilo imagen) -->
-      <div class="stats-grid single-kpi">
+      <div class="stats-grid{% if not is_admin %} single-kpi{% endif %}">
         <div class="stat-card">
           <div class="stat-header">
             <div class="stat-title">Gasto del día</div>
           </div>
-          <div id="kpi-gasto-dia" class="stat-value">${{ "%.2f"|format(gasto_dia) }} $</div>
+          <div id="kpi-gasto-dia" class="stat-value">${{ "%.2f"|format(gasto_dia) }}</div>
           <div class="stat-subtitle" id="kpi-gasto-dia-fecha">{{ fin }}</div>
         </div>
+        {% if is_admin %}
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-title">Ganancia neta del día</div>
+          </div>
+          <div id="kpi-ganancia-dia" class="stat-value">${{ "%.2f"|format(ganancia_dia) }}</div>
+          <div class="stat-subtitle" id="kpi-ganancia-dia-fecha">{{ fin }}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-title">Ganancia neta del mes</div>
+          </div>
+          <div id="kpi-ganancia-mes" class="stat-value">${{ "%.2f"|format(ganancia_mes) }}</div>
+          <div class="stat-subtitle">Mes actual · {{ ganancia_mes_periodo }}</div>
+        </div>
+        {% endif %}
       </div>
 
       <!-- Tabla de compras por paquete del día seleccionado -->
@@ -1249,7 +1280,14 @@
                   {% for w in pkg_mobile.split(' ') %}{{ w }}<br/>{% endfor %}
                 </span>
               </td>
-              <td data-label="Cantidad" class="col-cantidad {% if row.cantidad > 0 %}qty-positive{% endif %}">{{ row.cantidad }}</td>
+              <td data-label="Cantidad" class="col-cantidad {% if row.cantidad > 0 %}qty-positive{% endif %}">
+                <div class="qty-stack">
+                  <span>{{ row.cantidad }}</span>
+                  {% if is_admin %}
+                  <span class="qty-profit">Ganancia: ${{ "%.2f"|format(row.ganancia_total or 0) }}</span>
+                  {% endif %}
+                </div>
+              </td>
             </tr>
             {% endfor %}
             {% if compras_paquete|length == 0 %}
@@ -1273,6 +1311,12 @@
   <script id="data-compras-por-dia-detalle" type="application/json">{{ compras_por_dia_detalle|tojson }}</script>
 
   <script>
+    const isAdminDashboard = {{ 'true' if is_admin else 'false' }};
+
+    function formatDashboardMoney(value) {
+      return '$' + Number(value || 0).toFixed(2);
+    }
+
     // Funciones para los menús del header integrado
     function toggleUserBox() {
       document.getElementById("user-box").classList.toggle("visible");
@@ -1461,13 +1505,20 @@
               // Actualizar KPI de gasto del día
               const kpiVal = document.getElementById('kpi-gasto-dia');
               const kpiFecha = document.getElementById('kpi-gasto-dia-fecha');
-              if (kpiVal) kpiVal.textContent = '$' + Number(gastoSel).toFixed(2) + ' ';
+              if (kpiVal) kpiVal.textContent = formatDashboardMoney(gastoSel);
               if (kpiFecha) kpiFecha.textContent = dateSel;
               // Actualizar tabla
               const selectedDateSpan = document.getElementById('selected-date');
               if (selectedDateSpan) selectedDateSpan.textContent = dateSel;
               const tbody = document.querySelector('.games-section table tbody');
               const rowsData = (comprasPorDiaDetalle && comprasPorDiaDetalle[dateSel]) ? comprasPorDiaDetalle[dateSel] : [];
+              const kpiProfitVal = document.getElementById('kpi-ganancia-dia');
+              const kpiProfitFecha = document.getElementById('kpi-ganancia-dia-fecha');
+              if (isAdminDashboard && kpiProfitVal) {
+                const profitDay = rowsData.reduce((sum, row) => sum + Number(row.ganancia_total || 0), 0);
+                kpiProfitVal.textContent = formatDashboardMoney(profitDay);
+              }
+              if (isAdminDashboard && kpiProfitFecha) kpiProfitFecha.textContent = dateSel;
               if (tbody) {
                 if (!rowsData.length) {
                   tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:14px;">Sin compras en el día seleccionado</td></tr>';
@@ -1478,11 +1529,14 @@
                     const pkgDesktop = row.paquete || '';
                     const pkgMobile = pkgDesktop.replaceAll(' 💎', '💎').replaceAll(' 🪙', '🪙').split(' ').join('<br/>');
                     const qtyClass = Number(row.cantidad || 0) > 0 ? 'qty-positive' : '';
+                    const profitHtml = isAdminDashboard
+                      ? `<span class="qty-profit">Ganancia: ${formatDashboardMoney(row.ganancia_total || 0)}</span>`
+                      : '';
                     return `<tr class="table-row">
                       <td data-label="Categoría">${row.categoria || 'Juegos'}</td>
                       <td data-label="Ítem"><span class="item-desktop">${itemDesktop}</span><span class="item-mobile">${itemMobile}</span></td>
                       <td data-label="Paquete"><span class="item-desktop">${pkgDesktop}</span><span class="item-mobile">${pkgMobile}</span></td>
-                      <td data-label="Cantidad" class="col-cantidad ${qtyClass}">${Number(row.cantidad || 0)}</td>
+                      <td data-label="Cantidad" class="col-cantidad ${qtyClass}"><div class="qty-stack"><span>${Number(row.cantidad || 0)}</span>${profitHtml}</div></td>
                     </tr>`;
                   }).join('');
                 }

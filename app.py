@@ -9598,6 +9598,43 @@ def dashboard():
         transaction['dashboard_item'] = tx_item
         transaction['dashboard_package'] = tx_package
 
+    dashboard_profit_catalog = {}
+    resolve_dashboard_profit_unit = None
+    ganancia_mes = 0.0
+    ganancia_mes_periodo = today.strftime('%Y-%m')
+    if is_admin:
+        try:
+            from admin_stats import (
+                _load_dashboard_profit_catalog,
+                _resolve_dashboard_profit_unit,
+                compute_admin_profit_by_day,
+            )
+
+            metrics_conn = get_db_connection()
+            try:
+                dashboard_profit_catalog = _load_dashboard_profit_catalog(metrics_conn)
+                resolve_dashboard_profit_unit = _resolve_dashboard_profit_unit
+
+                month_start_local = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                if month_start_local.month == 12:
+                    next_month_local = month_start_local.replace(year=month_start_local.year + 1, month=1)
+                else:
+                    next_month_local = month_start_local.replace(month=month_start_local.month + 1)
+
+                profit_month_rows = compute_admin_profit_by_day(
+                    metrics_conn,
+                    month_start_local.astimezone(pytz.utc).isoformat(),
+                    next_month_local.astimezone(pytz.utc).isoformat(),
+                    'America/Caracas'
+                )
+                ganancia_mes = round(sum(float(item.get('profit') or 0.0) for item in profit_month_rows), 2)
+            finally:
+                metrics_conn.close()
+        except Exception:
+            dashboard_profit_catalog = {}
+            resolve_dashboard_profit_unit = None
+            ganancia_mes = 0.0
+
     stats_por_juego = {}
     for transaction in dashboard_source_transactions:
         juego = transaction.get('dashboard_item') or 'Otros'
@@ -9649,8 +9686,33 @@ def dashboard():
                 'item': item_name,
                 'paquete': package_name,
                 'cantidad': 0,
+                'monto_total': 0.0,
+                'ganancia_unitaria': 0.0,
+                'ganancia_total': 0.0,
             }
         compras_por_dia_paquete[fecha_str][aggregate_key]['cantidad'] += int(transaction.get('dashboard_quantity') or 1)
+        compras_por_dia_paquete[fecha_str][aggregate_key]['monto_total'] += float(transaction.get('monto') or 0.0)
+
+    ganancias_por_dia = {d: 0.0 for d in dias}
+    if is_admin and dashboard_profit_catalog and resolve_dashboard_profit_unit:
+        for day, grouped_rows in compras_por_dia_paquete.items():
+            for row in grouped_rows.values():
+                quantity = max(1, int(row.get('cantidad') or 1))
+                sale_total = float(row.get('monto_total') or 0.0)
+                sale_unit = round(sale_total / quantity, 6) if quantity else sale_total
+                profit_unit = resolve_dashboard_profit_unit(
+                    dashboard_profit_catalog,
+                    row.get('item'),
+                    row.get('paquete'),
+                    sale_unit,
+                )
+                if profit_unit is None:
+                    profit_unit = 0.0
+
+                profit_total = round(float(profit_unit) * quantity, 6)
+                row['ganancia_unitaria'] = round(float(profit_unit), 4)
+                row['ganancia_total'] = round(profit_total, 2)
+                ganancias_por_dia[day] = round(ganancias_por_dia.get(day, 0.0) + profit_total, 6)
 
     series_labels = list(serie_map.keys())
     series_values = [round(v, 2) for v in serie_map.values()]
@@ -9658,6 +9720,8 @@ def dashboard():
     gasto_dia = 0.0
     if fecha_fin in serie_map:
         gasto_dia = round(serie_map[fecha_fin], 2)
+
+    ganancia_dia = round(float(ganancias_por_dia.get(fecha_fin, 0.0)), 2)
 
     compras_paquete_counter = compras_por_dia_paquete.get(fecha_fin, {}) or {}
     compras_paquete = sorted(
@@ -9714,6 +9778,9 @@ def dashboard():
                          series_labels=series_labels,
                          series_values=series_values,
                          gasto_dia=gasto_dia,
+                         ganancia_dia=ganancia_dia,
+                         ganancia_mes=ganancia_mes,
+                         ganancia_mes_periodo=ganancia_mes_periodo,
                          items_stock=items_stock,
                          items_solicitud=items_solicitud,
                          compras_paquete=compras_paquete,
