@@ -500,6 +500,77 @@ def compute_missing_inefable_profit_by_day(conn, start_utc: str, end_utc: str, t
     ]
 
 
+def compute_missing_connection_api_profit_by_day(conn, start_utc: str, end_utc: str, tz_name: str = 'America/Caracas'):
+    if not table_exists(conn, 'transacciones') or not table_exists(conn, 'usuarios') or not table_exists(conn, 'precios_paquetes'):
+        return []
+
+    admin_ids, admin_emails = get_admin_exclusions()
+    admin_ids = set(admin_ids)
+    admin_emails = {str(email).strip().lower() for email in admin_emails if str(email).strip()}
+    tz = pytz.timezone(tz_name)
+    cost_map = _load_cost_map(conn)
+
+    package_rows = conn.execute('SELECT id, nombre FROM precios_paquetes').fetchall()
+    package_by_name = {}
+    for row in package_rows:
+        package_name = _normalize_dashboard_package_name(row['nombre'], 'Free Fire LATAM').strip().lower()
+        if package_name and package_name not in package_by_name:
+            package_by_name[package_name] = int(row['id'])
+
+    rows = conn.execute(
+        """
+        SELECT t.usuario_id, t.transaccion_id, t.paquete_nombre, t.pin, t.monto, t.fecha,
+               u.correo, u.sin_ganancia
+        FROM transacciones t
+        LEFT JOIN usuarios u ON u.id = t.usuario_id
+        WHERE t.transaccion_id LIKE 'API-%'
+          AND t.fecha >= ?
+          AND t.fecha < ?
+          AND NOT EXISTS (
+              SELECT 1
+              FROM profit_ledger pl
+              WHERE pl.transaccion_id = t.transaccion_id
+          )
+        ORDER BY t.fecha
+        """,
+        (start_utc, end_utc)
+    ).fetchall()
+
+    profit_by_day = {}
+    for row in rows:
+        try:
+            if row['usuario_id'] in admin_ids:
+                continue
+            if str(row['correo'] or '').strip().lower() in admin_emails:
+                continue
+            if _is_truthy_db_value(row['sin_ganancia']):
+                continue
+
+            quantity = max(1, _extract_dashboard_quantity(row['paquete_nombre'], row['pin']))
+            normalized_package = _normalize_dashboard_package_name(row['paquete_nombre'], 'Free Fire LATAM').strip().lower()
+            package_id = package_by_name.get(normalized_package)
+            if package_id is None:
+                continue
+
+            sale_total = abs(float(row['monto'] or 0.0))
+            sale_unit = round(sale_total / quantity, 6)
+            costo_unit = float(cost_map.get(('freefire_latam', int(package_id)), 0.0))
+            profit_total = round((sale_unit - costo_unit) * quantity, 6)
+            fecha_utc = _parse_utc_datetime(row['fecha'])
+            if fecha_utc is None:
+                continue
+
+            day = fecha_utc.astimezone(tz).date().isoformat()
+            profit_by_day[day] = profit_by_day.get(day, 0.0) + profit_total
+        except Exception:
+            continue
+
+    return [
+        {'day': day, 'profit': round(amount, 6)}
+        for day, amount in sorted(profit_by_day.items())
+    ]
+
+
 def compute_missing_whitelabel_profit_by_day(conn, start_utc: str, end_utc: str, tz_name: str = 'America/Caracas'):
     if not table_exists(conn, 'api_orders') or not table_exists(conn, 'usuarios'):
         return []
@@ -564,6 +635,7 @@ def compute_missing_whitelabel_profit_by_day(conn, start_utc: str, end_utc: str,
 def compute_profit_ledger_base_by_day(conn, start_utc: str, end_utc: str, tz_name: str = 'America/Caracas'):
     if not table_exists(conn, 'profit_ledger') or not table_exists(conn, 'usuarios'):
         return _merge_profit_series(
+            compute_missing_connection_api_profit_by_day(conn, start_utc, end_utc, tz_name),
             compute_missing_whitelabel_profit_by_day(conn, start_utc, end_utc, tz_name),
             compute_missing_inefable_profit_by_day(conn, start_utc, end_utc, tz_name)
         )
@@ -609,9 +681,10 @@ def compute_profit_ledger_base_by_day(conn, start_utc: str, end_utc: str, tz_nam
         {'day': day, 'profit': round(amount, 6)}
         for day, amount in sorted(profit_by_day.items())
     ]
+    missing_connection_rows = compute_missing_connection_api_profit_by_day(conn, start_utc, end_utc, tz_name)
     missing_whitelabel_rows = compute_missing_whitelabel_profit_by_day(conn, start_utc, end_utc, tz_name)
     missing_inefable_rows = compute_missing_inefable_profit_by_day(conn, start_utc, end_utc, tz_name)
-    return _merge_profit_series(ledger_rows, missing_whitelabel_rows, missing_inefable_rows)
+    return _merge_profit_series(ledger_rows, missing_connection_rows, missing_whitelabel_rows, missing_inefable_rows)
 
 
 def compute_profit_ledger_by_day(conn, start_utc: str, end_utc: str, tz_name: str = 'America/Caracas'):

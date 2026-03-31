@@ -11,6 +11,7 @@ import secrets
 from datetime import datetime
 import random
 import string
+import pytz
 from werkzeug.security import check_password_hash
 from pin_manager import create_pin_manager
 
@@ -196,6 +197,52 @@ def create_transaction_record(user_id, pin_code, paquete_nombre, precio, conn=No
     finally:
         if owns_connection:
             conn.close()
+
+
+def persist_purchase_metrics(conn, user_id, package_id, quantity, paquete_nombre, pin_text, precio_total, saldo_antes, saldo_despues, transaccion_id):
+    try:
+        conn.execute('''
+            INSERT INTO historial_compras (usuario_id, monto, paquete_nombre, pin, tipo_evento, duracion_segundos, saldo_antes, saldo_despues)
+            VALUES (?, ?, ?, ?, 'compra', NULL, ?, ?)
+        ''', (user_id, precio_total, paquete_nombre, pin_text, saldo_antes, saldo_despues))
+    except Exception:
+        pass
+
+    try:
+        user_row = conn.execute('SELECT sin_ganancia FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+        if user_row and user_row['sin_ganancia']:
+            return
+
+        quantity = max(1, int(quantity or 1))
+        precio_unitario = round(float(precio_total) / quantity, 6)
+        costo_row = conn.execute(
+            'SELECT precio_compra FROM precios_compra WHERE juego = ? AND paquete_id = ? AND activo = 1',
+            ('freefire_latam', int(package_id))
+        ).fetchone()
+        costo_unit = float(costo_row['precio_compra']) if costo_row else 0.0
+        profit_unit = round(precio_unitario - costo_unit, 6)
+        profit_total = round(profit_unit * quantity, 6)
+
+        conn.execute('''
+            INSERT INTO profit_ledger (usuario_id, juego, paquete_id, cantidad, precio_venta_unit, costo_unit, profit_unit, profit_total, transaccion_id)
+            VALUES (?, 'freefire_latam', ?, ?, ?, ?, ?, ?, ?)
+        ''', (user_id, int(package_id), quantity, precio_unitario, costo_unit, profit_unit, profit_total, transaccion_id))
+
+        tz = pytz.timezone(os.environ.get('DEFAULT_TZ', 'America/Caracas'))
+        day = datetime.now(tz).date().isoformat()
+        existing = conn.execute('SELECT profit_total FROM profit_daily_aggregate WHERE day = ?', (day,)).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE profit_daily_aggregate SET profit_total = ?, updated_at = CURRENT_TIMESTAMP WHERE day = ?",
+                (round(float(existing['profit_total'] or 0.0) + profit_total, 6), day)
+            )
+        else:
+            conn.execute(
+                'INSERT INTO profit_daily_aggregate (day, profit_total) VALUES (?, ?)',
+                (day, profit_total)
+            )
+    except Exception:
+        pass
 
 # ============= ENDPOINTS DE LA API DE CONEXIÓN =============
 
@@ -567,6 +614,18 @@ def purchase_pin():
             pins_texto = '\n'.join(pins_list)
             paquete_nombre = f"{package_info['nombre']} x{quantity}" if quantity > 1 else package_info['nombre']
             transaction_data = create_transaction_record(user_id, pins_texto, paquete_nombre, precio_total, conn=conn, request_id=request_id)
+            persist_purchase_metrics(
+                conn,
+                user_id,
+                package_id,
+                quantity,
+                paquete_nombre,
+                pins_texto,
+                precio_total,
+                saldo_actual,
+                nuevo_saldo,
+                transaction_data['transaccion_id']
+            )
 
             response_data = {
                 'package_name': package_info['nombre'],
