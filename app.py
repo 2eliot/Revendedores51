@@ -9599,21 +9599,21 @@ def dashboard():
         transaction['dashboard_package'] = tx_package
 
     dashboard_profit_catalog = {}
-    resolve_dashboard_profit_unit = None
+    resolve_dashboard_profit_amount = None
     ganancia_mes = 0.0
     ganancia_mes_periodo = today.strftime('%Y-%m')
     if is_admin:
         try:
             from admin_stats import (
                 _load_dashboard_profit_catalog,
-                _resolve_dashboard_profit_unit,
+                _resolve_dashboard_profit_amount,
                 compute_admin_profit_by_day,
             )
 
             metrics_conn = get_db_connection()
             try:
                 dashboard_profit_catalog = _load_dashboard_profit_catalog(metrics_conn)
-                resolve_dashboard_profit_unit = _resolve_dashboard_profit_unit
+                resolve_dashboard_profit_amount = _resolve_dashboard_profit_amount
 
                 month_start_local = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
                 if month_start_local.month == 12:
@@ -9632,8 +9632,24 @@ def dashboard():
                 metrics_conn.close()
         except Exception:
             dashboard_profit_catalog = {}
-            resolve_dashboard_profit_unit = None
+            resolve_dashboard_profit_amount = None
             ganancia_mes = 0.0
+
+    if is_admin and dashboard_profit_catalog and resolve_dashboard_profit_amount:
+        for transaction in dashboard_source_transactions:
+            profit_unit, profit_total = resolve_dashboard_profit_amount(
+                dashboard_profit_catalog,
+                transaction.get('dashboard_item'),
+                transaction.get('dashboard_package'),
+                float(transaction.get('monto') or 0.0),
+                int(transaction.get('dashboard_quantity') or 1),
+            )
+            transaction['dashboard_profit_unit'] = round(float(profit_unit or 0.0), 6)
+            transaction['dashboard_profit_total'] = round(float(profit_total or 0.0), 6)
+    else:
+        for transaction in dashboard_source_transactions:
+            transaction['dashboard_profit_unit'] = 0.0
+            transaction['dashboard_profit_total'] = 0.0
 
     stats_por_juego = {}
     for transaction in dashboard_source_transactions:
@@ -9692,25 +9708,15 @@ def dashboard():
             }
         compras_por_dia_paquete[fecha_str][aggregate_key]['cantidad'] += int(transaction.get('dashboard_quantity') or 1)
         compras_por_dia_paquete[fecha_str][aggregate_key]['monto_total'] += float(transaction.get('monto') or 0.0)
+        compras_por_dia_paquete[fecha_str][aggregate_key]['ganancia_total'] += float(transaction.get('dashboard_profit_total') or 0.0)
 
     ganancias_por_dia = {d: 0.0 for d in dias}
-    if is_admin and dashboard_profit_catalog and resolve_dashboard_profit_unit:
+    if is_admin:
         for day, grouped_rows in compras_por_dia_paquete.items():
             for row in grouped_rows.values():
                 quantity = max(1, int(row.get('cantidad') or 1))
-                sale_total = float(row.get('monto_total') or 0.0)
-                sale_unit = round(sale_total / quantity, 6) if quantity else sale_total
-                profit_unit = resolve_dashboard_profit_unit(
-                    dashboard_profit_catalog,
-                    row.get('item'),
-                    row.get('paquete'),
-                    sale_unit,
-                )
-                if profit_unit is None:
-                    profit_unit = 0.0
-
-                profit_total = round(float(profit_unit) * quantity, 6)
-                row['ganancia_unitaria'] = round(float(profit_unit), 4)
+                profit_total = round(float(row.get('ganancia_total') or 0.0), 6)
+                row['ganancia_unitaria'] = round((profit_total / quantity) if quantity else 0.0, 4)
                 row['ganancia_total'] = round(profit_total, 2)
                 ganancias_por_dia[day] = round(ganancias_por_dia.get(day, 0.0) + profit_total, 6)
 

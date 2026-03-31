@@ -302,6 +302,26 @@ def _resolve_dashboard_profit_unit(catalog, item_name, package_name, sale_unit):
     return float(chosen.get('profit_unit') or 0.0)
 
 
+def _resolve_dashboard_profit_amount(catalog, item_name, package_name, sale_total, quantity):
+    try:
+        quantity = max(1, int(quantity or 1))
+    except Exception:
+        quantity = 1
+
+    try:
+        sale_total = float(sale_total or 0.0)
+    except Exception:
+        sale_total = 0.0
+
+    sale_unit = round(sale_total / quantity, 6) if quantity else sale_total
+    profit_unit = _resolve_dashboard_profit_unit(catalog, item_name, package_name, sale_unit)
+    if profit_unit is None:
+        return None, 0.0
+
+    profit_total = round(float(profit_unit) * quantity, 6)
+    return float(profit_unit), profit_total
+
+
 def _is_dashboard_business_sale_for_admin(row):
     try:
         saldo_antes = float(row['saldo_antes'] or 0.0)
@@ -370,7 +390,7 @@ def compute_dashboard_profit_by_day(conn, start_utc: str, end_utc: str, tz_name:
     profit_catalog = _load_dashboard_profit_catalog(conn)
     rows = _load_dashboard_sales_rows(conn, start_utc, end_utc, tz_name)
 
-    grouped_sales = {}
+    profit_by_day = {}
     for row in rows:
         try:
             if _should_exclude_history_row_profit(row, admin_ids, admin_emails):
@@ -387,26 +407,17 @@ def compute_dashboard_profit_by_day(conn, start_utc: str, end_utc: str, tz_name:
             if not local_day:
                 continue
 
-            grouped_key = (local_day, item_name, normalized_package)
-            group = grouped_sales.setdefault(grouped_key, {
-                'quantity': 0,
-                'sale_total': 0.0,
-            })
-            group['quantity'] += quantity
-            group['sale_total'] += abs(float(row['monto'] or 0.0))
-        except Exception:
-            continue
-
-    profit_by_day = {}
-    for (local_day, item_name, normalized_package), group in grouped_sales.items():
-        try:
-            quantity = max(1, int(group.get('quantity') or 1))
-            sale_total = float(group.get('sale_total') or 0.0)
-            sale_unit = round(sale_total / quantity, 6) if quantity else sale_total
-            profit_unit = _resolve_dashboard_profit_unit(profit_catalog, item_name, normalized_package, sale_unit)
+            profit_unit, profit_total = _resolve_dashboard_profit_amount(
+                profit_catalog,
+                item_name,
+                normalized_package,
+                abs(float(row['monto'] or 0.0)),
+                quantity,
+            )
             if profit_unit is None:
                 continue
-            profit_by_day[local_day] = profit_by_day.get(local_day, 0.0) + round(profit_unit * quantity, 6)
+
+            profit_by_day[local_day] = profit_by_day.get(local_day, 0.0) + profit_total
         except Exception:
             continue
 
