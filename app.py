@@ -9169,6 +9169,15 @@ def dashboard():
     if is_admin:
         # Admin ve estadísticas globales
         user = None
+
+        dashboard_historial = conn.execute('''
+            SELECT h.fecha, h.monto, h.paquete_nombre, h.pin, h.duracion_segundos,
+                   u.nombre, u.apellido
+            FROM historial_compras h
+            JOIN usuarios u ON h.usuario_id = u.id
+            WHERE h.tipo_evento = 'compra' AND DATE(h.fecha, '-4 hours') BETWEEN ? AND ?
+            ORDER BY h.fecha DESC
+        ''', (fecha_inicio, fecha_fin)).fetchall()
         
         # Obtener todas las transacciones filtradas por fecha
         transacciones_filtradas = conn.execute('''
@@ -9208,6 +9217,15 @@ def dashboard():
         user = conn.execute('SELECT * FROM usuarios WHERE id = ?', (user_id,)).fetchone()
         if user:
             session['saldo'] = user['saldo']
+
+        dashboard_historial = conn.execute('''
+            SELECT h.fecha, h.monto, h.paquete_nombre, h.pin, h.duracion_segundos,
+                   u.nombre, u.apellido
+            FROM historial_compras h
+            JOIN usuarios u ON h.usuario_id = u.id
+            WHERE h.usuario_id = ? AND h.tipo_evento = 'compra' AND DATE(h.fecha, '-4 hours') BETWEEN ? AND ?
+            ORDER BY h.fecha DESC
+        ''', (user_id, fecha_inicio, fecha_fin)).fetchall()
         
         # Obtener transacciones del usuario filtradas por fecha
         transacciones_filtradas = conn.execute('''
@@ -9317,6 +9335,20 @@ def dashboard():
         }
         monto_total += transaction_dict['monto']
         transacciones_procesadas.append(transaction_dict)
+
+    dashboard_purchase_events = []
+    for historial_row in dashboard_historial:
+        dashboard_purchase_events.append({
+            'fecha': convert_to_venezuela_time(historial_row['fecha']),
+            'monto': abs(historial_row['monto']),
+            'paquete': historial_row['paquete_nombre'] or 'Paquete',
+            'pin': historial_row['pin'] or '',
+            'nombre': historial_row['nombre'],
+            'apellido': historial_row['apellido'],
+            'duracion_segundos': historial_row['duracion_segundos'],
+        })
+
+    dashboard_source_transactions = dashboard_purchase_events or transacciones_procesadas
     
     def _dashboard_tx_key(tx):
         transaccion_id = str(tx.get('transaccion_id') or '').strip()
@@ -9458,7 +9490,7 @@ def dashboard():
             return 2
         return 3
 
-    for transaction in transacciones_procesadas:
+    for transaction in dashboard_source_transactions:
         tx_quantity = extract_transaction_quantity(transaction)
         tx_item = infer_item_from_package_name(transaction.get('paquete', ''), transaction.get('is_bloodstriker', False))
         tx_package = normalize_package_display_name(transaction.get('paquete', 'Desconocido'), tx_item)
@@ -9467,7 +9499,7 @@ def dashboard():
         transaction['dashboard_package'] = tx_package
 
     stats_por_juego = {}
-    for transaction in transacciones_procesadas:
+    for transaction in dashboard_source_transactions:
         juego = transaction.get('dashboard_item') or 'Otros'
         if juego not in stats_por_juego:
             stats_por_juego[juego] = {'cantidad': 0, 'monto': 0}
@@ -9502,7 +9534,7 @@ def dashboard():
 
     serie_map = OrderedDict((d, 0.0) for d in dias)
     compras_por_dia_paquete = {d: {} for d in dias}
-    for transaction in transacciones_procesadas:
+    for transaction in dashboard_source_transactions:
         fecha_str = str(transaction['fecha']).split(' ')[0]
         if fecha_str not in serie_map:
             continue
