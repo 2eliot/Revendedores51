@@ -83,6 +83,75 @@ def _clear_idempotent_order(conn, usuario_id, endpoint, request_id):
                  (usuario_id, endpoint, request_id))
 
 
+def _resolve_profit_game_key(game_type, package_id):
+    game_type = str(game_type or '').strip().lower()
+    if game_type == 'bloodstriker':
+        return 'bloodstriker'
+    if game_type == 'freefire_id':
+        return 'freefire_id'
+    if game_type != 'dynamic':
+        return None
+
+    try:
+        from dynamic_games import get_dynamic_game_by_id, get_dynamic_package_by_id
+
+        pkg = get_dynamic_package_by_id(int(package_id))
+        if not pkg:
+            return None
+        game = get_dynamic_game_by_id(pkg.get('juego_id'))
+        slug = str((game or {}).get('slug') or '').strip()
+        if not slug:
+            return None
+        return f'dyn_{slug}'
+    except Exception:
+        return None
+
+
+def _is_admin_user(usuario_id):
+    admin_ids_env = os.environ.get('ADMIN_USER_IDS', '').strip()
+    admin_emails_env = os.environ.get('ADMIN_EMAILS', '').strip()
+    single_admin_email = os.environ.get('ADMIN_EMAIL', '').strip()
+
+    admin_ids = {int(x.strip()) for x in admin_ids_env.split(',') if x.strip().isdigit()}
+    admin_emails = {x.strip().lower() for x in admin_emails_env.split(',') if x.strip()}
+    if single_admin_email:
+        admin_emails.add(single_admin_email.lower())
+
+    if int(usuario_id) in admin_ids:
+        return True
+
+    try:
+        conn = _get_conn()
+        row = conn.execute('SELECT correo FROM usuarios WHERE id = ?', (int(usuario_id),)).fetchone()
+        conn.close()
+        correo = str((row or {}).get('correo') or '').strip().lower()
+        return correo in admin_emails
+    except Exception:
+        return False
+
+
+def _record_whitelabel_profit(conn, usuario_id, game_type, package_id, precio, order_id):
+    juego_key = _resolve_profit_game_key(game_type, package_id)
+    if not juego_key:
+        return
+
+    try:
+        from app import record_profit_for_transaction
+
+        record_profit_for_transaction(
+            conn,
+            int(usuario_id),
+            _is_admin_user(usuario_id),
+            juego_key,
+            int(package_id),
+            1,
+            float(precio),
+            f'WL-API-{int(order_id)}'
+        )
+    except Exception:
+        pass
+
+
 def _order_payload(row):
     redeemed_pin = row['redeemed_pin'] if row and 'redeemed_pin' in row else ''
     return {
@@ -636,6 +705,8 @@ def _execute_recharge(order_id, game_type, package_id, player_id, player_id2,
                     INSERT INTO historial_compras (usuario_id, monto, paquete_nombre, pin, tipo_evento, duracion_segundos, saldo_antes, saldo_despues)
                     VALUES (?, ?, ?, ?, 'compra', ?, ?, ?)
                 ''', (usuario_id, precio, _paquete_display, _pin_info, _duration, _saldo + precio, _saldo))
+
+                _record_whitelabel_profit(conn, usuario_id, game_type, package_id, precio, order_id)
 
                 try:
                     from app import update_monthly_spending

@@ -64,9 +64,123 @@ def _is_truthy_db_value(value):
     return bool(value)
 
 
+def _load_cost_map(conn):
+    cost_map = {}
+    if not table_exists(conn, 'precios_compra'):
+        return cost_map
+    try:
+        rows = conn.execute(
+            "SELECT juego, paquete_id, precio_compra FROM precios_compra WHERE activo = 1"
+        ).fetchall()
+        for row in rows:
+            cost_map[(str(row['juego']), int(row['paquete_id']))] = float(row['precio_compra'] or 0)
+    except Exception:
+        return {}
+    return cost_map
+
+
+def _resolve_whitelabel_game_key(game_type, package_id):
+    game_type = str(game_type or '').strip().lower()
+    if game_type == 'bloodstriker':
+        return 'bloodstriker'
+    if game_type == 'freefire_id':
+        return 'freefire_id'
+    if game_type != 'dynamic':
+        return None
+
+    try:
+        from dynamic_games import get_dynamic_game_by_id, get_dynamic_package_by_id
+
+        pkg = get_dynamic_package_by_id(int(package_id))
+        if not pkg:
+            return None
+        game = get_dynamic_game_by_id(pkg.get('juego_id'))
+        slug = str((game or {}).get('slug') or '').strip()
+        if not slug:
+            return None
+        return f'dyn_{slug}'
+    except Exception:
+        return None
+
+
+def _merge_profit_series(*series_groups):
+    merged = {}
+    for series in series_groups:
+        for item in series or []:
+            day = str(item.get('day') or '').strip()
+            if not day:
+                continue
+            merged[day] = merged.get(day, 0.0) + float(item.get('profit') or 0.0)
+    return [
+        {'day': day, 'profit': round(amount, 6)}
+        for day, amount in sorted(merged.items())
+    ]
+
+
+def compute_missing_whitelabel_profit_by_day(conn, start_utc: str, end_utc: str, tz_name: str = 'America/Caracas'):
+    if not table_exists(conn, 'api_orders') or not table_exists(conn, 'usuarios'):
+        return []
+
+    admin_ids, admin_emails = get_admin_exclusions()
+    admin_ids = set(admin_ids)
+    admin_emails = {str(email).strip().lower() for email in admin_emails if str(email).strip()}
+    tz = pytz.timezone(tz_name)
+    cost_map = _load_cost_map(conn)
+
+    rows = conn.execute(
+        """
+        SELECT ao.id, ao.usuario_id, ao.game_type, ao.package_id, ao.precio,
+               COALESCE(ao.fecha_completada, ao.fecha) AS fecha,
+               u.correo, u.sin_ganancia
+        FROM api_orders ao
+        LEFT JOIN usuarios u ON u.id = ao.usuario_id
+        WHERE ao.estado = 'completada'
+          AND COALESCE(ao.fecha_completada, ao.fecha) >= ?
+          AND COALESCE(ao.fecha_completada, ao.fecha) < ?
+          AND NOT EXISTS (
+              SELECT 1
+              FROM profit_ledger pl
+              WHERE pl.transaccion_id = ('WL-API-' || ao.id)
+          )
+        ORDER BY COALESCE(ao.fecha_completada, ao.fecha)
+        """,
+        (start_utc, end_utc)
+    ).fetchall()
+
+    profit_by_day = {}
+    for row in rows:
+        try:
+            if row['usuario_id'] in admin_ids:
+                continue
+            if str(row['correo'] or '').strip().lower() in admin_emails:
+                continue
+            if _is_truthy_db_value(row['sin_ganancia']):
+                continue
+
+            juego_key = _resolve_whitelabel_game_key(row['game_type'], row['package_id'])
+            if not juego_key:
+                continue
+
+            costo_unit = float(cost_map.get((juego_key, int(row['package_id'])), 0.0))
+            profit_total = round(float(row['precio'] or 0.0) - costo_unit, 6)
+            fecha_utc = _parse_utc_datetime(row['fecha'])
+            if fecha_utc is None:
+                continue
+
+            day = fecha_utc.astimezone(tz).date().isoformat()
+            profit_by_day[day] = profit_by_day.get(day, 0.0) + profit_total
+        except Exception:
+            continue
+
+    return [
+        {'day': day, 'profit': round(amount, 6)}
+        for day, amount in sorted(profit_by_day.items())
+    ]
+
+
 def compute_profit_ledger_by_day(conn, start_utc: str, end_utc: str, tz_name: str = 'America/Caracas'):
     if not table_exists(conn, 'profit_ledger') or not table_exists(conn, 'usuarios'):
-        return []
+        return compute_missing_whitelabel_profit_by_day(conn, start_utc, end_utc, tz_name)
 
     admin_ids, admin_emails = get_admin_exclusions()
     admin_ids = set(admin_ids)
@@ -102,10 +216,12 @@ def compute_profit_ledger_by_day(conn, start_utc: str, end_utc: str, tz_name: st
         except Exception:
             continue
 
-    return [
+    ledger_rows = [
         {'day': day, 'profit': round(amount, 6)}
         for day, amount in sorted(profit_by_day.items())
     ]
+    missing_whitelabel_rows = compute_missing_whitelabel_profit_by_day(conn, start_utc, end_utc, tz_name)
+    return _merge_profit_series(ledger_rows, missing_whitelabel_rows)
 
 
 def compute_legacy_profit_by_day(conn, start_utc: str, end_utc: str):
