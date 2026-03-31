@@ -313,6 +313,23 @@ def _is_dashboard_business_sale_for_admin(row):
     return pin_text.startswith('ID:') and abs(saldo_antes) < 0.000001 and abs(saldo_despues) < 0.000001
 
 
+def _should_exclude_history_row_profit(row, admin_ids, admin_emails):
+    user_id = row['usuario_id']
+    email = str(row['correo'] or '').strip().lower()
+    is_admin_user = user_id in admin_ids or email in admin_emails
+    is_no_profit_user = _is_truthy_db_value(row['sin_ganancia'])
+
+    if not is_admin_user and not is_no_profit_user:
+        return False
+
+    # Keep business sales that are only tracked under admin-like accounts
+    # without consuming a user wallet balance.
+    if _is_dashboard_business_sale_for_admin(row):
+        return False
+
+    return True
+
+
 def _load_dashboard_sales_rows(conn, start_utc: str, end_utc: str, tz_name: str = 'America/Caracas'):
     if not table_exists(conn, 'historial_compras'):
         return []
@@ -346,6 +363,9 @@ def compute_dashboard_profit_by_day(conn, start_utc: str, end_utc: str, tz_name:
     if not table_exists(conn, 'historial_compras') or not table_exists(conn, 'usuarios') or not table_exists(conn, 'precios_compra'):
         return []
 
+    admin_ids, admin_emails = get_admin_exclusions()
+    admin_ids = set(admin_ids)
+    admin_emails = {str(email).strip().lower() for email in admin_emails if str(email).strip()}
     dynamic_game_names = _load_dynamic_game_names(conn)
     profit_catalog = _load_dashboard_profit_catalog(conn)
     rows = _load_dashboard_sales_rows(conn, start_utc, end_utc, tz_name)
@@ -353,6 +373,9 @@ def compute_dashboard_profit_by_day(conn, start_utc: str, end_utc: str, tz_name:
     grouped_sales = {}
     for row in rows:
         try:
+            if _should_exclude_history_row_profit(row, admin_ids, admin_emails):
+                continue
+
             package_name = str(row['paquete_nombre'] or '').strip()
             if not package_name:
                 continue
