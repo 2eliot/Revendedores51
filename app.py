@@ -4800,13 +4800,25 @@ def admin_import_pins_csv():
 # ======= Batch update de nombres y precios =======
 @app.route('/admin/save_prices_batch', methods=['POST'])
 def admin_save_prices_batch():
+    expects_json = request.is_json or 'application/json' in (request.headers.get('Accept') or '')
+
     if not session.get('is_admin'):
+        if expects_json:
+            return jsonify({'success': False, 'error': 'Acceso denegado. Solo administradores.'}), 403
         flash('Acceso denegado. Solo administradores.', 'error')
         return redirect('/auth')
 
-    game = request.form.get('game')
-    payload_raw = request.form.get('payload', '')
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+        game = data.get('game')
+        payload_raw = json.dumps(data.get('items') or [])
+    else:
+        game = request.form.get('game')
+        payload_raw = request.form.get('payload', '')
+
     if not game or not payload_raw:
+        if expects_json:
+            return jsonify({'success': False, 'error': 'Datos incompletos para guardar cambios.'}), 400
         flash('Datos incompletos para guardar cambios.', 'error')
         return redirect('/admin')
 
@@ -4815,6 +4827,8 @@ def admin_save_prices_batch():
         if not isinstance(items, list):
             raise ValueError('Formato inválido')
     except Exception:
+        if expects_json:
+            return jsonify({'success': False, 'error': 'Formato de datos inválido.'}), 400
         flash('Formato de datos inválido.', 'error')
         return redirect('/admin')
 
@@ -4830,6 +4844,8 @@ def admin_save_prices_batch():
     elif game.startswith('dyn_'):
         table = 'paquetes_dinamicos'
     else:
+        if expects_json:
+            return jsonify({'success': False, 'error': 'Juego no soportado.'}), 400
         flash('Juego no soportado.', 'error')
         return redirect('/admin')
 
@@ -4874,12 +4890,16 @@ def admin_save_prices_batch():
                 )
             updated += 1
         conn.commit()
+        if expects_json:
+            return jsonify({'success': True, 'updated': updated, 'game': game})
         flash(f'Se guardaron {updated} cambios correctamente.', 'success')
     except Exception as e:
         try:
             conn.rollback()
         except:
             pass
+        if expects_json:
+            return jsonify({'success': False, 'error': str(e)}), 500
         flash(f'Error al guardar cambios: {str(e)}', 'error')
     finally:
         conn.close()
