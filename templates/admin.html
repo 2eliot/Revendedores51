@@ -946,7 +946,7 @@
         "nombre": "{{ dg.nombre }}",
         "packages": [
           {% for p in dg._packages %}
-          {"id": {{ p.id }}, "nombre": "{{ p.nombre }}", "precio": {{ p.precio }}, "gamepoint_package_id": {{ p.gamepoint_package_id if p.gamepoint_package_id is not none else 'null' }}, "game_script_only": {{ 'true' if p.game_script_only else 'false' }}}{% if not loop.last %},{% endif %}
+          {"id": {{ p.id }}, "nombre": "{{ p.nombre }}", "precio": {{ p.precio }}, "gamepoint_package_id": {{ p.gamepoint_package_id if p.gamepoint_package_id is not none else 'null' }}, "game_script_only": {{ 'true' if p.game_script_only else 'false' }}, "activo": {{ 'true' if p.activo else 'false' }}, "orden": {{ p.orden if p.orden is not none else 0 }}}{% if not loop.last %},{% endif %}
           {% endfor %}
         ]
       }{% if not loop.last %},{% endif %}
@@ -1311,7 +1311,12 @@
       else if (game === 'bloodstriker') data = bloodstrikerPackages;
       else if (game === 'freefire_id') data = freefireIdPackages;
       else if (isDyn && dynGamesData[game]) {
-        data = dynGamesData[game].packages || [];
+        data = (dynGamesData[game].packages || []).slice().sort((a, b) => {
+          const orderA = Number(a.orden || 0);
+          const orderB = Number(b.orden || 0);
+          if (orderA !== orderB) return orderA - orderB;
+          return Number(a.id || 0) - Number(b.id || 0);
+        });
         _currentDynGameId = dynGamesData[game].id;
       }
 
@@ -1343,6 +1348,20 @@
               <label>Precio</label>
               <input type="number" class="pkg-price" data-id="${pkg.id}" data-cost="${costAttr}" value="${Number(pkg.precio).toFixed(2)}" step="0.01" min="0">
               <div class="profit-info" style="margin-top:6px;font-size:12px;line-height:1.2;"></div>
+            </div>
+            <div class="package-form">
+              <label>Orden</label>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <input type="number" class="pkg-order" data-id="${pkg.id}" value="${Number(pkg.orden || 0)}" step="1" style="max-width:90px;">
+                <button type="button" class="btn btn-sm btn-outline" onclick="moveDynPackage(${pkg.id}, -1)">↑</button>
+                <button type="button" class="btn btn-sm btn-outline" onclick="moveDynPackage(${pkg.id}, 1)">↓</button>
+              </div>
+            </div>
+            <div class="package-form">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                <input type="checkbox" class="pkg-active" data-id="${pkg.id}" ${pkg.activo !== false ? 'checked' : ''}>
+                <span>Activo</span>
+              </label>
             </div>
             ${allowGameScript ? `
             <div class="package-form">
@@ -1376,12 +1395,22 @@
       names.forEach(nameEl => {
         const id = nameEl.getAttribute('data-id');
         const priceEl = container.querySelector(`.pkg-price[data-id="${id}"]`);
+        const orderEl = container.querySelector(`.pkg-order[data-id="${id}"]`);
+        const activeEl = container.querySelector(`.pkg-active[data-id="${id}"]`);
         const gameOnlyEl = container.querySelector(`.pkg-game-script-only[data-id="${id}"]`);
         if (!priceEl) return;
         const nombre = nameEl.value.trim();
         const precio = parseFloat(priceEl.value || '0');
         if (!isFinite(precio)) return;
-        list.push({ id: Number(id), nombre, precio, game_script_only: !!gameOnlyEl?.checked });
+        const orden = parseInt(orderEl?.value || '0', 10);
+        list.push({
+          id: Number(id),
+          nombre,
+          precio,
+          orden: Number.isFinite(orden) ? orden : 0,
+          activo: !!activeEl?.checked,
+          game_script_only: !!gameOnlyEl?.checked
+        });
       });
       try {
         const response = await fetch('/admin/save_prices_batch', {
@@ -1484,6 +1513,8 @@
             <div class="package-forms">
               <div class="package-form"><label>Nombre</label><input type="text" class="pkg-name" data-id="${pkgId}" value="${nombre}" maxlength="50"></div>
               <div class="package-form"><label>Precio</label><input type="number" class="pkg-price" data-id="${pkgId}" value="${precio.toFixed(2)}" step="0.01" min="0"></div>
+              <div class="package-form"><label>Orden</label><div style="display:flex;gap:6px;align-items:center;"><input type="number" class="pkg-order" data-id="${pkgId}" value="0" step="1" style="max-width:90px;"><button type="button" class="btn btn-sm btn-outline" onclick="moveDynPackage(${pkgId}, -1)">↑</button><button type="button" class="btn btn-sm btn-outline" onclick="moveDynPackage(${pkgId}, 1)">↓</button></div></div>
+              <div class="package-form"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" class="pkg-active" data-id="${pkgId}" checked><span>Activo</span></label></div>
               ${dynamicGameSupportsGameScript(currentGame) ? '<div class="package-form"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" class="pkg-game-script-only" data-id="' + pkgId + '" ' + (gameScriptOnly ? 'checked' : '') + '><span>Solo Game</span></label></div>' : ''}
             </div>`;
           container.appendChild(card);
@@ -1492,6 +1523,8 @@
               id: pkgId,
               nombre,
               precio,
+              orden: 0,
+              activo: true,
               gamepoint_package_id: null,
               game_script_only: gameScriptOnly
             });
@@ -1504,6 +1537,28 @@
         } else { st.innerHTML = '<span style="color:#ff6b6b;">❌ '+(data.error||'Error')+'</span>'; }
       } catch(e) { st.innerHTML = '<span style="color:#ff6b6b;">❌ '+(e.message || 'Error de red')+'</span>'; }
     }
+
+    window.moveDynPackage = function(pkgId, direction) {
+      const container = document.getElementById('price-package-list');
+      if (!container) return;
+      const cards = Array.from(container.querySelectorAll('.package-card'));
+      const currentIndex = cards.findIndex(card => card.querySelector(`.pkg-name[data-id="${pkgId}"]`));
+      if (currentIndex === -1) return;
+      const targetIndex = currentIndex + direction;
+      if (targetIndex < 0 || targetIndex >= cards.length) return;
+
+      const currentCard = cards[currentIndex];
+      const targetCard = cards[targetIndex];
+      if (direction < 0) {
+        container.insertBefore(currentCard, targetCard);
+      } else {
+        container.insertBefore(targetCard, currentCard);
+      }
+
+      Array.from(container.querySelectorAll('.pkg-order')).forEach((input, index) => {
+        input.value = index;
+      });
+    };
 
     // ======= Eliminar juego dinámico =======
     async function eliminarJuegoDinamico() {

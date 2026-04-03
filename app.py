@@ -4861,17 +4861,24 @@ def admin_save_prices_batch():
                 continue
 
             if game.startswith('dyn_'):
-                # Activate priced packages so they are visible to users (public pages filter activo=1)
-                activo = True if price > 0 else False
+                try:
+                    orden = int(it.get('orden', 0) or 0)
+                except Exception:
+                    orden = 0
+                activo_raw = it.get('activo')
+                if activo_raw is None:
+                    activo = True if price > 0 else False
+                else:
+                    activo = activo_raw in (True, 'true', '1', 'on', 1)
                 if dyn_game_id is not None:
                     conn.execute(
-                        "UPDATE paquetes_dinamicos SET nombre = ?, precio = ?, activo = ?, game_script_only = ?, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = ? AND juego_id = ?",
-                        (name, price, activo, game_script_only, pid, dyn_game_id)
+                        "UPDATE paquetes_dinamicos SET nombre = ?, precio = ?, activo = ?, orden = ?, game_script_only = ?, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = ? AND juego_id = ?",
+                        (name, price, activo, orden, game_script_only, pid, dyn_game_id)
                     )
                 else:
                     conn.execute(
-                        "UPDATE paquetes_dinamicos SET nombre = ?, precio = ?, activo = ?, game_script_only = ?, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = ?",
-                        (name, price, activo, game_script_only, pid)
+                        "UPDATE paquetes_dinamicos SET nombre = ?, precio = ?, activo = ?, orden = ?, game_script_only = ?, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = ?",
+                        (name, price, activo, orden, game_script_only, pid)
                     )
             else:
                 conn.execute(
