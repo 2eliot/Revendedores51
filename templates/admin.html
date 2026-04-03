@@ -1367,10 +1367,11 @@
       });
     }
 
-    window.saveAllPrices = function() {
+    window.saveAllPrices = async function() {
       const list = [];
       const container = document.getElementById('price-package-list');
       if (!container) return;
+      const currentGame = document.getElementById('batch_game')?.value;
       const names = container.querySelectorAll('.pkg-name');
       names.forEach(nameEl => {
         const id = nameEl.getAttribute('data-id');
@@ -1382,10 +1383,36 @@
         if (!isFinite(precio)) return;
         list.push({ id: Number(id), nombre, precio, game_script_only: !!gameOnlyEl?.checked });
       });
-      const payloadInput = document.getElementById('batch_payload');
-      if (payloadInput) payloadInput.value = JSON.stringify(list);
-      const form = document.getElementById('batch-price-form');
-      if (form) form.submit();
+      try {
+        const response = await fetch('/admin/save_prices_batch', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({ game: currentGame, items: list })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          alert(data.error || 'No se pudieron guardar los cambios.');
+          return;
+        }
+
+        if (currentGame && dynGamesData[currentGame]) {
+          dynGamesData[currentGame].packages = dynGamesData[currentGame].packages.map(pkg => {
+            const saved = list.find(item => Number(item.id) === Number(pkg.id));
+            return saved ? { ...pkg, ...saved } : pkg;
+          });
+        }
+
+        if (currentGame && dynamicGameSupportsGameScript(currentGame)) {
+          gameScriptLoaded = false;
+        }
+
+        alert(`Se guardaron ${data.updated || list.length} cambios correctamente.`);
+      } catch (e) {
+        alert(e.message || 'Error de red al guardar cambios.');
+      }
     }
 
     async function parseJsonResponseSafe(response) {
@@ -1537,7 +1564,7 @@
       if (target) target.classList.add('active');
 
       if (tabName === 'game') {
-        loadGameScriptModule();
+        loadGameScriptModule(true);
       }
 
       // Guardar pestaña activa en el hash de la URL (sin localStorage)
