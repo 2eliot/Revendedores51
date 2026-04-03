@@ -483,40 +483,59 @@ def admin_add_package(game_id):
         return jsonify({'error': 'Acceso denegado'}), 403
     data = request.get_json() or request.form
     nombre = (data.get('nombre') or '').strip()
-    precio = float(data.get('precio', 0))
     descripcion = (data.get('descripcion') or '').strip()
     gp_pkg_id = data.get('gamepoint_package_id')
-    orden = int(data.get('orden', 0))
+
+    game = get_dynamic_game_by_id(game_id)
+    if not game:
+        return jsonify({'error': 'Juego no encontrado'}), 404
+
+    try:
+        precio = float(data.get('precio', 0) or 0)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'El precio debe ser numérico'}), 400
+
+    try:
+        orden = int(data.get('orden', 0) or 0)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'El orden debe ser numérico'}), 400
+
+    try:
+        gp_pkg_id = int(gp_pkg_id) if gp_pkg_id not in (None, '', 'null') else None
+    except (TypeError, ValueError):
+        return jsonify({'error': 'El GamePoint Package ID debe ser numérico'}), 400
 
     if not nombre or precio <= 0:
         return jsonify({'error': 'Nombre y precio son obligatorios'}), 400
 
     conn = _get_conn()
-    cur = conn.execute('''
-        INSERT INTO paquetes_dinamicos (juego_id, nombre, precio, descripcion, gamepoint_package_id, activo, orden)
-        VALUES (?, ?, ?, ?, ?, 1, ?)
-        RETURNING id
-    ''', (game_id, nombre, precio, descripcion, int(gp_pkg_id) if gp_pkg_id else None, orden))
-    pkg_id = cur.fetchone()[0]
-    conn.commit()
+    try:
+        cur = conn.execute('''
+            INSERT INTO paquetes_dinamicos (juego_id, nombre, precio, descripcion, gamepoint_package_id, activo, orden)
+            VALUES (?, ?, ?, ?, ?, TRUE, ?)
+            RETURNING id
+        ''', (game_id, nombre, precio, descripcion, gp_pkg_id, orden))
+        pkg_id = cur.fetchone()[0]
+        conn.commit()
 
-    # Also register in precios_compra for profit tracking
-    game = get_dynamic_game_by_id(game_id)
-    if game and gp_pkg_id:
-        juego_key = f'dyn_{game["slug"]}'
-        myr_to_usd = get_gp_myr_rate()
-        # Estimate cost from price - default profit
-        costo_estimado = max(0, precio - game.get('ganancia_default', 0.10))
-        try:
-            conn.execute(
-                'INSERT INTO precios_compra (juego, paquete_id, precio_compra) VALUES (?, ?, ?) ON CONFLICT (juego, paquete_id) DO UPDATE SET precio_compra = EXCLUDED.precio_compra',
-                (juego_key, pkg_id, costo_estimado)
-            )
-            conn.commit()
-        except Exception:
-            pass
-    conn.close()
-    return jsonify({'success': True, 'package_id': pkg_id})
+        if gp_pkg_id:
+            juego_key = f'dyn_{game["slug"]}'
+            costo_estimado = max(0, precio - game.get('ganancia_default', 0.10))
+            try:
+                conn.execute(
+                    'INSERT INTO precios_compra (juego, paquete_id, precio_compra) VALUES (?, ?, ?) ON CONFLICT (juego, paquete_id) DO UPDATE SET precio_compra = EXCLUDED.precio_compra',
+                    (juego_key, pkg_id, costo_estimado)
+                )
+                conn.commit()
+            except Exception:
+                pass
+
+        return jsonify({'success': True, 'package_id': pkg_id})
+    except Exception as e:
+        logger.exception('Error agregando paquete dinámico al juego %s', game_id)
+        return jsonify({'error': f'No se pudo agregar el paquete: {str(e)}'}), 500
+    finally:
+        conn.close()
 
 
 @bp.route('/admin/dynamic-games/packages/<int:pkg_id>/update', methods=['POST'])
