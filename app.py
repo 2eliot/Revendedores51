@@ -1043,6 +1043,23 @@ def init_db():
             )
         ''')
 
+        dynamic_game_columns = [
+            ("modo", "TEXT NOT NULL DEFAULT 'id'"),
+            ("color_tema", "TEXT DEFAULT '#a78bfa'"),
+            ("icono", "TEXT DEFAULT '🎮'"),
+            ("activo", "BOOLEAN DEFAULT FALSE"),
+            ("campos_config", "TEXT DEFAULT '{}'"),
+            ("descripcion", "TEXT DEFAULT ''"),
+            ("ganancia_default", "REAL DEFAULT 0.10"),
+            ("fecha_creacion", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
+            ("fecha_actualizacion", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
+        ]
+        for column_name, column_sql in dynamic_game_columns:
+            try:
+                cursor.execute(f"ALTER TABLE juegos_dinamicos ADD COLUMN {column_name} {column_sql}")
+            except Exception:
+                pass
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS paquetes_dinamicos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1057,6 +1074,19 @@ def init_db():
                 FOREIGN KEY (juego_id) REFERENCES juegos_dinamicos(id)
             )
         ''')
+
+        dynamic_package_columns = [
+            ("descripcion", "TEXT DEFAULT ''"),
+            ("gamepoint_package_id", "INTEGER"),
+            ("activo", "BOOLEAN DEFAULT TRUE"),
+            ("orden", "INTEGER DEFAULT 0"),
+            ("fecha_actualizacion", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
+        ]
+        for column_name, column_sql in dynamic_package_columns:
+            try:
+                cursor.execute(f"ALTER TABLE paquetes_dinamicos ADD COLUMN {column_name} {column_sql}")
+            except Exception:
+                pass
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS transacciones_dinamicas (
