@@ -1462,7 +1462,7 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
                 m_id = re.search(r"ID:\s*([0-9]{4,})", raw_pin_info)
                 if m_id:
                     transaction_dict['player_id'] = m_id.group(1)
-                m_name = re.search(r"Jugador:\s*([^\n\r\-]+)", raw_pin_info)
+                m_name = re.search(r"(?:Jugador|Usuario):\s*([^\n\r\-]+)", raw_pin_info)
                 if m_name:
                     transaction_dict['player_name'] = m_name.group(1).strip()
 
@@ -1562,7 +1562,7 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
                     m_id = re.search(r"ID:\s*([^\s\-/]+(?:\s*/\s*[^\s\-]+)?)", raw_pin_info)
                     if m_id:
                         transaction_dict['player_id'] = m_id.group(1).strip()
-                    m_name = re.search(r"Jugador:\s*([^\n\r\-]+)", raw_pin_info)
+                    m_name = re.search(r"(?:Jugador|Usuario):\s*([^\n\r\-]+)", raw_pin_info)
                     if m_name:
                         transaction_dict['player_name'] = m_name.group(1).strip()
                     m_ref = re.search(r"Ref:\s*(\S+)", raw_pin_info)
@@ -6006,7 +6006,7 @@ def validar_bloodstriker():
                     display_package_name = f"{pkg_row['nombre']} ({script_package_title})"
 
                 if provider_player:
-                    pin_info = f"ID: {player_id} - Usuario: {provider_player}"
+                    pin_info = f"ID: {player_id} - Jugador: {provider_player}"
                 else:
                     pin_info = f"ID: {player_id}"
 

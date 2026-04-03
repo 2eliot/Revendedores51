@@ -1132,7 +1132,7 @@ def validar_dinamico(slug):
 
                 pin_info = f"ID: {player_id}"
                 if provider_player:
-                    pin_info = f"ID: {player_id} - Usuario: {provider_player}"
+                    pin_info = f"ID: {player_id} - Jugador: {provider_player}"
 
                 transaccion_id = merchant_code
                 conn.execute('''
