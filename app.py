@@ -231,6 +231,72 @@ def _gameclub_order_inquiry(token, reference_no):
     return data
 
 
+def _game_script_base_url():
+    return (os.environ.get('GAME_SCRIPT_BASE_URL') or 'http://127.0.0.1:5005').strip().rstrip('/')
+
+
+def _game_script_timeout_seconds() -> int:
+    raw = (os.environ.get('GAME_SCRIPT_TIMEOUT') or '60').strip()
+    try:
+        return max(5, int(raw))
+    except Exception:
+        return 60
+
+
+def _game_script_headers():
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+    }
+    secret = (os.environ.get('GAME_SCRIPT_SECRET') or '').strip()
+    if secret:
+        headers['X-Game-Script-Secret'] = secret
+    return headers
+
+
+def _game_script_request(method: str, endpoint_path: str, payload=None):
+    url = f"{_game_script_base_url()}/{endpoint_path.lstrip('/')}"
+    try:
+        response = requests.request(
+            method=method.upper(),
+            url=url,
+            json=payload,
+            headers=_game_script_headers(),
+            timeout=_game_script_timeout_seconds(),
+        )
+        try:
+            data = response.json()
+        except Exception:
+            data = {
+                'success': response.ok,
+                'error': response.text or f'HTTP {response.status_code}'
+            }
+        return response, data
+    except Exception as e:
+        return None, {'success': False, 'error': f'Error conectando al Game Script: {str(e)}'}
+
+
+def _game_script_status():
+    _, data = _game_script_request('GET', 'status')
+    return data
+
+
+def _game_script_map(role_id):
+    payload = {'roleId': str(role_id).strip()} if role_id else {}
+    _, data = _game_script_request('POST', 'mapear', payload)
+    return data
+
+
+def _game_script_buy(role_id, package_key, request_id):
+    payload = {
+        'roleId': str(role_id).strip(),
+        'packageKey': str(package_key).strip(),
+        'requestId': str(request_id).strip(),
+    }
+    _, data = _game_script_request('POST', 'comprar', payload)
+    return data
+
+
 def _generate_batch_id():
     return datetime.utcnow().strftime('%Y%m%d%H%M%S%f') + '-' + secrets.token_hex(4)
 
@@ -595,6 +661,18 @@ def init_db():
             cursor.execute("ALTER TABLE precios_bloodstriker ADD COLUMN gamepoint_package_id INTEGER DEFAULT NULL")
         except Exception:
             pass
+        try:
+            cursor.execute("ALTER TABLE precios_bloodstriker ADD COLUMN game_script_package_key TEXT DEFAULT NULL")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE precios_bloodstriker ADD COLUMN game_script_package_title TEXT DEFAULT NULL")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE precios_bloodstriker ADD COLUMN game_script_package_price TEXT DEFAULT NULL")
+        except Exception:
+            pass
         
         # Tabla de transacciones de Blood Striker
         cursor.execute('''
@@ -619,6 +697,10 @@ def init_db():
         # Migración: agregar columna gamepoint_referenceno a transacciones_bloodstriker
         try:
             cursor.execute("ALTER TABLE transacciones_bloodstriker ADD COLUMN gamepoint_referenceno TEXT DEFAULT NULL")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE transacciones_bloodstriker ADD COLUMN request_id TEXT")
         except Exception:
             pass
         
@@ -1062,6 +1144,7 @@ def create_optimized_indexes(cursor):
         'CREATE UNIQUE INDEX IF NOT EXISTS idx_transacciones_usuario_request_id ON transacciones(usuario_id, request_id)',
         'CREATE UNIQUE INDEX IF NOT EXISTS idx_ffid_usuario_request_id ON transacciones_freefire_id(usuario_id, request_id)',
         'CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_din_usuario_request_id ON transacciones_dinamicas(usuario_id, request_id)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_bs_usuario_request_id ON transacciones_bloodstriker(usuario_id, request_id)',
         'CREATE INDEX IF NOT EXISTS idx_purchase_idempotency_lookup ON purchase_request_idempotency(usuario_id, endpoint, request_id)',
         'CREATE INDEX IF NOT EXISTS idx_pines_monto_usado ON pines_freefire(monto_id, usado)',
         'CREATE INDEX IF NOT EXISTS idx_pines_global_monto_usado ON pines_freefire_global(monto_id, usado)',
@@ -4432,6 +4515,99 @@ def admin_gameclub_product_detail(product_id: int):
 
     return jsonify({'success': True, 'data': data})
 
+
+@app.route('/admin/game/bloodstrike/mappings', methods=['GET'])
+def admin_game_bloodstrike_mappings():
+    if not session.get('is_admin'):
+        return jsonify({'success': False, 'error': 'Acceso denegado'}), 403
+
+    conn = get_db_connection()
+    rows = conn.execute('''
+        SELECT id, nombre, precio,
+               game_script_package_key,
+               game_script_package_title,
+               game_script_package_price
+        FROM precios_bloodstriker
+        ORDER BY id
+    ''').fetchall()
+    conn.close()
+
+    return jsonify({
+        'success': True,
+        'service_url': _game_script_base_url(),
+        'service_status': _game_script_status(),
+        'local_packages': [dict(row) for row in rows],
+    })
+
+
+@app.route('/admin/game/bloodstrike/mapear', methods=['POST'])
+def admin_game_bloodstrike_mapear():
+    if not session.get('is_admin'):
+        return jsonify({'success': False, 'error': 'Acceso denegado'}), 403
+
+    data = request.get_json() or request.form
+    role_id = str(data.get('roleId') or '').strip()
+    if not role_id:
+        return jsonify({'success': False, 'error': 'Falta roleId para mapear'}), 400
+
+    result = _game_script_map(role_id)
+    if not (result or {}).get('success'):
+        return jsonify({
+            'success': False,
+            'error': (result or {}).get('error') or 'No se pudo mapear paquetes desde el script',
+            'raw': result,
+        }), 500
+
+    return jsonify({
+        'success': True,
+        'service_url': _game_script_base_url(),
+        'roleId': role_id,
+        'packages': (result or {}).get('paquetes', []),
+        'total': (result or {}).get('total', 0),
+        'fetchedAt': (result or {}).get('fetchedAt'),
+    })
+
+
+@app.route('/admin/game/bloodstrike/set_script_mapping', methods=['POST'])
+def admin_game_bloodstrike_set_script_mapping():
+    if not session.get('is_admin'):
+        return jsonify({'success': False, 'error': 'Acceso denegado'}), 403
+
+    data = request.get_json() or request.form
+    local_id = data.get('local_id') or data.get('package_id')
+    if not local_id:
+        return jsonify({'success': False, 'error': 'Falta local_id'}), 400
+
+    package_key = (data.get('package_key') or '').strip() or None
+    package_title = (data.get('package_title') or '').strip() or None
+    package_price = (data.get('package_price') or '').strip() or None
+
+    conn = get_db_connection()
+    row = conn.execute('SELECT id, nombre FROM precios_bloodstriker WHERE id = ?', (local_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Paquete local no encontrado'}), 404
+
+    conn.execute('''
+        UPDATE precios_bloodstriker
+        SET game_script_package_key = ?,
+            game_script_package_title = ?,
+            game_script_package_price = ?,
+            fecha_actualizacion = CURRENT_TIMESTAMP
+        WHERE id = ?
+    ''', (package_key, package_title, package_price, local_id))
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'success': True,
+        'local_id': int(local_id),
+        'nombre': row['nombre'],
+        'package_key': package_key,
+        'package_title': package_title,
+        'package_price': package_price,
+    })
+
 @app.route('/admin/add_credit', methods=['POST'])
 def admin_add_credit():
     if not session.get('is_admin'):
@@ -5575,7 +5751,9 @@ def validar_bloodstriker():
     # Obtener información del paquete (necesitamos gamepoint_package_id)
     conn_pkg = get_db_connection()
     pkg_row = conn_pkg.execute(
-        'SELECT id, nombre, precio, descripcion, gamepoint_package_id FROM precios_bloodstriker WHERE id = ?',
+        '''SELECT id, nombre, precio, descripcion, gamepoint_package_id,
+                  game_script_package_key, game_script_package_title, game_script_package_price
+           FROM precios_bloodstriker WHERE id = ?''',
         (package_id,)
     ).fetchone()
     conn_pkg.close()
@@ -5585,9 +5763,11 @@ def validar_bloodstriker():
         return redirect('/juego/bloodstriker')
     
     gp_package_id = pkg_row['gamepoint_package_id']
+    script_package_key = pkg_row['game_script_package_key']
+    script_package_title = pkg_row['game_script_package_title']
     paquete_nombre = f"{pkg_row['nombre']} / ${precio:.2f}"
     
-    if not gp_package_id:
+    if not gp_package_id and not script_package_key:
         flash('Este paquete no tiene configurado el ID de GamePoint. Contacta al administrador.', 'error')
         return redirect('/juego/bloodstriker')
     
@@ -5622,6 +5802,183 @@ def validar_bloodstriker():
             return redirect('/juego/bloodstriker')
     except Exception:
         pass
+
+    if script_package_key:
+        import time as _time
+        import random as _bs_random
+        import string as _bs_string
+
+        _bs_start = _time.time()
+        _bs_tx_id = None
+        _bs_numero_control = ''.join(_bs_random.choices(_bs_string.digits, k=10))
+        _bs_transaccion_id = 'BS-' + ''.join(_bs_random.choices(_bs_string.ascii_uppercase + _bs_string.digits, k=8))
+        _bs_request_id = f'bs-script-{_bs_transaccion_id.lower()}'
+
+        try:
+            if not is_admin:
+                conn = get_db_connection()
+                cursor = conn.execute(
+                    'UPDATE usuarios SET saldo = saldo - ? WHERE id = ? AND saldo >= ?',
+                    (precio, user_id, precio))
+                if cursor.rowcount == 0:
+                    conn.close()
+                    flash('Saldo insuficiente al momento de procesar. Recarga tu saldo e intenta de nuevo.', 'error')
+                    return redirect('/juego/bloodstriker')
+                conn.commit()
+                new_saldo = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+                conn.close()
+                session['saldo'] = new_saldo['saldo'] if new_saldo else 0
+
+            try:
+                conn_proc = get_db_connection()
+                dup_proc = conn_proc.execute(
+                    '''SELECT id FROM transacciones_bloodstriker
+                       WHERE usuario_id = ? AND request_id = ?
+                       LIMIT 1''',
+                    (user_id, _bs_request_id)
+                ).fetchone()
+                if dup_proc:
+                    conn_proc.close()
+                    flash('Ya existe una solicitud de compra para este paquete. Espera unos segundos.', 'error')
+                    return redirect('/juego/bloodstriker')
+
+                conn_proc.execute('''
+                    INSERT INTO transacciones_bloodstriker
+                    (usuario_id, player_id, paquete_id, numero_control, transaccion_id, monto, estado, request_id)
+                    VALUES (?, ?, ?, ?, ?, ?, 'procesando', ?)
+                ''', (user_id, player_id, package_id, _bs_numero_control, _bs_transaccion_id, -precio, _bs_request_id))
+                conn_proc.commit()
+                _bs_tx_row = conn_proc.execute(
+                    'SELECT id FROM transacciones_bloodstriker WHERE transaccion_id = ?',
+                    (_bs_transaccion_id,)
+                ).fetchone()
+                _bs_tx_id = _bs_tx_row['id'] if _bs_tx_row else None
+                conn_proc.close()
+            except Exception as e_proc:
+                logger.error(f"[BloodStrike Script] Error insertando procesando: {e_proc}")
+                if not is_admin:
+                    conn_r = get_db_connection()
+                    conn_r.execute('UPDATE usuarios SET saldo = saldo + ? WHERE id = ?', (precio, user_id))
+                    conn_r.commit()
+                    conn_r.close()
+                    session['saldo'] = session.get('saldo', 0) + precio
+                flash('Error al procesar la solicitud. Tu saldo ha sido devuelto.', 'error')
+                return redirect('/juego/bloodstriker')
+
+            script_result = _game_script_buy(player_id, script_package_key, _bs_request_id)
+            script_ok = bool((script_result or {}).get('success'))
+            script_processing = bool((script_result or {}).get('processing'))
+            provider_ref = (script_result or {}).get('orden') or (script_result or {}).get('requestId') or _bs_request_id
+            provider_player = (script_result or {}).get('jugador') or ''
+            provider_error = (script_result or {}).get('error') or (script_result or {}).get('message') or 'Error desconocido del proveedor'
+            _bs_duration = round(_time.time() - _bs_start, 1)
+
+            if script_ok or script_processing:
+                estado_db = 'aprobado' if script_ok else 'procesando'
+                estado_txt = 'completado' if script_ok else 'procesando'
+                conn_upd = get_db_connection()
+                conn_upd.execute('''
+                    UPDATE transacciones_bloodstriker
+                    SET estado = ?, gamepoint_referenceno = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (estado_db, provider_ref, f'SCRIPT:{script_package_key}', _bs_tx_id))
+
+                display_package_name = pkg_row['nombre']
+                if script_package_title:
+                    display_package_name = f"{pkg_row['nombre']} ({script_package_title})"
+
+                if provider_player:
+                    pin_info = f"ID: {player_id} - Jugador: {provider_player} - Ref: {provider_ref}"
+                else:
+                    pin_info = f"ID: {player_id} - Ref: {provider_ref}"
+
+                conn_upd.execute('''
+                    INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto, duracion_segundos, request_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (user_id, _bs_numero_control, pin_info, _bs_transaccion_id, display_package_name, -precio, _bs_duration, _bs_request_id))
+
+                _bs_saldo_row = conn_upd.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+                _bs_saldo = _bs_saldo_row['saldo'] if _bs_saldo_row else 0
+                registrar_historial_compra(conn_upd, user_id, precio, display_package_name, pin_info, 'compra', _bs_duration, _bs_saldo + precio, _bs_saldo)
+
+                try:
+                    admin_ids_env = os.environ.get('ADMIN_USER_IDS', '').strip()
+                    admin_ids = [int(x.strip()) for x in admin_ids_env.split(',') if x.strip().isdigit()]
+                    is_admin_target = user_id in admin_ids
+                    record_profit_for_transaction(conn_upd, user_id, is_admin_target, 'bloodstriker', package_id, 1, precio, _bs_transaccion_id)
+                except Exception:
+                    pass
+
+                conn_upd.commit()
+                conn_upd.close()
+
+                if not is_admin:
+                    try:
+                        conn = get_db_connection()
+                        update_monthly_spending(conn, user_id, precio)
+                        conn.commit()
+                        conn.close()
+                    except Exception:
+                        pass
+
+                if not is_admin:
+                    register_weekly_sale('bloodstriker', package_id, pkg_row['nombre'], precio, 1)
+
+                session['compra_bloodstriker_exitosa'] = {
+                    'paquete_nombre': paquete_nombre,
+                    'monto_compra': precio,
+                    'numero_control': _bs_numero_control,
+                    'transaccion_id': _bs_transaccion_id,
+                    'player_id': player_id,
+                    'player_name': provider_player,
+                    'estado': estado_txt,
+                    'gamepoint_ref': provider_ref,
+                }
+                return redirect('/juego/bloodstriker?compra=exitosa')
+
+            conn_rej = get_db_connection()
+            conn_rej.execute('''
+                UPDATE transacciones_bloodstriker
+                SET estado = 'rechazado', gamepoint_referenceno = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (provider_ref, provider_error, _bs_tx_id))
+            conn_rej.commit()
+            conn_rej.close()
+
+            if not is_admin:
+                conn = get_db_connection()
+                conn.execute('UPDATE usuarios SET saldo = saldo + ? WHERE id = ?', (precio, user_id))
+                conn.commit()
+                conn.close()
+                session['saldo'] = session.get('saldo', 0) + precio
+
+            flash(f'La recarga falló: {provider_error}. Tu saldo ha sido devuelto.', 'error')
+            return redirect('/juego/bloodstriker')
+
+        except Exception as e:
+            logger.error(f"[BloodStrike Script] Error general: {str(e)}")
+            if _bs_tx_id:
+                try:
+                    conn_err = get_db_connection()
+                    conn_err.execute(
+                        'UPDATE transacciones_bloodstriker SET estado = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP WHERE id = ?',
+                        ('error', str(e)[:500], _bs_tx_id)
+                    )
+                    conn_err.commit()
+                    conn_err.close()
+                except Exception:
+                    pass
+            try:
+                if not is_admin:
+                    conn = get_db_connection()
+                    conn.execute('UPDATE usuarios SET saldo = saldo + ? WHERE id = ?', (precio, user_id))
+                    conn.commit()
+                    conn.close()
+                    session['saldo'] = session.get('saldo', 0) + precio
+            except Exception:
+                pass
+            flash('Error al procesar la compra con el módulo Game. Tu saldo ha sido devuelto.', 'error')
+            return redirect('/juego/bloodstriker')
     
     # === COMPRA AUTOMÁTICA VIA GAMEPOINT CLUB ===
     import time as _time
@@ -10824,12 +11181,62 @@ def api_recharge_dynamic():
     try:
         conn = get_db_connection()
         bs_pkg = conn.execute(
-            'SELECT id, nombre, precio, gamepoint_package_id FROM precios_bloodstriker WHERE id = ? AND activo = TRUE',
+            '''SELECT id, nombre, precio, gamepoint_package_id,
+                      game_script_package_key, game_script_package_title
+               FROM precios_bloodstriker WHERE id = ? AND activo = TRUE''',
             (package_id,)
         ).fetchone()
         conn.close()
     except Exception:
         bs_pkg = None
+
+    if bs_pkg and bs_pkg['game_script_package_key']:
+        import time as _t
+        _start = _t.time()
+        request_id = (request.form.get('request_id') or request.headers.get('X-Request-ID') or f"api-bs-{secrets.token_hex(8)}").strip()
+
+        try:
+            script_data = _game_script_buy(player_id, bs_pkg['game_script_package_key'], request_id)
+            _dur = round(_t.time() - _start, 1)
+            if (script_data or {}).get('success'):
+                provider_ref = (script_data or {}).get('orden') or (script_data or {}).get('requestId') or request_id
+                ingame_name = (script_data or {}).get('jugador') or ''
+
+                try:
+                    _lc = get_db_connection()
+                    _lc.execute(
+                        'INSERT INTO api_recharges_log (player_id, package_id, success, player_name, error_msg, duration_seconds, game_name, package_name) VALUES (?,?,?,?,?,?,?,?)',
+                        (player_id, package_id, 1, ingame_name, '', _dur, 'Blood Strike', bs_pkg['nombre'])
+                    )
+                    _lc.commit()
+                    _lc.close()
+                except Exception:
+                    pass
+
+                return jsonify({
+                    'ok': True,
+                    'player_name': ingame_name,
+                    'duration': _dur,
+                    'reference_no': provider_ref,
+                    'game': 'Blood Strike',
+                })
+
+            err_msg = (script_data or {}).get('error') or (script_data or {}).get('message') or 'Error creando orden en Game Script'
+            try:
+                _lc = get_db_connection()
+                _lc.execute(
+                    'INSERT INTO api_recharges_log (player_id, package_id, success, player_name, error_msg, duration_seconds, game_name, package_name) VALUES (?,?,?,?,?,?,?,?)',
+                    (player_id, package_id, 0, '', err_msg, _dur, 'Blood Strike', bs_pkg['nombre'])
+                )
+                _lc.commit()
+                _lc.close()
+            except Exception:
+                pass
+
+            return jsonify({'ok': False, 'error': err_msg}), 422
+        except Exception as e:
+            logger.error(f'[API BSRecharge Script] Error general: {e}')
+            return jsonify({'ok': False, 'error': f'Error interno: {str(e)}'}), 500
 
     if bs_pkg and bs_pkg['gamepoint_package_id']:
         import time as _t
