@@ -7,7 +7,7 @@ import json
 import os
 import re
 import secrets
-from pg_compat import get_db_connection as _pg_get_conn
+from pg_compat import get_db_connection as _pg_get_conn, table_exists as _pg_table_exists
 import time as time_module
 import logging
 
@@ -481,35 +481,41 @@ def admin_get_packages(game_id):
 def admin_add_package(game_id):
     if not session.get('is_admin'):
         return jsonify({'error': 'Acceso denegado'}), 403
-    data = request.get_json() or request.form
-    nombre = (data.get('nombre') or '').strip()
-    descripcion = (data.get('descripcion') or '').strip()
-    gp_pkg_id = data.get('gamepoint_package_id')
-
-    game = get_dynamic_game_by_id(game_id)
-    if not game:
-        return jsonify({'error': 'Juego no encontrado'}), 404
-
     try:
-        precio = float(data.get('precio', 0) or 0)
-    except (TypeError, ValueError):
-        return jsonify({'error': 'El precio debe ser numérico'}), 400
+        data = request.get_json(silent=True) or request.form
+        nombre = (data.get('nombre') or '').strip()
+        descripcion = (data.get('descripcion') or '').strip()
+        gp_pkg_id = data.get('gamepoint_package_id')
 
-    try:
-        orden = int(data.get('orden', 0) or 0)
-    except (TypeError, ValueError):
-        return jsonify({'error': 'El orden debe ser numérico'}), 400
+        try:
+            precio = float(data.get('precio', 0) or 0)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'El precio debe ser numérico'}), 400
 
-    try:
-        gp_pkg_id = int(gp_pkg_id) if gp_pkg_id not in (None, '', 'null') else None
-    except (TypeError, ValueError):
-        return jsonify({'error': 'El GamePoint Package ID debe ser numérico'}), 400
+        try:
+            orden = int(data.get('orden', 0) or 0)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'El orden debe ser numérico'}), 400
 
-    if not nombre or precio <= 0:
-        return jsonify({'error': 'Nombre y precio son obligatorios'}), 400
+        try:
+            gp_pkg_id = int(gp_pkg_id) if gp_pkg_id not in (None, '', 'null') else None
+        except (TypeError, ValueError):
+            return jsonify({'error': 'El GamePoint Package ID debe ser numérico'}), 400
 
-    conn = _get_conn()
-    try:
+        if not nombre or precio <= 0:
+            return jsonify({'error': 'Nombre y precio son obligatorios'}), 400
+
+        conn = _get_conn()
+        if not _pg_table_exists(conn, 'juegos_dinamicos') or not _pg_table_exists(conn, 'paquetes_dinamicos'):
+            conn.close()
+            return jsonify({'error': 'Las tablas de juegos dinámicos no existen en la base de datos PostgreSQL'}), 500
+
+        row = conn.execute('SELECT * FROM juegos_dinamicos WHERE id = ?', (game_id,)).fetchone()
+        game = dict(row) if row else None
+        if not game:
+            conn.close()
+            return jsonify({'error': 'Juego no encontrado'}), 404
+
         cur = conn.execute('''
             INSERT INTO paquetes_dinamicos (juego_id, nombre, precio, descripcion, gamepoint_package_id, activo, orden)
             VALUES (?, ?, ?, ?, ?, TRUE, ?)
@@ -535,7 +541,10 @@ def admin_add_package(game_id):
         logger.exception('Error agregando paquete dinámico al juego %s', game_id)
         return jsonify({'error': f'No se pudo agregar el paquete: {str(e)}'}), 500
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 @bp.route('/admin/dynamic-games/packages/<int:pkg_id>/update', methods=['POST'])
