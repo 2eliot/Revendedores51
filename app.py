@@ -4524,10 +4524,12 @@ def admin_game_bloodstrike_mappings():
     conn = get_db_connection()
     rows = conn.execute('''
         SELECT id, nombre, precio,
+               gamepoint_package_id,
                game_script_package_key,
                game_script_package_title,
                game_script_package_price
         FROM precios_bloodstriker
+        WHERE gamepoint_package_id IS NULL OR gamepoint_package_id = 0 OR game_script_package_key IS NOT NULL
         ORDER BY id
     ''').fetchall()
     conn.close()
@@ -4583,10 +4585,20 @@ def admin_game_bloodstrike_set_script_mapping():
     package_price = (data.get('package_price') or '').strip() or None
 
     conn = get_db_connection()
-    row = conn.execute('SELECT id, nombre FROM precios_bloodstriker WHERE id = ?', (local_id,)).fetchone()
+    row = conn.execute(
+        'SELECT id, nombre, gamepoint_package_id FROM precios_bloodstriker WHERE id = ?',
+        (local_id,)
+    ).fetchone()
     if not row:
         conn.close()
         return jsonify({'success': False, 'error': 'Paquete local no encontrado'}), 404
+
+    if package_key and row['gamepoint_package_id']:
+        conn.close()
+        return jsonify({
+            'success': False,
+            'error': 'Este paquete ya está asignado a GameClub. Quita esa asignación antes de enlazarlo al módulo Game.'
+        }), 409
 
     conn.execute('''
         UPDATE precios_bloodstriker
@@ -5881,16 +5893,16 @@ def validar_bloodstriker():
                     UPDATE transacciones_bloodstriker
                     SET estado = ?, gamepoint_referenceno = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP
                     WHERE id = ?
-                ''', (estado_db, provider_ref, f'SCRIPT:{script_package_key}', _bs_tx_id))
+                ''', (estado_db, provider_ref, f'SCRIPT:{script_package_key}|ESTADO:{estado_txt}|USUARIO:{provider_player or ""}', _bs_tx_id))
 
                 display_package_name = pkg_row['nombre']
                 if script_package_title:
                     display_package_name = f"{pkg_row['nombre']} ({script_package_title})"
 
                 if provider_player:
-                    pin_info = f"ID: {player_id} - Jugador: {provider_player} - Ref: {provider_ref}"
+                    pin_info = f"ID: {player_id} - Usuario: {provider_player}"
                 else:
-                    pin_info = f"ID: {player_id} - Ref: {provider_ref}"
+                    pin_info = f"ID: {player_id}"
 
                 conn_upd.execute('''
                     INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto, duracion_segundos, request_id)
@@ -5932,7 +5944,6 @@ def validar_bloodstriker():
                     'player_id': player_id,
                     'player_name': provider_player,
                     'estado': estado_txt,
-                    'gamepoint_ref': provider_ref,
                 }
                 return redirect('/juego/bloodstriker?compra=exitosa')
 
@@ -11215,6 +11226,7 @@ def api_recharge_dynamic():
 
                 return jsonify({
                     'ok': True,
+                    'purchase_status': 'completed',
                     'player_name': ingame_name,
                     'duration': _dur,
                     'reference_no': provider_ref,
@@ -11233,7 +11245,7 @@ def api_recharge_dynamic():
             except Exception:
                 pass
 
-            return jsonify({'ok': False, 'error': err_msg}), 422
+            return jsonify({'ok': False, 'purchase_status': 'failed', 'error': err_msg}), 422
         except Exception as e:
             logger.error(f'[API BSRecharge Script] Error general: {e}')
             return jsonify({'ok': False, 'error': f'Error interno: {str(e)}'}), 500

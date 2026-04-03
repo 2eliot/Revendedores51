@@ -1956,7 +1956,7 @@
         return;
       }
 
-      let html = '<table class="table" style="width:100%;min-width:760px;"><thead><tr><th>ID local</th><th>Paquete local</th><th>Precio USD</th><th>Paquete mapeado</th><th>Acción</th></tr></thead><tbody>';
+      let html = '<table class="table" style="width:100%;min-width:760px;background:#ffffff;color:#111827;border-radius:10px;overflow:hidden;"><thead><tr><th style="color:#111827;background:#e5e7eb;">ID local</th><th style="color:#111827;background:#e5e7eb;">Paquete local</th><th style="color:#111827;background:#e5e7eb;">Precio USD</th><th style="color:#111827;background:#e5e7eb;">Paquete mapeado</th><th style="color:#111827;background:#e5e7eb;">Acción</th></tr></thead><tbody>';
       gameScriptLocalPackages.forEach(pkg => {
         const currentKey = pkg.game_script_package_key || '';
         const currentTitle = pkg.game_script_package_title || '';
@@ -1974,15 +1974,19 @@
           options += `<option value="${gameScriptEscapeHtml(currentKey)}" data-title="${gameScriptEscapeHtml(currentTitle)}" data-price="${gameScriptEscapeHtml(currentPrice)}">${gameScriptEscapeHtml(savedLabel)}</option>`;
         }
 
-        html += `<tr>
-          <td>${pkg.id}</td>
-          <td>${gameScriptEscapeHtml(pkg.nombre)}</td>
-          <td>$${Number(pkg.precio || 0).toFixed(2)}</td>
+        const providerBadge = pkg.gamepoint_package_id
+          ? '<div style="font-size:11px;color:#b91c1c;margin-top:4px;">Asignado a GameClub</div>'
+          : '<div style="font-size:11px;color:#065f46;margin-top:4px;">Disponible para módulo Game</div>';
+
+        html += `<tr style="background:#ffffff;color:#111827;">
+          <td style="color:#111827;background:#ffffff;">${pkg.id}</td>
+          <td style="color:#111827;background:#ffffff;">${gameScriptEscapeHtml(pkg.nombre)}${providerBadge}</td>
+          <td style="color:#111827;background:#ffffff;">$${Number(pkg.precio || 0).toFixed(2)}</td>
           <td>
-            <select id="game-script-select-${pkg.id}" style="width:100%;padding:7px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#e6edf3;">
+            <select id="game-script-select-${pkg.id}" style="width:100%;padding:7px 8px;background:#ffffff;border:1px solid #cbd5e1;border-radius:6px;color:#111827;">
               ${options}
             </select>
-            <div style="font-size:11px;color:#8b949e;margin-top:4px;">Actual: ${gameScriptEscapeHtml(currentTitle || 'Sin asignar')}${currentPrice ? ' | ' + gameScriptEscapeHtml(currentPrice) : ''}</div>
+            <div style="font-size:11px;color:#374151;margin-top:4px;">Actual: ${gameScriptEscapeHtml(currentTitle || 'Sin asignar')}${currentPrice ? ' | ' + gameScriptEscapeHtml(currentPrice) : ''}</div>
           </td>
           <td>
             <button type="button" class="btn btn-primary" style="padding:7px 12px;" onclick="saveGameScriptMapping(${pkg.id})">Guardar</button>
