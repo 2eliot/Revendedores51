@@ -57,6 +57,9 @@
         <button class="side-tab-button" data-tab="costo" onclick="showTab('costo', event)" aria-label="Costo">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32l1.41-1.41"/><circle cx="12" cy="12" r="5"/><path d="M12 7v5l3 3"/></svg></span><span class="label">Costo</span>
         </button>
+        <button class="side-tab-button" data-tab="game" onclick="showTab('game', event)" aria-label="Game">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="3"/><path d="M8 12h4"/><path d="M10 10v4"/><circle cx="16" cy="10" r="1"/><circle cx="18" cy="13" r="1"/></svg></span><span class="label">Game</span>
+        </button>
         <button class="side-tab-button" data-tab="gameclub" onclick="showTab('gameclub', event)" aria-label="GameClub">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10H7z"/><path d="M4 4h4"/><path d="M16 4h4"/><path d="M4 20h4"/><path d="M16 20h4"/></svg></span><span class="label">GameClub</span>
         </button>
@@ -260,6 +263,42 @@
             </div>
           </div>
           {% endfor %}
+        </section>
+      </div>
+
+      <div id="tab-game" class="tab-content">
+        <section class="prices-section">
+          <h2>Game - Blood Strike Script</h2>
+          <p style="color:#8b949e;font-size:13px;margin-bottom:16px;">Módulo independiente para mapear paquetes del script externo y usar ese proveedor cuando un paquete local esté enlazado.</p>
+
+          <div class="card" style="margin-bottom:16px;border:1px solid rgba(88,166,255,0.2);">
+            <div class="card-header"><h3>Estado de conexión</h3></div>
+            <div class="card-body" style="display:flex;flex-direction:column;gap:10px;">
+              <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                <span style="color:#8b949e;font-size:12px;">Servicio:</span>
+                <strong id="game-script-service-url" style="color:#e6edf3;">-</strong>
+                <span id="game-script-service-status" style="font-size:12px;color:#8b949e;">Sin validar</span>
+              </div>
+              <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+                <div>
+                  <label for="game-script-role-id" style="display:block;color:#8b949e;font-size:11px;margin-bottom:4px;">Role ID para mapear</label>
+                  <input id="game-script-role-id" type="text" placeholder="827603694423" style="padding:8px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#e6edf3;min-width:220px;">
+                </div>
+                <button type="button" class="btn btn-secondary" onclick="loadGameScriptModule(true)">Recargar módulo</button>
+                <button type="button" class="btn btn-success" onclick="mapearGameScriptPackages()">Mapear paquetes</button>
+              </div>
+              <div id="game-script-status" style="font-size:12px;color:#8b949e;"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><h3>Asignación de paquetes locales</h3></div>
+            <div class="card-body">
+              <div id="game-script-mapping-table-wrap" style="overflow-x:auto;">
+                <div style="text-align:center;padding:24px;color:#8b949e;">Abre la pestaña Game para cargar el módulo.</div>
+              </div>
+            </div>
+          </div>
         </section>
       </div>
       
@@ -1451,6 +1490,10 @@
       const target = document.getElementById('tab-' + tabName);
       if (target) target.classList.add('active');
 
+      if (tabName === 'game') {
+        loadGameScriptModule();
+      }
+
       // Guardar pestaña activa en el hash de la URL (sin localStorage)
       try {
         window.location.hash = 'tab=' + tabName;
@@ -1888,6 +1931,180 @@
       } catch (e) {
         statusEl.textContent = 'Error inesperado.';
         bodyEl.innerHTML = '<tr><td colspan="2" style="color:#dc3545;">Error.</td></tr>';
+      }
+    }
+
+    let gameScriptMappedPackages = [];
+    let gameScriptLocalPackages = [];
+    let gameScriptLoaded = false;
+
+    function gameScriptEscapeHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function renderGameScriptMappings() {
+      const wrap = document.getElementById('game-script-mapping-table-wrap');
+      if (!wrap) return;
+
+      if (!gameScriptLocalPackages.length) {
+        wrap.innerHTML = '<div style="text-align:center;padding:24px;color:#8b949e;">No hay paquetes locales de Blood Strike.</div>';
+        return;
+      }
+
+      let html = '<table class="table" style="width:100%;min-width:760px;"><thead><tr><th>ID local</th><th>Paquete local</th><th>Precio USD</th><th>Paquete mapeado</th><th>Acción</th></tr></thead><tbody>';
+      gameScriptLocalPackages.forEach(pkg => {
+        const currentKey = pkg.game_script_package_key || '';
+        const currentTitle = pkg.game_script_package_title || '';
+        const currentPrice = pkg.game_script_package_price || '';
+        const hasCurrentInList = gameScriptMappedPackages.some(item => item.packageKey === currentKey);
+
+        let options = '<option value="">-- Sin asignar --</option>';
+        gameScriptMappedPackages.forEach(item => {
+          const label = `${item.title}${item.price ? ' | ' + item.price : ''}`;
+          options += `<option value="${gameScriptEscapeHtml(item.packageKey)}" data-title="${gameScriptEscapeHtml(item.title)}" data-price="${gameScriptEscapeHtml(item.price || '')}">${gameScriptEscapeHtml(label)}</option>`;
+        });
+
+        if (currentKey && !hasCurrentInList) {
+          const savedLabel = `${currentTitle || currentKey}${currentPrice ? ' | ' + currentPrice : ''} [guardado]`;
+          options += `<option value="${gameScriptEscapeHtml(currentKey)}" data-title="${gameScriptEscapeHtml(currentTitle)}" data-price="${gameScriptEscapeHtml(currentPrice)}">${gameScriptEscapeHtml(savedLabel)}</option>`;
+        }
+
+        html += `<tr>
+          <td>${pkg.id}</td>
+          <td>${gameScriptEscapeHtml(pkg.nombre)}</td>
+          <td>$${Number(pkg.precio || 0).toFixed(2)}</td>
+          <td>
+            <select id="game-script-select-${pkg.id}" style="width:100%;padding:7px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#e6edf3;">
+              ${options}
+            </select>
+            <div style="font-size:11px;color:#8b949e;margin-top:4px;">Actual: ${gameScriptEscapeHtml(currentTitle || 'Sin asignar')}${currentPrice ? ' | ' + gameScriptEscapeHtml(currentPrice) : ''}</div>
+          </td>
+          <td>
+            <button type="button" class="btn btn-primary" style="padding:7px 12px;" onclick="saveGameScriptMapping(${pkg.id})">Guardar</button>
+          </td>
+        </tr>`;
+      });
+      html += '</tbody></table>';
+      wrap.innerHTML = html;
+
+      gameScriptLocalPackages.forEach(pkg => {
+        const select = document.getElementById(`game-script-select-${pkg.id}`);
+        if (select && pkg.game_script_package_key) {
+          select.value = pkg.game_script_package_key;
+        }
+      });
+    }
+
+    async function loadGameScriptModule(force = false) {
+      if (gameScriptLoaded && !force) return;
+
+      const statusEl = document.getElementById('game-script-status');
+      const serviceEl = document.getElementById('game-script-service-url');
+      const serviceStatusEl = document.getElementById('game-script-service-status');
+      if (statusEl) statusEl.textContent = 'Cargando módulo...';
+
+      try {
+        const res = await fetch('/admin/game/bloodstrike/mappings', { headers: { 'Accept': 'application/json' } });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          if (statusEl) statusEl.textContent = data.error || 'No se pudo cargar el módulo';
+          return;
+        }
+
+        gameScriptLocalPackages = data.local_packages || [];
+        if (serviceEl) serviceEl.textContent = data.service_url || '-';
+        if (serviceStatusEl) {
+          const serviceStatus = data.service_status || {};
+          serviceStatusEl.textContent = serviceStatus.status === 'online'
+            ? `Online | activas ${serviceStatus.tareasActivas || 0} | cola ${serviceStatus.enCola || 0}`
+            : (serviceStatus.error || 'Sin conexión');
+          serviceStatusEl.style.color = serviceStatus.status === 'online' ? '#4ade80' : '#f87171';
+        }
+
+        renderGameScriptMappings();
+        gameScriptLoaded = true;
+        if (statusEl) statusEl.textContent = 'Módulo cargado.';
+      } catch (e) {
+        if (statusEl) statusEl.textContent = 'Error cargando el módulo.';
+      }
+    }
+
+    async function mapearGameScriptPackages() {
+      const roleInput = document.getElementById('game-script-role-id');
+      const statusEl = document.getElementById('game-script-status');
+      const roleId = (roleInput && roleInput.value || '').trim();
+      if (!roleId) {
+        if (statusEl) statusEl.textContent = 'Debes indicar un Role ID para mapear.';
+        return;
+      }
+
+      if (statusEl) statusEl.textContent = 'Mapeando paquetes desde el script...';
+      try {
+        const res = await fetch('/admin/game/bloodstrike/mapear', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ roleId })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          if (statusEl) statusEl.textContent = data.error || 'No se pudo mapear';
+          return;
+        }
+
+        gameScriptMappedPackages = data.packages || [];
+        renderGameScriptMappings();
+        if (statusEl) statusEl.textContent = `Mapeo actualizado: ${data.total || 0} paquetes encontrados.`;
+      } catch (e) {
+        if (statusEl) statusEl.textContent = 'Error mapeando paquetes.';
+      }
+    }
+
+    async function saveGameScriptMapping(localId) {
+      const select = document.getElementById(`game-script-select-${localId}`);
+      const statusEl = document.getElementById('game-script-status');
+      if (!select) return;
+
+      const selected = select.options[select.selectedIndex];
+      const packageKey = select.value || '';
+      const packageTitle = packageKey ? (selected.getAttribute('data-title') || '') : '';
+      const packagePrice = packageKey ? (selected.getAttribute('data-price') || '') : '';
+
+      if (statusEl) statusEl.textContent = `Guardando mapeo para paquete local #${localId}...`;
+      try {
+        const res = await fetch('/admin/game/bloodstrike/set_script_mapping', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({
+            local_id: localId,
+            package_key: packageKey,
+            package_title: packageTitle,
+            package_price: packagePrice,
+          })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          if (statusEl) statusEl.textContent = data.error || 'No se pudo guardar el mapeo';
+          return;
+        }
+
+        gameScriptLocalPackages = gameScriptLocalPackages.map(pkg => {
+          if (Number(pkg.id) !== Number(localId)) return pkg;
+          return {
+            ...pkg,
+            game_script_package_key: packageKey || null,
+            game_script_package_title: packageTitle || null,
+            game_script_package_price: packagePrice || null,
+          };
+        });
+        renderGameScriptMappings();
+        if (statusEl) statusEl.textContent = `Mapeo guardado para ${data.nombre}.`;
+      } catch (e) {
+        if (statusEl) statusEl.textContent = 'Error guardando el mapeo.';
       }
     }
 
