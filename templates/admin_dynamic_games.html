@@ -214,7 +214,7 @@
 
       {% if game._packages %}
       <table class="pkg-table">
-        <thead><tr><th>#</th><th>Nombre</th><th>Precio</th><th>GP ID</th><th>Activo</th><th></th></tr></thead>
+        <thead><tr><th>#</th><th>Nombre</th><th>Precio</th><th>Orden</th><th>GP ID</th><th>Activo</th><th></th></tr></thead>
         <tbody id="pkg-body-{{ game.id }}">
           {% for p in game._packages %}
           <tr id="pkg-row-{{ p.id }}">
@@ -224,8 +224,15 @@
               <input type="number" step="0.01" value="{{ p.precio }}" id="pkg-price-{{ p.id }}" style="width:80px;">
               <div id="pkg-profit-{{ p.id }}" data-cost="{{ p._costo_compra if p._costo_compra is not none else '' }}" style="margin-top:4px;color:#8896a6;font-size:0.8em;"></div>
             </td>
+            <td>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <input type="number" step="1" value="{{ p.orden if p.orden is not none else 0 }}" id="pkg-order-{{ p.id }}" style="width:70px;">
+                <button class="btn btn-sm btn-outline" onclick="movePkg({{ game.id }}, {{ p.id }}, -1)">↑</button>
+                <button class="btn btn-sm btn-outline" onclick="movePkg({{ game.id }}, {{ p.id }}, 1)">↓</button>
+              </div>
+            </td>
             <td><input type="number" value="{{ p.gamepoint_package_id or '' }}" id="pkg-gpid-{{ p.id }}" style="width:80px;"></td>
-            <td style="text-align:center;">{{ '✅' if p.activo else '❌' }}</td>
+            <td style="text-align:center;"><input type="checkbox" id="pkg-active-{{ p.id }}" {{ 'checked' if p.activo else '' }}></td>
             <td class="actions">
               <button class="btn btn-sm btn-outline" onclick="savePkg({{ p.id }})">💾</button>
               <button class="btn btn-sm btn-outline" onclick="togglePkg({{ p.id }}, {{ 'false' if p.activo else 'true' }})">{{ '⏸️' if p.activo else '▶️' }}</button>
@@ -360,7 +367,9 @@
     const body = {
       nombre: document.getElementById('pkg-name-'+id).value,
       precio: parseFloat(document.getElementById('pkg-price-'+id).value),
+      orden: parseInt(document.getElementById('pkg-order-'+id).value) || 0,
       gamepoint_package_id: document.getElementById('pkg-gpid-'+id).value || null,
+      activo: !!document.getElementById('pkg-active-'+id).checked,
     };
     const res = await fetch(`/admin/dynamic-games/packages/${id}/update`, {
       method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify(body)
@@ -380,6 +389,27 @@
   async function deletePkg(id) {
     await fetch(`/admin/dynamic-games/packages/${id}/delete`, {method:'POST',headers:{'Accept':'application/json'}});
     document.getElementById('pkg-row-'+id)?.remove();
+  }
+
+  function movePkg(gameId, pkgId, direction) {
+    const tbody = document.getElementById('pkg-body-' + gameId);
+    if (!tbody) return;
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const currentIndex = rows.findIndex(row => row.id === 'pkg-row-' + pkgId);
+    if (currentIndex === -1) return;
+    const targetIndex = currentIndex + direction;
+    if (targetIndex < 0 || targetIndex >= rows.length) return;
+    const currentRow = rows[currentIndex];
+    const targetRow = rows[targetIndex];
+    if (direction < 0) {
+      tbody.insertBefore(currentRow, targetRow);
+    } else {
+      tbody.insertBefore(targetRow, currentRow);
+    }
+    Array.from(tbody.querySelectorAll('tr')).forEach((row, index) => {
+      const orderInput = row.querySelector('input[id^="pkg-order-"]');
+      if (orderInput) orderInput.value = index;
+    });
   }
 
   function updatePkgProfit(pkgId) {

@@ -599,7 +599,7 @@
     // ===== Sistema de popup de noticias =====
     let _newsQueue = [];
     let _currentNewsId = null;
-    const _newsDismissedStorageKey = 'dismissedNewsIds';
+    const _newsDismissedStorageKey = 'dismissedNewsIds:{{ "admin" if is_admin else "user" }}:{{ user_id }}';
     const _sessionDismissedIds = new Set();
 
     function _loadPersistedDismissedIds() {
