@@ -486,6 +486,7 @@ def admin_add_package(game_id):
         nombre = (data.get('nombre') or '').strip()
         descripcion = (data.get('descripcion') or '').strip()
         gp_pkg_id = data.get('gamepoint_package_id')
+        game_script_only = str(data.get('game_script_only', 'false')).strip().lower() in ('1', 'true', 'yes', 'on')
 
         try:
             precio = float(data.get('precio', 0) or 0)
@@ -517,10 +518,10 @@ def admin_add_package(game_id):
             return jsonify({'error': 'Juego no encontrado'}), 404
 
         cur = conn.execute('''
-            INSERT INTO paquetes_dinamicos (juego_id, nombre, precio, descripcion, gamepoint_package_id, activo, orden)
-            VALUES (?, ?, ?, ?, ?, TRUE, ?)
+            INSERT INTO paquetes_dinamicos (juego_id, nombre, precio, descripcion, gamepoint_package_id, game_script_only, activo, orden)
+            VALUES (?, ?, ?, ?, ?, ?, TRUE, ?)
             RETURNING id
-        ''', (game_id, nombre, precio, descripcion, gp_pkg_id, orden))
+        ''', (game_id, nombre, precio, descripcion, gp_pkg_id, game_script_only, orden))
         pkg_id = cur.fetchone()[0]
         conn.commit()
 
@@ -998,8 +999,15 @@ def validar_dinamico(slug):
         return redirect(redirect_url)
 
     precio = pkg['precio']
+    script_only = bool(pkg.get('game_script_only'))
+    script_package_key = pkg.get('game_script_package_key')
+    script_package_title = pkg.get('game_script_package_title')
     gp_package_id = pkg.get('gamepoint_package_id')
-    if not gp_package_id:
+    if script_only and slug == 'blood-strike' and not script_package_key:
+        flash('Este paquete está marcado como Solo Game pero no tiene mapeo configurado.', 'error')
+        return redirect(redirect_url)
+
+    if not script_only and not gp_package_id:
         flash('Este paquete no tiene configurado el ID de GamePoint.', 'error')
         return redirect(redirect_url)
 
@@ -1094,6 +1102,109 @@ def validar_dinamico(slug):
             conn_cleanup.commit()
             conn_cleanup.close()
             flash('Error al procesar. Tu saldo ha sido devuelto.', 'error')
+            return redirect(redirect_url)
+
+        if slug == 'blood-strike' and script_only:
+            from app import _game_script_buy, register_weekly_sale
+
+            script_result = _game_script_buy(player_id, script_package_key, request_id)
+            script_ok = bool((script_result or {}).get('success'))
+            script_processing = bool((script_result or {}).get('processing'))
+            provider_ref = (script_result or {}).get('orden') or (script_result or {}).get('requestId') or request_id
+            provider_player = (script_result or {}).get('jugador') or ''
+            provider_error = (script_result or {}).get('error') or (script_result or {}).get('message') or 'Error desconocido del proveedor'
+            _duration = round(time_module.time() - _start, 1)
+
+            if script_ok or script_processing:
+                estado_db = 'aprobado' if script_ok else 'procesando'
+                estado_txt = 'completado' if script_ok else 'procesando'
+
+                conn = _get_conn()
+                conn.execute('''
+                    UPDATE transacciones_dinamicas
+                    SET estado = ?, gamepoint_referenceno = ?, ingame_name = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (estado_db, provider_ref, provider_player or None, f'SCRIPT:{script_package_key}|ESTADO:{estado_txt}|USUARIO:{provider_player or ""}', _tx_procesando_id))
+
+                paquete_display = f"{game['nombre']} - {pkg['nombre']}"
+                if script_package_title:
+                    paquete_display = f"{game['nombre']} - {pkg['nombre']} ({script_package_title})"
+
+                pin_info = f"ID: {player_id}"
+                if provider_player:
+                    pin_info = f"ID: {player_id} - Usuario: {provider_player}"
+
+                transaccion_id = merchant_code
+                conn.execute('''
+                    INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto, duracion_segundos, request_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (user_id, numero_control, pin_info, transaccion_id, paquete_display, -precio, _duration, request_id))
+
+                _saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+                _saldo = _saldo_row['saldo'] if _saldo_row else 0
+                conn.execute('''
+                    INSERT INTO historial_compras (usuario_id, monto, paquete_nombre, pin, tipo_evento, duracion_segundos, saldo_antes, saldo_despues)
+                    VALUES (?, ?, ?, ?, 'compra', ?, ?, ?)
+                ''', (user_id, precio, paquete_display, pin_info, _duration, _saldo + precio, _saldo))
+
+                try:
+                    juego_key = f'dyn_{game["slug"]}'
+                    costo_row = conn.execute('SELECT precio_compra FROM precios_compra WHERE juego=? AND paquete_id=?',
+                                             (juego_key, package_id)).fetchone()
+                    costo_unit = costo_row['precio_compra'] if costo_row else 0
+                    profit_unit = round(precio - costo_unit, 4)
+                    conn.execute('''
+                        INSERT INTO profit_ledger (usuario_id, juego, paquete_id, cantidad, precio_venta_unit, costo_unit, profit_unit, profit_total, transaccion_id)
+                        VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)
+                    ''', (user_id, juego_key, package_id, precio, costo_unit, profit_unit, profit_unit, transaccion_id))
+                except Exception:
+                    pass
+
+                if not is_admin:
+                    try:
+                        from update_monthly_spending import update_monthly_spending
+                        update_monthly_spending(conn, user_id, precio)
+                    except Exception:
+                        pass
+
+                if not is_admin:
+                    try:
+                        register_weekly_sale(f'dyn_{game["slug"]}', package_id, pkg['nombre'], precio, 1)
+                    except Exception:
+                        pass
+
+                success_payload = {
+                    'paquete_nombre': pkg['nombre'],
+                    'monto_compra': precio,
+                    'numero_control': numero_control,
+                    'transaccion_id': transaccion_id,
+                    'player_id': player_id,
+                    'player_id2': player_id2,
+                    'servidor': servidor,
+                    'player_name': provider_player,
+                    'estado': estado_txt,
+                }
+                complete_idempotent_purchase(conn, user_id, endpoint_key, request_id, success_payload, transaccion_id, numero_control)
+                conn.commit()
+                conn.close()
+                session[f'compra_dyn_{slug}_exitosa'] = success_payload
+                return redirect(f'/juego/d/{slug}?compra=exitosa')
+
+            conn = _get_conn()
+            conn.execute('''
+                UPDATE transacciones_dinamicas
+                SET estado = 'rechazado', gamepoint_referenceno = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (provider_ref, provider_error, _tx_procesando_id))
+            conn.commit()
+            conn.close()
+
+            _refund(user_id, precio, is_admin)
+            conn_cleanup = _get_conn()
+            clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
+            conn_cleanup.commit()
+            conn_cleanup.close()
+            flash(f'La recarga falló: {provider_error}. Tu saldo ha sido devuelto.', 'error')
             return redirect(redirect_url)
 
         # 2. Get GamePoint token

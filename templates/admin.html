@@ -645,11 +645,15 @@
 
             <!-- Botón añadir paquete (solo para juegos dinámicos) -->
             <div id="add-pkg-area" style="display:none;margin-top:10px;padding:10px;background:rgba(255,255,255,0.03);border:1px dashed rgba(255,255,255,0.1);border-radius:8px;">
-              <div style="display:grid;grid-template-columns:2fr 1fr auto;gap:8px;align-items:end;">
+              <div style="display:grid;grid-template-columns:2fr 1fr auto auto;gap:8px;align-items:end;">
                 <div><label style="color:#8896a6;font-size:11px;display:block;">Nombre</label>
                   <input id="new-dyn-pkg-name" placeholder="100 Diamantes" style="width:100%;padding:7px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#e0e0e0;font-size:13px;"></div>
                 <div><label style="color:#8896a6;font-size:11px;display:block;">Precio USD</label>
                   <input id="new-dyn-pkg-price" type="number" step="0.01" placeholder="0.80" style="width:100%;padding:7px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#e0e0e0;font-size:13px;"></div>
+                <label id="new-dyn-pkg-game-only-wrap" style="display:none;color:#ccc;font-size:12px;align-items:center;gap:6px;cursor:pointer;margin-bottom:8px;">
+                  <input id="new-dyn-pkg-game-only" type="checkbox">
+                  <span>Solo Game</span>
+                </label>
                 <button type="button" class="btn btn-success" style="padding:7px 14px;font-size:12px;" onclick="addDynPackage()">+ Añadir</button>
               </div>
               <span id="add-pkg-status" style="font-size:11px;color:#888;margin-top:4px;display:block;"></span>
@@ -942,7 +946,7 @@
         "nombre": "{{ dg.nombre }}",
         "packages": [
           {% for p in dg._packages %}
-          {"id": {{ p.id }}, "nombre": "{{ p.nombre }}", "precio": {{ p.precio }}}{% if not loop.last %},{% endif %}
+          {"id": {{ p.id }}, "nombre": "{{ p.nombre }}", "precio": {{ p.precio }}, "gamepoint_package_id": {{ p.gamepoint_package_id if p.gamepoint_package_id is not none else 'null' }}, "game_script_only": {{ 'true' if p.game_script_only else 'false' }}}{% if not loop.last %},{% endif %}
           {% endfor %}
         ]
       }{% if not loop.last %},{% endif %}
@@ -1285,10 +1289,16 @@
       info.innerHTML = `<span style="color:#9aa5b1;">Costo: $${cost.toFixed(2)}</span> <span style="color:${profitColor};">Ganancia: $${profit.toFixed(2)}</span>`;
     }
 
+    function dynamicGameSupportsGameScript(game) {
+      return !!(dynGamesData[game] && dynGamesData[game].slug === 'blood-strike');
+    }
+
     async function renderPricePackageList(game) {
       const container = document.getElementById('price-package-list');
       const batchGame = document.getElementById('batch_game');
       const addArea = document.getElementById('add-pkg-area');
+      const addGameOnlyWrap = document.getElementById('new-dyn-pkg-game-only-wrap');
+      const addGameOnlyInput = document.getElementById('new-dyn-pkg-game-only');
       if (!container || !batchGame) return;
       batchGame.value = game;
 
@@ -1306,6 +1316,8 @@
       }
 
       if (addArea) addArea.style.display = isDyn ? 'block' : 'none';
+      if (addGameOnlyWrap) addGameOnlyWrap.style.display = isDyn && dynamicGameSupportsGameScript(game) ? 'flex' : 'none';
+      if (addGameOnlyInput && !(isDyn && dynamicGameSupportsGameScript(game))) addGameOnlyInput.checked = false;
       const delBtn = document.getElementById('btn-delete-dyn-game');
       if (delBtn) delBtn.style.display = isDyn ? 'inline-block' : 'none';
 
@@ -1313,6 +1325,7 @@
       data.forEach(pkg => {
         const cost = _costBySource && _costBySource[game] ? _costBySource[game][Number(pkg.id)] : null;
         const costAttr = cost === null || cost === undefined ? '' : String(cost);
+        const allowGameScript = isDyn && dynamicGameSupportsGameScript(game);
         const card = document.createElement('div');
         card.className = 'package-card';
         card.innerHTML = `
@@ -1331,6 +1344,14 @@
               <input type="number" class="pkg-price" data-id="${pkg.id}" data-cost="${costAttr}" value="${Number(pkg.precio).toFixed(2)}" step="0.01" min="0">
               <div class="profit-info" style="margin-top:6px;font-size:12px;line-height:1.2;"></div>
             </div>
+            ${allowGameScript ? `
+            <div class="package-form">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                <input type="checkbox" class="pkg-game-script-only" data-id="${pkg.id}" ${pkg.game_script_only ? 'checked' : ''}>
+                <span>Solo Game</span>
+              </label>
+            </div>
+            ` : ''}
           </div>
         `;
         container.appendChild(card);
@@ -1354,11 +1375,12 @@
       names.forEach(nameEl => {
         const id = nameEl.getAttribute('data-id');
         const priceEl = container.querySelector(`.pkg-price[data-id="${id}"]`);
+        const gameOnlyEl = container.querySelector(`.pkg-game-script-only[data-id="${id}"]`);
         if (!priceEl) return;
         const nombre = nameEl.value.trim();
         const precio = parseFloat(priceEl.value || '0');
         if (!isFinite(precio)) return;
-        list.push({ id: Number(id), nombre, precio });
+        list.push({ id: Number(id), nombre, precio, game_script_only: !!gameOnlyEl?.checked });
       });
       const payloadInput = document.getElementById('batch_payload');
       if (payloadInput) payloadInput.value = JSON.stringify(list);
@@ -1410,15 +1432,18 @@
       const st = document.getElementById('add-pkg-status');
       const nameInput = document.getElementById('new-dyn-pkg-name');
       const priceInput = document.getElementById('new-dyn-pkg-price');
+      const gameOnlyInput = document.getElementById('new-dyn-pkg-game-only');
       const nombre = nameInput.value.trim();
       const precio = parseFloat(priceInput.value);
+      const currentGame = document.getElementById('price_game_select')?.value;
+      const gameScriptOnly = dynamicGameSupportsGameScript(currentGame) ? !!gameOnlyInput?.checked : false;
       if (!nombre || !precio || precio <= 0) { st.innerHTML = '<span style="color:#ff6b6b;">Nombre y precio requeridos</span>'; return; }
       if (!_currentDynGameId) { st.innerHTML = '<span style="color:#ff6b6b;">Juego no identificado</span>'; return; }
       st.innerHTML = '<span style="color:#aaa;">Añadiendo...</span>';
       try {
         const res = await fetch(`/admin/dynamic-games/${_currentDynGameId}/packages/add`, {
           method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
-          body: JSON.stringify({ nombre, precio })
+          body: JSON.stringify({ nombre, precio, game_script_only: gameScriptOnly })
         });
         const data = await parseJsonResponseSafe(res);
         if (data.success) {
@@ -1432,10 +1457,21 @@
             <div class="package-forms">
               <div class="package-form"><label>Nombre</label><input type="text" class="pkg-name" data-id="${pkgId}" value="${nombre}" maxlength="50"></div>
               <div class="package-form"><label>Precio</label><input type="number" class="pkg-price" data-id="${pkgId}" value="${precio.toFixed(2)}" step="0.01" min="0"></div>
+              ${dynamicGameSupportsGameScript(currentGame) ? '<div class="package-form"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" class="pkg-game-script-only" data-id="' + pkgId + '" ' + (gameScriptOnly ? 'checked' : '') + '><span>Solo Game</span></label></div>' : ''}
             </div>`;
           container.appendChild(card);
+          if (currentGame && dynGamesData[currentGame]) {
+            dynGamesData[currentGame].packages.push({
+              id: pkgId,
+              nombre,
+              precio,
+              gamepoint_package_id: null,
+              game_script_only: gameScriptOnly
+            });
+          }
           nameInput.value = '';
           priceInput.value = '';
+          if (gameOnlyInput) gameOnlyInput.checked = false;
           nameInput.focus();
           st.innerHTML = '<span style="color:#4ade80;">✅ ' + nombre + ' añadido</span>';
         } else { st.innerHTML = '<span style="color:#ff6b6b;">❌ '+(data.error||'Error')+'</span>'; }
@@ -1972,6 +2008,7 @@
         const currentTitle = pkg.game_script_package_title || '';
         const currentPrice = pkg.game_script_package_price || '';
         const hasCurrentInList = gameScriptMappedPackages.some(item => item.packageKey === currentKey);
+        const localType = pkg.local_type || 'bloodstriker';
 
         let options = '<option value="">-- Sin asignar --</option>';
         gameScriptMappedPackages.forEach(item => {
@@ -1984,13 +2021,16 @@
           options += `<option value="${gameScriptEscapeHtml(currentKey)}" data-title="${gameScriptEscapeHtml(currentTitle)}" data-price="${gameScriptEscapeHtml(currentPrice)}">${gameScriptEscapeHtml(savedLabel)}</option>`;
         }
 
-        const providerBadge = pkg.gamepoint_package_id
+        const providerBadge = pkg.gamepoint_package_id && localType !== 'dynamic'
           ? '<div style="font-size:11px;color:#b91c1c;margin-top:4px;">Asignado a GameClub</div>'
           : '<div style="font-size:11px;color:#065f46;margin-top:4px;">Disponible para módulo Game</div>';
+        const sourceBadge = localType === 'dynamic'
+          ? `<div style="font-size:11px;color:#1d4ed8;margin-top:4px;">Dinámico${pkg.source_name ? ' | ' + gameScriptEscapeHtml(pkg.source_name) : ''}</div>`
+          : '';
 
         html += `<tr style="background:#ffffff;color:#111827;">
           <td style="color:#111827;background:#ffffff;">${pkg.id}</td>
-          <td style="color:#111827;background:#ffffff;">${gameScriptEscapeHtml(pkg.nombre)}${providerBadge}</td>
+          <td style="color:#111827;background:#ffffff;">${gameScriptEscapeHtml(pkg.nombre)}${providerBadge}${sourceBadge}</td>
           <td style="color:#111827;background:#ffffff;">$${Number(pkg.precio || 0).toFixed(2)}</td>
           <td>
             <select id="game-script-select-${pkg.id}" style="width:100%;padding:7px 8px;background:#ffffff;border:1px solid #cbd5e1;border-radius:6px;color:#111827;">
@@ -1999,7 +2039,7 @@
             <div style="font-size:11px;color:#374151;margin-top:4px;">Actual: ${gameScriptEscapeHtml(currentTitle || 'Sin asignar')}${currentPrice ? ' | ' + gameScriptEscapeHtml(currentPrice) : ''}</div>
           </td>
           <td>
-            <button type="button" class="btn btn-primary" style="padding:7px 12px;" onclick="saveGameScriptMapping(${pkg.id})">Guardar</button>
+            <button type="button" class="btn btn-primary" style="padding:7px 12px;" onclick="saveGameScriptMapping(${pkg.id}, '${gameScriptEscapeHtml(localType)}')">Guardar</button>
           </td>
         </tr>`;
       });
@@ -2078,7 +2118,7 @@
       }
     }
 
-    async function saveGameScriptMapping(localId) {
+    async function saveGameScriptMapping(localId, localType = 'bloodstriker') {
       const select = document.getElementById(`game-script-select-${localId}`);
       const statusEl = document.getElementById('game-script-status');
       if (!select) return;
@@ -2095,9 +2135,10 @@
           headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
           body: JSON.stringify({
             local_id: localId,
-            package_key: packageKey,
-            package_title: packageTitle,
-            package_price: packagePrice,
+            local_type: localType,
+            script_package_key: packageKey,
+            script_package_title: packageTitle,
+            script_package_price: packagePrice,
           })
         });
         const data = await res.json();

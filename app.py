@@ -1068,6 +1068,10 @@ def init_db():
                 precio REAL NOT NULL,
                 descripcion TEXT DEFAULT '',
                 gamepoint_package_id INTEGER,
+                game_script_only BOOLEAN DEFAULT FALSE,
+                game_script_package_key TEXT DEFAULT NULL,
+                game_script_package_title TEXT DEFAULT NULL,
+                game_script_package_price TEXT DEFAULT NULL,
                 activo BOOLEAN DEFAULT TRUE,
                 orden INTEGER DEFAULT 0,
                 fecha_actualizacion DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -1078,6 +1082,10 @@ def init_db():
         dynamic_package_columns = [
             ("descripcion", "TEXT DEFAULT ''"),
             ("gamepoint_package_id", "INTEGER"),
+            ("game_script_only", "BOOLEAN DEFAULT FALSE"),
+            ("game_script_package_key", "TEXT DEFAULT NULL"),
+            ("game_script_package_title", "TEXT DEFAULT NULL"),
+            ("game_script_package_price", "TEXT DEFAULT NULL"),
             ("activo", "BOOLEAN DEFAULT TRUE"),
             ("orden", "INTEGER DEFAULT 0"),
             ("fecha_actualizacion", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
@@ -4552,7 +4560,7 @@ def admin_game_bloodstrike_mappings():
         return jsonify({'success': False, 'error': 'Acceso denegado'}), 403
 
     conn = get_db_connection()
-    rows = conn.execute('''
+    rows = [dict(row) for row in conn.execute('''
         SELECT id, nombre, precio,
                gamepoint_package_id,
                game_script_package_key,
@@ -4561,14 +4569,43 @@ def admin_game_bloodstrike_mappings():
         FROM precios_bloodstriker
         WHERE gamepoint_package_id IS NULL OR gamepoint_package_id = 0 OR game_script_package_key IS NOT NULL
         ORDER BY id
-    ''').fetchall()
+    ''').fetchall()]
+
+    dyn_game = conn.execute(
+        'SELECT id, nombre, slug FROM juegos_dinamicos WHERE slug = ?',
+        ('blood-strike',)
+    ).fetchone()
+    if dyn_game:
+        dyn_rows = conn.execute('''
+            SELECT id, nombre, precio,
+                   gamepoint_package_id,
+                   game_script_only,
+                   game_script_package_key,
+                   game_script_package_title,
+                   game_script_package_price
+            FROM paquetes_dinamicos
+            WHERE juego_id = ?
+              AND (game_script_only = TRUE OR game_script_package_key IS NOT NULL)
+            ORDER BY orden, id
+        ''', (dyn_game['id'],)).fetchall()
+        for row in dyn_rows:
+            item = dict(row)
+            item['local_type'] = 'dynamic'
+            item['source_slug'] = dyn_game['slug']
+            item['source_name'] = dyn_game['nombre']
+            rows.append(item)
+
+    for row in rows:
+        row.setdefault('local_type', 'bloodstriker')
+        row.setdefault('source_slug', 'bloodstriker')
+        row.setdefault('source_name', 'Blood Strike')
     conn.close()
 
     return jsonify({
         'success': True,
         'service_url': _game_script_base_url(),
         'service_status': _game_script_status(),
-        'local_packages': [dict(row) for row in rows],
+        'local_packages': rows,
     })
 
 
@@ -4607,43 +4644,61 @@ def admin_game_bloodstrike_set_script_mapping():
 
     data = request.get_json() or request.form
     local_id = data.get('local_id') or data.get('package_id')
+    local_type = (data.get('local_type') or 'bloodstriker').strip()
     if not local_id:
         return jsonify({'success': False, 'error': 'Falta local_id'}), 400
 
-    package_key = (data.get('package_key') or '').strip() or None
-    package_title = (data.get('package_title') or '').strip() or None
-    package_price = (data.get('package_price') or '').strip() or None
+    package_key = (data.get('script_package_key') or data.get('package_key') or '').strip() or None
+    package_title = (data.get('script_package_title') or data.get('package_title') or '').strip() or None
+    package_price = (data.get('script_package_price') or data.get('package_price') or '').strip() or None
 
     conn = get_db_connection()
-    row = conn.execute(
-        'SELECT id, nombre, gamepoint_package_id FROM precios_bloodstriker WHERE id = ?',
-        (local_id,)
-    ).fetchone()
+    if local_type == 'dynamic':
+        row = conn.execute(
+            'SELECT id, nombre, gamepoint_package_id, game_script_only FROM paquetes_dinamicos WHERE id = ?',
+            (local_id,)
+        ).fetchone()
+    else:
+        row = conn.execute(
+            'SELECT id, nombre, gamepoint_package_id FROM precios_bloodstriker WHERE id = ?',
+            (local_id,)
+        ).fetchone()
     if not row:
         conn.close()
         return jsonify({'success': False, 'error': 'Paquete local no encontrado'}), 404
 
-    if package_key and row['gamepoint_package_id']:
+    if package_key and row['gamepoint_package_id'] and not (local_type == 'dynamic' and row.get('game_script_only')):
         conn.close()
         return jsonify({
             'success': False,
             'error': 'Este paquete ya está asignado a GameClub. Quita esa asignación antes de enlazarlo al módulo Game.'
         }), 409
 
-    conn.execute('''
-        UPDATE precios_bloodstriker
-        SET game_script_package_key = ?,
-            game_script_package_title = ?,
-            game_script_package_price = ?,
-            fecha_actualizacion = CURRENT_TIMESTAMP
-        WHERE id = ?
-    ''', (package_key, package_title, package_price, local_id))
+    if local_type == 'dynamic':
+        conn.execute('''
+            UPDATE paquetes_dinamicos
+            SET game_script_package_key = ?,
+                game_script_package_title = ?,
+                game_script_package_price = ?,
+                fecha_actualizacion = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (package_key, package_title, package_price, local_id))
+    else:
+        conn.execute('''
+            UPDATE precios_bloodstriker
+            SET game_script_package_key = ?,
+                game_script_package_title = ?,
+                game_script_package_price = ?,
+                fecha_actualizacion = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (package_key, package_title, package_price, local_id))
     conn.commit()
     conn.close()
 
     return jsonify({
         'success': True,
         'local_id': int(local_id),
+        'local_type': local_type,
         'nombre': row['nombre'],
         'package_key': package_key,
         'package_title': package_title,
@@ -4795,6 +4850,7 @@ def admin_save_prices_batch():
                 pid = int(it.get('id'))
                 name = str(it.get('nombre', '')).strip()
                 price = float(it.get('precio'))
+                game_script_only = str(it.get('game_script_only', 'false')).strip().lower() in ('1', 'true', 'yes', 'on')
             except Exception:
                 continue
 
@@ -4803,13 +4859,13 @@ def admin_save_prices_batch():
                 activo = True if price > 0 else False
                 if dyn_game_id is not None:
                     conn.execute(
-                        "UPDATE paquetes_dinamicos SET nombre = ?, precio = ?, activo = ?, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = ? AND juego_id = ?",
-                        (name, price, activo, pid, dyn_game_id)
+                        "UPDATE paquetes_dinamicos SET nombre = ?, precio = ?, activo = ?, game_script_only = ?, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = ? AND juego_id = ?",
+                        (name, price, activo, game_script_only, pid, dyn_game_id)
                     )
                 else:
                     conn.execute(
-                        "UPDATE paquetes_dinamicos SET nombre = ?, precio = ?, activo = ?, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = ?",
-                        (name, price, activo, pid)
+                        "UPDATE paquetes_dinamicos SET nombre = ?, precio = ?, activo = ?, game_script_only = ?, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = ?",
+                        (name, price, activo, game_script_only, pid)
                     )
             else:
                 conn.execute(
