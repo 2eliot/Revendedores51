@@ -1347,6 +1347,32 @@
     // ===== Sistema de popup de noticias =====
     let _newsQueue = [];
     let _currentNewsId = null;
+    const _newsDismissedStorageKey = 'dismissedNewsIds';
+    const _sessionDismissedIds = new Set();
+
+    function _loadPersistedDismissedIds() {
+      try {
+        const raw = localStorage.getItem(_newsDismissedStorageKey);
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(parsed)) return new Set();
+        return new Set(parsed.map(id => String(id)));
+      } catch (e) {
+        return new Set();
+      }
+    }
+
+    const _persistedDismissedIds = _loadPersistedDismissedIds();
+
+    function _isNewsDismissed(noticiaId) {
+      const normalizedId = String(noticiaId);
+      return _sessionDismissedIds.has(normalizedId) || _persistedDismissedIds.has(normalizedId);
+    }
+
+    function _persistDismissedIds() {
+      try {
+        localStorage.setItem(_newsDismissedStorageKey, JSON.stringify(Array.from(_persistedDismissedIds)));
+      } catch (e) {}
+    }
 
     async function fetchUnreadNews() {
       try {
@@ -1359,16 +1385,16 @@
 
     async function dismissNews(noticiaId) {
       try {
-        await fetch(`/api/news/dismiss/${noticiaId}`, { method: 'POST', headers: { 'Accept': 'application/json' } });
-      } catch (e) {}
+        const res = await fetch(`/api/news/dismiss/${noticiaId}`, { method: 'POST', headers: { 'Accept': 'application/json' } });
+        return res.ok;
+      } catch (e) {
+        return false;
+      }
     }
-
-    // IDs ya descartados permanentemente en esta sesión
-    const _dismissedIds = new Set();
 
     function showNewsPopup(n) {
       // Doble verificación: no mostrar si ya fue descartado
-      if (_dismissedIds.has(String(n.id))) {
+      if (_isNewsDismissed(n.id)) {
         _showNextInQueue();
         return;
       }
@@ -1391,7 +1417,7 @@
     }
 
     function _showNextInQueue() {
-      while (_newsQueue.length > 0 && _dismissedIds.has(String(_newsQueue[0].id))) {
+      while (_newsQueue.length > 0 && _isNewsDismissed(_newsQueue[0].id)) {
         _newsQueue.shift();
       }
       if (_newsQueue.length > 0) setTimeout(() => showNewsPopup(_newsQueue.shift()), 300);
@@ -1400,7 +1426,7 @@
     // X: oculta en esta sesión de página (no vuelve en el poll, pero sí al recargar)
     function hideNewsPopupTemporarily() {
       if (_currentNewsId !== null) {
-        _dismissedIds.add(String(_currentNewsId));  // solo en memoria, no llama API
+        _sessionDismissedIds.add(String(_currentNewsId));
         _currentNewsId = null;
       }
       document.getElementById('news-popup-overlay').style.display = 'none';
@@ -1410,7 +1436,10 @@
     // Checkbox: descarta permanentemente (llama API dismiss)
     async function onDismissChange(checkbox) {
       if (checkbox.checked && _currentNewsId !== null) {
-        _dismissedIds.add(String(_currentNewsId));
+        const dismissedNewsId = String(_currentNewsId);
+        _persistedDismissedIds.add(dismissedNewsId);
+        _persistDismissedIds();
+        _sessionDismissedIds.delete(dismissedNewsId);
         await dismissNews(_currentNewsId);
         document.getElementById('news-popup-overlay').style.display = 'none';
         _currentNewsId = null;
@@ -1422,7 +1451,7 @@
       if (!news || news.length === 0) return;
       // Filtrar descartadas permanentemente o ya en cola/mostrándose
       const newItems = news.filter(n =>
-        !_dismissedIds.has(String(n.id)) &&
+        !_isNewsDismissed(n.id) &&
         String(n.id) !== String(_currentNewsId) &&
         !_newsQueue.find(q => q.id === n.id)
       );

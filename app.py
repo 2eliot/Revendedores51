@@ -1836,12 +1836,7 @@ def api_unread_news():
         return jsonify({'news': []})
 
     user_id = session.get('user_db_id')
-    is_admin = session.get('is_admin', False)
-    
-    # Para admin, usar ID 0 para que pueda ver noticias (no hay vistas registradas para admin)
-    if is_admin:
-        user_id = 0
-    elif not user_id:
+    if not user_id:
         return jsonify({'news': []})
 
     create_news_table()
@@ -1870,12 +1865,7 @@ def api_dismiss_news(noticia_id):
         return jsonify({'status': 'error'}), 401
 
     user_id = session.get('user_db_id')
-    is_admin = session.get('is_admin', False)
-    
-    # Para admin, usar ID 0
-    if is_admin:
-        user_id = 0
-    elif not user_id:
+    if not user_id:
         return jsonify({'status': 'error'}), 400
 
     create_news_table()
