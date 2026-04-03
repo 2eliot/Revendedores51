@@ -1366,6 +1366,16 @@
       if (form) form.submit();
     }
 
+    async function parseJsonResponseSafe(response) {
+      const raw = await response.text();
+      try {
+        return JSON.parse(raw || '{}');
+      } catch (e) {
+        const compact = String(raw || '').replace(/\s+/g, ' ').trim();
+        throw new Error(`HTTP ${response.status}: ${compact.slice(0, 220) || 'respuesta no JSON'}`);
+      }
+    }
+
     // ======= Crear juego dinámico desde Precios =======
     async function crearJuegoDinamico() {
       const st = document.getElementById('cj-status');
@@ -1387,12 +1397,12 @@
           method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
           body: JSON.stringify(payload)
         });
-        const data = await res.json();
+        const data = await parseJsonResponseSafe(res);
         if (data.success) {
           st.innerHTML = '<span style="color:#4ade80;">✅ Creado. Recargando...</span>';
           setTimeout(() => location.reload(), 800);
         } else { st.innerHTML = '<span style="color:#ff6b6b;">❌ '+(data.error||'Error')+'</span>'; }
-      } catch(e) { st.innerHTML = '<span style="color:#ff6b6b;">❌ Error de red</span>'; }
+      } catch(e) { st.innerHTML = '<span style="color:#ff6b6b;">❌ '+(e.message || 'Error de red')+'</span>'; }
     }
 
     // ======= Añadir paquete a juego dinámico =======
@@ -1410,7 +1420,7 @@
           method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
           body: JSON.stringify({ nombre, precio })
         });
-        const data = await res.json();
+        const data = await parseJsonResponseSafe(res);
         if (data.success) {
           const pkgId = data.package_id;
           const container = document.getElementById('price-package-list');
@@ -1429,7 +1439,7 @@
           nameInput.focus();
           st.innerHTML = '<span style="color:#4ade80;">✅ ' + nombre + ' añadido</span>';
         } else { st.innerHTML = '<span style="color:#ff6b6b;">❌ '+(data.error||'Error')+'</span>'; }
-      } catch(e) { st.innerHTML = '<span style="color:#ff6b6b;">❌ Error de red</span>'; }
+      } catch(e) { st.innerHTML = '<span style="color:#ff6b6b;">❌ '+(e.message || 'Error de red')+'</span>'; }
     }
 
     // ======= Eliminar juego dinámico =======
