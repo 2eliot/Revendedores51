@@ -1392,7 +1392,7 @@
           },
           body: JSON.stringify({ game: currentGame, items: list })
         });
-        const data = await response.json();
+        const data = await parseJsonResponseSafe(response);
         if (!response.ok || !data.success) {
           alert(data.error || 'No se pudieron guardar los cambios.');
           return;
@@ -2091,7 +2091,7 @@
 
       try {
         const res = await fetch('/admin/game/bloodstrike/mappings', { headers: { 'Accept': 'application/json' } });
-        const data = await res.json();
+        const data = await parseJsonResponseSafe(res);
         if (!res.ok || !data.success) {
           if (statusEl) statusEl.textContent = data.error || 'No se pudo cargar el módulo';
           return;
@@ -2131,7 +2131,7 @@
           headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
           body: JSON.stringify({ roleId })
         });
-        const data = await res.json();
+        const data = await parseJsonResponseSafe(res);
         if (!res.ok || !data.success) {
           if (statusEl) statusEl.textContent = data.error || 'No se pudo mapear';
           return;
@@ -2168,7 +2168,7 @@
             script_package_price: packagePrice,
           })
         });
-        const data = await res.json();
+        const data = await parseJsonResponseSafe(res);
         if (!res.ok || !data.success) {
           if (statusEl) statusEl.textContent = data.error || 'No se pudo guardar el mapeo';
           return;
