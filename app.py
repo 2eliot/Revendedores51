@@ -11102,13 +11102,7 @@ def api_catalog_active():
     try:
         conn = get_db_connection()
         bs_rows = conn.execute(
-            '''
-            SELECT id, nombre, precio, gamepoint_package_id,
-                   game_script_package_key, game_script_package_title
-            FROM precios_bloodstriker
-            WHERE activo = TRUE
-            ORDER BY id
-            '''
+            'SELECT id, nombre, precio, gamepoint_package_id FROM precios_bloodstriker WHERE activo = TRUE ORDER BY id'
         ).fetchall()
         conn.close()
         for r in bs_rows:
@@ -11120,9 +11114,6 @@ def api_catalog_active():
                 'product_name': 'Blood Strike',
                 'game_id': -155,
                 'game_type': 'bloodstriker',
-                'provider_package_id': r.get('gamepoint_package_id'),
-                'provider_package_key': r.get('game_script_package_key'),
-                'provider_package_title': r.get('game_script_package_title') or r['nombre'],
                 'is_id_game': True,
                 'active': True,
             })
@@ -11145,10 +11136,6 @@ def api_catalog_active():
                     'product_id': game['id'],
                     'product_name': game['nombre'],
                     'game_id': game['id'],
-                    'game_type': 'dynamic',
-                    'provider_package_id': pkg.get('gamepoint_package_id'),
-                    'provider_package_key': pkg.get('game_script_package_key'),
-                    'provider_package_title': pkg.get('game_script_package_title') or pkg['nombre'],
                     'is_id_game': True,
                     'active': True,
                 })
@@ -11183,20 +11170,12 @@ def api_recharge_dynamic():
 
     player_id2 = (request.form.get('player_id2') or '').strip()
     product_id_str = (request.form.get('product_id') or '').strip()
-    provider_pkg_id_str = (request.form.get('provider_package_id') or request.form.get('gamepoint_package_id') or '').strip()
-    provider_pkg_key = (request.form.get('provider_package_key') or request.form.get('script_package_key') or '').strip()
     product_id_hint = None
-    provider_package_id = None
     try:
         if product_id_str:
             product_id_hint = int(product_id_str)
     except ValueError:
         pass
-    try:
-        if provider_pkg_id_str:
-            provider_package_id = int(provider_pkg_id_str)
-    except ValueError:
-        provider_package_id = None
 
     from dynamic_games import get_dynamic_package_by_id, get_dynamic_game_by_id
 
@@ -11212,36 +11191,6 @@ def api_recharge_dynamic():
                 dyn_pkg = None
         elif dyn_pkg and not dyn_pkg.get('gamepoint_package_id'):
             dyn_pkg = None
-
-        if not dyn_pkg:
-            provider_lookup_id = provider_package_id if provider_package_id is not None else package_id
-            try:
-                conn = get_db_connection()
-                if product_id_hint and product_id_hint > 0:
-                    dyn_row = conn.execute(
-                        '''
-                        SELECT * FROM paquetes_dinamicos
-                        WHERE activo = TRUE
-                          AND gamepoint_package_id = ?
-                          AND juego_id = ?
-                        LIMIT 1
-                        ''',
-                        (provider_lookup_id, product_id_hint)
-                    ).fetchone()
-                else:
-                    dyn_row = conn.execute(
-                        '''
-                        SELECT * FROM paquetes_dinamicos
-                        WHERE activo = TRUE AND gamepoint_package_id = ?
-                        LIMIT 1
-                        ''',
-                        (provider_lookup_id,)
-                    ).fetchone()
-                conn.close()
-                if dyn_row:
-                    dyn_pkg = dict(dyn_row)
-            except Exception:
-                dyn_pkg = None
 
     if dyn_pkg:
         game = get_dynamic_game_by_id(dyn_pkg['juego_id'])
@@ -11351,31 +11300,6 @@ def api_recharge_dynamic():
                FROM precios_bloodstriker WHERE id = ? AND activo = TRUE''',
             (package_id,)
         ).fetchone()
-
-        if not bs_pkg:
-            provider_lookup_id = provider_package_id if provider_package_id is not None else package_id
-            if provider_pkg_key:
-                bs_pkg = conn.execute(
-                    '''
-                    SELECT id, nombre, precio, gamepoint_package_id,
-                           game_script_package_key, game_script_package_title
-                    FROM precios_bloodstriker
-                    WHERE activo = TRUE AND game_script_package_key = ?
-                    LIMIT 1
-                    ''',
-                    (provider_pkg_key,)
-                ).fetchone()
-            if not bs_pkg:
-                bs_pkg = conn.execute(
-                    '''
-                    SELECT id, nombre, precio, gamepoint_package_id,
-                           game_script_package_key, game_script_package_title
-                    FROM precios_bloodstriker
-                    WHERE activo = TRUE AND gamepoint_package_id = ?
-                    LIMIT 1
-                    ''',
-                    (provider_lookup_id,)
-                ).fetchone()
         conn.close()
     except Exception:
         bs_pkg = None
