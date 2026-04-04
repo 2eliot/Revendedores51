@@ -177,6 +177,195 @@ def _order_payload(row):
     }
 
 
+def _build_bridge_request_id(order_id):
+    return f'wl-api-{int(order_id)}'
+
+
+def _create_game_bridge_record(conn, order_id, game_type, package_id, player_id, player_id2,
+                               usuario_id, precio, game_name='', pkg_name='', route_meta=None):
+    route_meta = route_meta or {}
+    bridge_request_id = _build_bridge_request_id(order_id)
+
+    if game_type == 'dynamic':
+        from dynamic_games import get_dynamic_game_by_id, get_dynamic_package_by_id
+
+        pkg = get_dynamic_package_by_id(int(package_id))
+        if not pkg:
+            raise ValueError(f'Paquete dinámico {package_id} no encontrado para puente WL')
+
+        game = get_dynamic_game_by_id(int(pkg['juego_id']))
+        if not game:
+            raise ValueError(f'Juego dinámico {pkg["juego_id"]} no encontrado para puente WL')
+
+        numero_control = f"WL-DG-{secrets.token_hex(4).upper()}"
+        transaccion_id = f"WLDG-{int(order_id)}"
+        cur = conn.execute('''
+            INSERT INTO transacciones_dinamicas
+            (juego_id, usuario_id, player_id, player_id2, servidor, paquete_id,
+             numero_control, transaccion_id, monto, estado, request_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'procesando', ?)
+            RETURNING id
+        ''', (
+            int(game['id']),
+            int(usuario_id),
+            str(player_id or '').strip(),
+            str(player_id2 or '').strip() or None,
+            None,
+            int(package_id),
+            numero_control,
+            transaccion_id,
+            float(precio),
+            bridge_request_id,
+        ))
+        bridge_id = cur.fetchone()[0]
+        return {
+            'table': 'transacciones_dinamicas',
+            'id': bridge_id,
+            'request_id': bridge_request_id,
+            'numero_control': numero_control,
+            'transaccion_id': transaccion_id,
+            'mode': route_meta.get('mode') or game.get('modo') or 'id',
+        }
+
+    if game_type == 'bloodstriker':
+        numero_control = f"WL-BS-{secrets.token_hex(4).upper()}"
+        transaccion_id = f"WLBS-{int(order_id)}"
+        cur = conn.execute('''
+            INSERT INTO transacciones_bloodstriker
+            (usuario_id, player_id, paquete_id, numero_control, transaccion_id, monto, estado, request_id)
+            VALUES (?, ?, ?, ?, ?, ?, 'procesando', ?)
+            RETURNING id
+        ''', (
+            int(usuario_id),
+            str(player_id or '').strip(),
+            int(package_id),
+            numero_control,
+            transaccion_id,
+            -float(precio),
+            bridge_request_id,
+        ))
+        bridge_id = cur.fetchone()[0]
+        return {
+            'table': 'transacciones_bloodstriker',
+            'id': bridge_id,
+            'request_id': bridge_request_id,
+            'numero_control': numero_control,
+            'transaccion_id': transaccion_id,
+        }
+
+    return None
+
+
+def _sync_game_bridge_success(conn, bridge_data, result):
+    if not bridge_data:
+        return
+
+    if bridge_data['table'] == 'transacciones_dinamicas':
+        bridge_mode = str(bridge_data.get('mode') or 'id').strip().lower()
+        bridge_state = 'aprobado' if bridge_mode == 'id' else 'pendiente'
+        bridge_note = result.get('bridge_note')
+        if bridge_mode != 'id' and not bridge_note:
+            bridge_note = 'Orden API enviada al flujo Game; pendiente de confirmación final del proveedor.'
+
+        conn.execute('''
+            UPDATE transacciones_dinamicas
+            SET estado = ?,
+                gamepoint_referenceno = ?,
+                ingame_name = ?,
+                pin_entregado = ?,
+                notas = ?,
+                fecha_procesado = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (
+            bridge_state,
+            result.get('reference_no', ''),
+            result.get('player_name', '') or None,
+            result.get('serial_key') or result.get('redeemed_pin') or None,
+            bridge_note,
+            int(bridge_data['id']),
+        ))
+        return
+
+    if bridge_data['table'] == 'transacciones_bloodstriker':
+        conn.execute('''
+            UPDATE transacciones_bloodstriker
+            SET estado = ?,
+                gamepoint_referenceno = ?,
+                notas = ?,
+                fecha_procesado = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (
+            'procesando' if result.get('processing') else 'aprobado',
+            result.get('reference_no', ''),
+            result.get('bridge_note'),
+            int(bridge_data['id']),
+        ))
+
+
+def _sync_game_bridge_failure(conn, bridge_data, error_msg, reference_no=''):
+    if not bridge_data:
+        return
+
+    error_text = str(error_msg or 'Error desconocido')[:500]
+    if bridge_data['table'] == 'transacciones_dinamicas':
+        conn.execute('''
+            UPDATE transacciones_dinamicas
+            SET estado = 'rechazado',
+                gamepoint_referenceno = ?,
+                notas = ?,
+                fecha_procesado = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (reference_no or '', error_text, int(bridge_data['id'])))
+        return
+
+    if bridge_data['table'] == 'transacciones_bloodstriker':
+        conn.execute('''
+            UPDATE transacciones_bloodstriker
+            SET estado = 'rechazado',
+                gamepoint_referenceno = ?,
+                notas = ?,
+                fecha_procesado = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (reference_no or '', error_text, int(bridge_data['id'])))
+
+
+def _execute_bloodstrike_script_recharge(order_id, player_id, route_meta=None):
+    from app import _game_script_buy
+
+    route_meta = route_meta or {}
+    script_package_key = str(route_meta.get('script_package_key') or '').strip()
+    request_id = _build_bridge_request_id(order_id)
+
+    if not script_package_key:
+        return {'ok': False, 'error': 'Paquete Blood Strike sin mapeo al módulo Game'}
+
+    script_result = _game_script_buy(player_id, script_package_key, request_id)
+    script_ok = bool((script_result or {}).get('success'))
+    script_processing = bool((script_result or {}).get('processing'))
+    provider_ref = (script_result or {}).get('orden') or (script_result or {}).get('requestId') or request_id
+    provider_player = (script_result or {}).get('jugador') or ''
+    provider_error = (script_result or {}).get('error') or (script_result or {}).get('message') or 'Error desconocido del proveedor'
+
+    if not (script_ok or script_processing):
+        return {
+            'ok': False,
+            'error': provider_error,
+            'reference_no': provider_ref,
+            'player_name': provider_player,
+            'provider_route': 'game_script',
+        }
+
+    estado_txt = 'procesando' if script_processing else 'completado'
+    return {
+        'ok': True,
+        'processing': script_processing,
+        'player_name': provider_player,
+        'reference_no': provider_ref,
+        'provider_route': 'game_script',
+        'bridge_note': f'SCRIPT:{script_package_key}|ESTADO:{estado_txt}|USUARIO:{provider_player or ""}',
+    }
+
+
 # ---------------------------------------------------------------------------
 # DDL – llamar desde init_db() de app.py
 # ---------------------------------------------------------------------------
@@ -466,7 +655,7 @@ def api_v1_recharge():
         return jsonify({'ok': False, 'error': 'package_id y product_id deben ser numéricos'}), 400
 
     # --- Resolver juego y paquete ---
-    game_type, game_name, pkg_name, precio, gp_package_id, gp_product_id = _resolve_package(product_id, package_id)
+    game_type, game_name, pkg_name, precio, gp_package_id, gp_product_id, route_meta = _resolve_package(product_id, package_id)
     if not game_type:
         return jsonify({'ok': False, 'error': f'Paquete {package_id} no encontrado o inactivo'}), 404
 
@@ -502,6 +691,7 @@ def api_v1_recharge():
 
     # --- Verificar y descontar saldo atómicamente ---
     conn = _get_conn()
+    bridge_data = None
     try:
         cursor = conn.execute(
             'UPDATE usuarios SET saldo = saldo - ? WHERE id = ? AND saldo >= ?',
@@ -534,6 +724,20 @@ def api_v1_recharge():
         ''', (account['id'], usuario_id, game_type, game_name, package_id, pkg_name,
               player_id, player_id2, precio, external_order_id))
         order_id = cur.fetchone()[0]
+
+        bridge_data = _create_game_bridge_record(
+            conn,
+            order_id,
+            game_type,
+            package_id,
+            player_id,
+            player_id2,
+            usuario_id,
+            precio,
+            game_name=game_name,
+            pkg_name=pkg_name,
+            route_meta=route_meta,
+        )
         conn.commit()
     except Exception as e:
         try:
@@ -555,7 +759,8 @@ def api_v1_recharge():
     # (se ejecuta síncrono porque el cliente espera el resultado)
     result = _execute_recharge(order_id, game_type, package_id, player_id, player_id2,
                                precio, gp_package_id, gp_product_id, usuario_id, account,
-                               game_name=game_name, pkg_name=pkg_name)
+                               game_name=game_name, pkg_name=pkg_name,
+                               route_meta=route_meta, bridge_data=bridge_data)
 
     if external_order_id:
         try:
@@ -575,8 +780,11 @@ def api_v1_recharge():
 
 
 def _resolve_package(product_id, package_id):
-    """Resuelve el tipo de juego, nombre, precio y IDs de GamePoint para un package_id.
-    Returns: (game_type, game_name, pkg_name, precio, gp_package_id, gp_product_id) or (None,...) si no existe.
+    """Resuelve el tipo de juego, precio y ruta operativa para un package_id.
+
+    Returns:
+        (game_type, game_name, pkg_name, precio, gp_package_id, gp_product_id, route_meta)
+        o (None, None, None, None, None, None, None) si no existe.
     """
     from dynamic_games import get_dynamic_package_by_id, get_dynamic_game_by_id
 
@@ -596,6 +804,14 @@ def _resolve_package(product_id, package_id):
                         float(dyn_pkg['precio']),
                         dyn_pkg['gamepoint_package_id'],
                         game['gamepoint_product_id'],
+                        {
+                            'game_id': game['id'],
+                            'game_slug': game.get('slug') or '',
+                            'mode': game.get('modo', 'id'),
+                            'script_only': bool(dyn_pkg.get('game_script_only')),
+                            'script_package_key': dyn_pkg.get('game_script_package_key') or '',
+                            'script_package_title': dyn_pkg.get('game_script_package_title') or '',
+                        },
                     )
 
     # 2. Blood Strike (product_id == -155 o fallback)
@@ -603,19 +819,29 @@ def _resolve_package(product_id, package_id):
         try:
             conn = _get_conn()
             bs = conn.execute(
-                'SELECT id, nombre, precio, gamepoint_package_id FROM precios_bloodstriker WHERE id = ? AND activo = TRUE',
+                '''
+                SELECT id, nombre, precio, gamepoint_package_id,
+                       game_script_package_key, game_script_package_title
+                FROM precios_bloodstriker
+                WHERE id = ? AND activo = TRUE
+                ''',
                 (package_id,)
             ).fetchone()
             conn.close()
-            if bs and bs['gamepoint_package_id']:
+            if bs and (bs['gamepoint_package_id'] or bs.get('game_script_package_key')):
                 bs_product_id = int(os.environ.get('BLOODSTRIKE_PRODUCT_ID', '155'))
                 return (
                     'bloodstriker',
                     'Blood Strike',
                     bs['nombre'],
                     float(bs['precio']),
-                    bs['gamepoint_package_id'],
-                    bs_product_id,
+                    bs.get('gamepoint_package_id'),
+                    bs_product_id if bs.get('gamepoint_package_id') else None,
+                    {
+                        'mode': 'id',
+                        'script_package_key': bs.get('game_script_package_key') or '',
+                        'script_package_title': bs.get('game_script_package_title') or '',
+                    },
                 )
         except Exception:
             pass
@@ -637,21 +863,25 @@ def _resolve_package(product_id, package_id):
                     float(ff['precio']),
                     None,  # No usa GamePoint
                     None,
+                    {'mode': 'id'},
                 )
         except Exception:
             pass
 
-    return (None, None, None, None, None, None)
+    return (None, None, None, None, None, None, None)
 
 
 def _execute_recharge(order_id, game_type, package_id, player_id, player_id2,
                       precio, gp_package_id, gp_product_id, usuario_id, account,
-                      game_name='', pkg_name=''):
+                      game_name='', pkg_name='', route_meta=None, bridge_data=None):
     """Ejecuta la recarga según el tipo de juego y actualiza la orden."""
     _start = time_module.time()
+    route_meta = route_meta or {}
 
     try:
-        if game_type in ('dynamic', 'bloodstriker'):
+        if game_type == 'bloodstriker' and route_meta.get('script_package_key'):
+            result = _execute_bloodstrike_script_recharge(order_id, player_id, route_meta)
+        elif game_type in ('dynamic', 'bloodstriker'):
             result = _execute_gamepoint_recharge(
                 order_id, game_type, package_id, player_id, player_id2,
                 gp_package_id, gp_product_id
@@ -671,13 +901,16 @@ def _execute_recharge(order_id, game_type, package_id, player_id, player_id2,
     conn = _get_conn()
     try:
         if result.get('ok'):
+            order_state = 'procesando' if result.get('processing') else 'completada'
             conn.execute('''
                 UPDATE api_orders
-                SET estado = 'completada', reference_no = ?, player_name = ?,
+                SET estado = ?, reference_no = ?, player_name = ?,
                     duration_seconds = ?, redeemed_pin = ?, fecha_completada = CURRENT_TIMESTAMP
                 WHERE id = ?
-            ''', (result.get('reference_no', ''), result.get('player_name', ''),
+            ''', (order_state, result.get('reference_no', ''), result.get('player_name', ''),
                   _duration, result.get('redeemed_pin', ''), order_id))
+
+            _sync_game_bridge_success(conn, bridge_data, result)
 
             # ── Registrar en historial general (transacciones + historial_compras) ──
             try:
@@ -719,6 +952,7 @@ def _execute_recharge(order_id, game_type, package_id, player_id, player_id2,
         else:
             # Reembolsar saldo
             conn.execute('UPDATE usuarios SET saldo = saldo + ? WHERE id = ?', (precio, usuario_id))
+            _sync_game_bridge_failure(conn, bridge_data, result.get('error', 'Error desconocido'), result.get('reference_no', ''))
             conn.execute('''
                 UPDATE api_orders
                 SET estado = 'fallida', error_msg = ?, duration_seconds = ?, redeemed_pin = ?,
@@ -750,11 +984,11 @@ def _execute_recharge(order_id, game_type, package_id, player_id, player_id2,
         pass
 
     # Construir respuesta
-    status_code = 200 if result.get('ok') else 422
+    status_code = 202 if result.get('processing') else (200 if result.get('ok') else 422)
     response = {
         'ok': result.get('ok', False),
         'order_id': order_id,
-        'status': 'completada' if result.get('ok') else 'fallida',
+        'status': 'procesando' if result.get('processing') else ('completada' if result.get('ok') else 'fallida'),
         'player_name': result.get('player_name', ''),
         'reference_no': result.get('reference_no', ''),
         'duration': _duration,
