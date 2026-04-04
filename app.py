@@ -11170,12 +11170,20 @@ def api_recharge_dynamic():
 
     player_id2 = (request.form.get('player_id2') or '').strip()
     product_id_str = (request.form.get('product_id') or '').strip()
+    provider_pkg_id_str = (request.form.get('provider_package_id') or request.form.get('gamepoint_package_id') or '').strip()
+    provider_pkg_key = (request.form.get('provider_package_key') or request.form.get('script_package_key') or '').strip()
     product_id_hint = None
+    provider_package_id = None
     try:
         if product_id_str:
             product_id_hint = int(product_id_str)
     except ValueError:
         pass
+    try:
+        if provider_pkg_id_str:
+            provider_package_id = int(provider_pkg_id_str)
+    except ValueError:
+        provider_package_id = None
 
     from dynamic_games import get_dynamic_package_by_id, get_dynamic_game_by_id
 
@@ -11186,11 +11194,64 @@ def api_recharge_dynamic():
     dyn_pkg = None
     if product_id_hint != -155:
         dyn_pkg = get_dynamic_package_by_id(package_id)
-        if dyn_pkg and dyn_pkg.get('gamepoint_package_id'):
+        if dyn_pkg and (dyn_pkg.get('gamepoint_package_id') or dyn_pkg.get('game_script_package_key')):
             if product_id_hint and dyn_pkg.get('juego_id') != product_id_hint:
                 dyn_pkg = None
-        elif dyn_pkg and not dyn_pkg.get('gamepoint_package_id'):
+        elif dyn_pkg and not (dyn_pkg.get('gamepoint_package_id') or dyn_pkg.get('game_script_package_key')):
             dyn_pkg = None
+
+        if not dyn_pkg and (provider_package_id is not None or provider_pkg_key):
+            try:
+                conn = get_db_connection()
+                if provider_pkg_key:
+                    if product_id_hint and product_id_hint > 0:
+                        dyn_row = conn.execute(
+                            '''
+                            SELECT * FROM paquetes_dinamicos
+                            WHERE activo = TRUE
+                              AND game_script_package_key = ?
+                              AND juego_id = ?
+                            LIMIT 1
+                            ''',
+                            (provider_pkg_key, product_id_hint)
+                        ).fetchone()
+                    else:
+                        dyn_row = conn.execute(
+                            '''
+                            SELECT * FROM paquetes_dinamicos
+                            WHERE activo = TRUE
+                              AND game_script_package_key = ?
+                            LIMIT 1
+                            ''',
+                            (provider_pkg_key,)
+                        ).fetchone()
+                else:
+                    if product_id_hint and product_id_hint > 0:
+                        dyn_row = conn.execute(
+                            '''
+                            SELECT * FROM paquetes_dinamicos
+                            WHERE activo = TRUE
+                              AND gamepoint_package_id = ?
+                              AND juego_id = ?
+                            LIMIT 1
+                            ''',
+                            (provider_package_id, product_id_hint)
+                        ).fetchone()
+                    else:
+                        dyn_row = conn.execute(
+                            '''
+                            SELECT * FROM paquetes_dinamicos
+                            WHERE activo = TRUE
+                              AND gamepoint_package_id = ?
+                            LIMIT 1
+                            ''',
+                            (provider_package_id,)
+                        ).fetchone()
+                conn.close()
+                if dyn_row:
+                    dyn_pkg = dict(dyn_row)
+            except Exception:
+                dyn_pkg = None
 
     if dyn_pkg:
         game = get_dynamic_game_by_id(dyn_pkg['juego_id'])
@@ -11205,6 +11266,52 @@ def api_recharge_dynamic():
         _start = _t.time()
 
         try:
+            dyn_script_key = str(dyn_pkg.get('game_script_package_key') or '').strip()
+            use_script_flow = bool(dyn_script_key and (bool(dyn_pkg.get('game_script_only')) or not dyn_pkg.get('gamepoint_package_id')))
+
+            if use_script_flow:
+                request_id = (request.form.get('request_id') or request.headers.get('X-Request-ID') or f"api-dg-{game['id']}-{secrets.token_hex(8)}").strip()
+                script_data = _game_script_buy(player_id, dyn_script_key, request_id)
+                _dur = round(_t.time() - _start, 1)
+                if (script_data or {}).get('success'):
+                    provider_ref = (script_data or {}).get('orden') or (script_data or {}).get('requestId') or request_id
+                    ingame_name = (script_data or {}).get('jugador') or ''
+
+                    try:
+                        _lc = get_db_connection()
+                        _lc.execute(
+                            'INSERT INTO api_recharges_log (player_id, package_id, success, player_name, error_msg, duration_seconds, game_name, package_name) VALUES (?,?,?,?,?,?,?,?)',
+                            (player_id, package_id, 1, ingame_name, '', _dur, game['nombre'], dyn_pkg['nombre'])
+                        )
+                        _lc.commit()
+                        _lc.close()
+                    except Exception:
+                        pass
+
+                    logger.info(f'[API DynRecharge Script] OK game={game["nombre"]} player={player_id} pkg={package_id} script={dyn_script_key} dur={_dur}s')
+                    return jsonify({
+                        'ok': True,
+                        'purchase_status': 'completed',
+                        'player_name': ingame_name,
+                        'duration': _dur,
+                        'reference_no': provider_ref,
+                        'game': game['nombre'],
+                    })
+
+                err_msg = (script_data or {}).get('error') or (script_data or {}).get('message') or 'Error creando orden en Game Script'
+                try:
+                    _lc = get_db_connection()
+                    _lc.execute(
+                        'INSERT INTO api_recharges_log (player_id, package_id, success, player_name, error_msg, duration_seconds, game_name, package_name) VALUES (?,?,?,?,?,?,?,?)',
+                        (player_id, package_id, 0, '', err_msg, _dur, game['nombre'], dyn_pkg['nombre'])
+                    )
+                    _lc.commit()
+                    _lc.close()
+                except Exception:
+                    pass
+
+                return jsonify({'ok': False, 'purchase_status': 'failed', 'error': err_msg}), 422
+
             # 1. Get GamePoint token
             gc_token, gc_err = _gameclub_get_token()
             if not gc_token:
