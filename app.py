@@ -3536,6 +3536,301 @@ def create_bloodstriker_transaction(user_id, player_id, package_id, precio, esta
     finally:
         conn.close()
 
+
+def _resolve_whitelabel_api_user_id():
+    raw_user_id = (
+        os.environ.get('WEBB_API_USER_ID')
+        or os.environ.get('INEFABLE_API_USER_ID')
+        or os.environ.get('REVENDEDORES_API_USER_ID')
+        or ''
+    ).strip()
+    raw_email = (
+        os.environ.get('WEBB_API_USER_EMAIL')
+        or os.environ.get('INEFABLE_API_USER_EMAIL')
+        or os.environ.get('REVENDEDORES_API_USER_EMAIL')
+        or ''
+    ).strip().lower()
+
+    conn = get_db_connection()
+    try:
+        if raw_user_id.isdigit():
+            row = conn.execute('SELECT id FROM usuarios WHERE id = ? LIMIT 1', (int(raw_user_id),)).fetchone()
+            if row:
+                return int(row['id']), ''
+
+        if raw_email:
+            row = conn.execute('SELECT id FROM usuarios WHERE lower(correo) = ? LIMIT 1', (raw_email,)).fetchone()
+            if row:
+                return int(row['id']), ''
+    finally:
+        conn.close()
+
+    return None, 'Configura WEBB_API_USER_ID o WEBB_API_USER_EMAIL con el usuario de Revendedores que debe recibir estas órdenes'
+
+
+def _begin_whitelabel_api_purchase(user_id, endpoint_key, request_id):
+    conn = get_db_connection()
+    try:
+        state = begin_idempotent_purchase(conn, user_id, endpoint_key, request_id)
+        conn.commit()
+        return state
+    finally:
+        conn.close()
+
+
+def _clear_whitelabel_api_purchase(user_id, endpoint_key, request_id):
+    conn = get_db_connection()
+    try:
+        clear_idempotent_purchase(conn, user_id, endpoint_key, request_id)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _complete_whitelabel_api_purchase(user_id, endpoint_key, request_id, payload, transaccion_id='', numero_control=''):
+    conn = get_db_connection()
+    try:
+        complete_idempotent_purchase(conn, user_id, endpoint_key, request_id, payload, transaccion_id, numero_control)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _is_admin_target_user(conn, user_id):
+    try:
+        admin_ids_env = os.environ.get('ADMIN_USER_IDS', '').strip()
+        admin_emails_env = os.environ.get('ADMIN_EMAILS', '').strip()
+        single_admin_email = os.environ.get('ADMIN_EMAIL', '').strip()
+        admin_ids = [int(x.strip()) for x in admin_ids_env.split(',') if x.strip().isdigit()]
+        admin_emails = [x.strip().lower() for x in admin_emails_env.split(',') if x.strip()]
+        if single_admin_email and single_admin_email.lower() not in admin_emails:
+            admin_emails.append(single_admin_email.lower())
+        user_row = conn.execute('SELECT correo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+        user_email = str(user_row['correo'] or '').strip().lower() if user_row else ''
+        return (int(user_id) in admin_ids) or (user_email in admin_emails)
+    except Exception:
+        return False
+
+
+def create_dynamic_transaction(user_id, game_id, player_id, package_id, precio, *, player_id2='', servidor='', estado='procesando', gamepoint_referenceno=None, ingame_name='', pin_entregado='', notas='', request_id=None):
+    conn = get_db_connection()
+    try:
+        if request_id:
+            dup = conn.execute(
+                'SELECT id, numero_control, transaccion_id FROM transacciones_dinamicas WHERE usuario_id = ? AND request_id = ? LIMIT 1',
+                (user_id, request_id)
+            ).fetchone()
+            if dup:
+                return {
+                    'id': dup['id'],
+                    'numero_control': dup['numero_control'],
+                    'transaccion_id': dup['transaccion_id'],
+                }
+
+        numero_control = ''.join(random.choices(string.digits, k=10))
+        transaccion_id = 'DG-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+
+        conn.execute('''
+            INSERT INTO transacciones_dinamicas
+            (juego_id, usuario_id, player_id, player_id2, servidor, paquete_id, numero_control, transaccion_id, monto, estado, gamepoint_referenceno, ingame_name, pin_entregado, notas, request_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            int(game_id),
+            int(user_id),
+            str(player_id or '').strip(),
+            str(player_id2 or '').strip(),
+            str(servidor or '').strip(),
+            int(package_id),
+            numero_control,
+            transaccion_id,
+            -abs(float(precio or 0.0)),
+            str(estado or 'procesando').strip(),
+            str(gamepoint_referenceno or '').strip() or None,
+            str(ingame_name or '').strip(),
+            str(pin_entregado or '').strip(),
+            str(notas or '').strip(),
+            str(request_id or '').strip() or None,
+        ))
+        conn.commit()
+        row = conn.execute('SELECT id FROM transacciones_dinamicas WHERE transaccion_id = ?', (transaccion_id,)).fetchone()
+        transaction_id = row['id'] if row else None
+        return {
+            'id': transaction_id,
+            'numero_control': numero_control,
+            'transaccion_id': transaccion_id,
+        }
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def update_dynamic_transaction_status(transaction_id, new_status, *, notas=None, gamepoint_referenceno=None, ingame_name=None, pin_entregado=None):
+    conn = get_db_connection()
+    try:
+        row = conn.execute('SELECT gamepoint_referenceno, ingame_name, pin_entregado, notas FROM transacciones_dinamicas WHERE id = ?', (transaction_id,)).fetchone()
+        if not row:
+            return False
+        conn.execute('''
+            UPDATE transacciones_dinamicas
+            SET estado = ?,
+                gamepoint_referenceno = ?,
+                ingame_name = ?,
+                pin_entregado = ?,
+                notas = ?,
+                fecha_procesado = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (
+            new_status,
+            str(gamepoint_referenceno if gamepoint_referenceno is not None else (row['gamepoint_referenceno'] or '')).strip() or None,
+            str(ingame_name if ingame_name is not None else (row['ingame_name'] or '')).strip(),
+            str(pin_entregado if pin_entregado is not None else (row['pin_entregado'] or '')).strip(),
+            str(notas if notas is not None else (row['notas'] or '')).strip(),
+            transaction_id,
+        ))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def sync_dynamic_purchase_records(conn, transaction_id):
+    tx = conn.execute('''
+        SELECT td.usuario_id, td.juego_id, td.player_id, td.player_id2, td.paquete_id,
+               td.numero_control, td.transaccion_id, td.monto, td.gamepoint_referenceno,
+               td.ingame_name, td.pin_entregado, jd.nombre AS juego_nombre,
+               jd.slug AS juego_slug, pd.nombre AS paquete_nombre, pd.precio
+        FROM transacciones_dinamicas td
+        JOIN juegos_dinamicos jd ON td.juego_id = jd.id
+        JOIN paquetes_dinamicos pd ON td.paquete_id = pd.id
+        WHERE td.id = ?
+    ''', (transaction_id,)).fetchone()
+    if not tx:
+        return False
+
+    parts = []
+    if tx['pin_entregado']:
+        parts.append(f"Código: {tx['pin_entregado']}")
+    else:
+        player_bits = [str(tx['player_id'] or '').strip()]
+        if str(tx['player_id2'] or '').strip():
+            player_bits.append(str(tx['player_id2']).strip())
+        player_text = ' / '.join([bit for bit in player_bits if bit])
+        if player_text:
+            parts.append(f"ID: {player_text}")
+        if str(tx['ingame_name'] or '').strip():
+            parts.append(f"Jugador: {str(tx['ingame_name']).strip()}")
+    if str(tx['gamepoint_referenceno'] or '').strip():
+        parts.append(f"Ref: {str(tx['gamepoint_referenceno']).strip()}")
+    pin_info = ' - '.join(parts)
+    precio_total = abs(float(tx['monto'] or 0.0))
+    display_package_name = f"{tx['juego_nombre']} - {tx['paquete_nombre']}"
+
+    general_tx = conn.execute('SELECT 1 FROM transacciones WHERE transaccion_id = ?', (tx['transaccion_id'],)).fetchone()
+    if not general_tx:
+        conn.execute('''
+            INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto, request_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            tx['usuario_id'],
+            tx['numero_control'],
+            pin_info,
+            tx['transaccion_id'],
+            display_package_name,
+            -precio_total,
+            tx['numero_control'],
+        ))
+
+    history_row = conn.execute('''
+        SELECT 1 FROM historial_compras
+        WHERE usuario_id = ?
+          AND tipo_evento = 'compra'
+          AND monto = ?
+          AND paquete_nombre = ?
+          AND pin = ?
+          AND fecha >= datetime('now', '-7 days')
+        LIMIT 1
+    ''', (tx['usuario_id'], precio_total, display_package_name, pin_info)).fetchone()
+    if not history_row:
+        saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (tx['usuario_id'],)).fetchone()
+        saldo_actual = saldo_row['saldo'] if saldo_row else 0
+        registrar_historial_compra(conn, tx['usuario_id'], precio_total, display_package_name, pin_info, 'compra', None, saldo_actual + precio_total, saldo_actual)
+
+    profit_row = conn.execute('SELECT 1 FROM profit_ledger WHERE transaccion_id = ? LIMIT 1', (tx['transaccion_id'],)).fetchone()
+    if not profit_row:
+        try:
+            record_profit_for_transaction(
+                conn,
+                tx['usuario_id'],
+                _is_admin_target_user(conn, tx['usuario_id']),
+                str(tx['juego_slug'] or f"dynamic_{tx['juego_id']}"),
+                tx['paquete_id'],
+                1,
+                float(tx['precio'] or precio_total),
+                tx['transaccion_id']
+            )
+        except Exception:
+            pass
+
+    return True
+
+
+def sync_bloodstriker_purchase_records(conn, transaction_id):
+    tx = conn.execute('''
+        SELECT bs.usuario_id, bs.player_id, bs.paquete_id, bs.numero_control, bs.transaccion_id,
+               bs.monto, bs.gamepoint_referenceno, p.nombre AS paquete_nombre, p.precio
+        FROM transacciones_bloodstriker bs
+        JOIN precios_bloodstriker p ON bs.paquete_id = p.id
+        WHERE bs.id = ?
+    ''', (transaction_id,)).fetchone()
+    if not tx:
+        return False
+
+    pin_info = f"ID: {tx['player_id']}"
+    if str(tx['gamepoint_referenceno'] or '').strip():
+        pin_info = f"{pin_info} - Ref: {str(tx['gamepoint_referenceno']).strip()}"
+    precio_total = abs(float(tx['monto'] or 0.0))
+
+    general_tx = conn.execute('SELECT 1 FROM transacciones WHERE transaccion_id = ?', (tx['transaccion_id'],)).fetchone()
+    if not general_tx:
+        conn.execute('''
+            INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto, request_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            tx['usuario_id'],
+            tx['numero_control'],
+            pin_info,
+            tx['transaccion_id'],
+            tx['paquete_nombre'],
+            -precio_total,
+            tx['numero_control'],
+        ))
+
+    history_row = conn.execute('''
+        SELECT 1 FROM historial_compras
+        WHERE usuario_id = ?
+          AND tipo_evento = 'compra'
+          AND monto = ?
+          AND paquete_nombre = ?
+          AND pin = ?
+          AND fecha >= datetime('now', '-7 days')
+        LIMIT 1
+    ''', (tx['usuario_id'], precio_total, tx['paquete_nombre'], pin_info)).fetchone()
+    if not history_row:
+        saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (tx['usuario_id'],)).fetchone()
+        saldo_actual = saldo_row['saldo'] if saldo_row else 0
+        registrar_historial_compra(conn, tx['usuario_id'], precio_total, tx['paquete_nombre'], pin_info, 'compra', None, saldo_actual + precio_total, saldo_actual)
+
+    profit_row = conn.execute('SELECT 1 FROM profit_ledger WHERE transaccion_id = ? LIMIT 1', (tx['transaccion_id'],)).fetchone()
+    if not profit_row:
+        try:
+            record_profit_for_transaction(conn, tx['usuario_id'], _is_admin_target_user(conn, tx['usuario_id']), 'bloodstriker', tx['paquete_id'], 1, float(tx['precio'] or precio_total), tx['transaccion_id'])
+        except Exception:
+            pass
+
+    return True
+
 def get_pending_bloodstriker_transactions():
     """Obtiene todas las transacciones pendientes de Blood Striker para el admin"""
     conn = get_db_connection()
@@ -11185,6 +11480,10 @@ def api_recharge_dynamic():
     except ValueError:
         provider_package_id = None
 
+    api_user_id, api_user_error = _resolve_whitelabel_api_user_id()
+    if not api_user_id:
+        return jsonify({'ok': False, 'error': api_user_error}), 500
+
     from dynamic_games import get_dynamic_package_by_id, get_dynamic_game_by_id
 
     # --- Routing: product_id_hint desambigua cuando package_id colisiona ---
@@ -11264,18 +11563,65 @@ def api_recharge_dynamic():
 
         import time as _t
         _start = _t.time()
+        request_id = (request.form.get('request_id') or request.form.get('external_order_id') or request.headers.get('X-Request-ID') or f"api-dg-{game['id']}-{secrets.token_hex(8)}").strip()
+        endpoint_key = f"api_dynamic_game_{int(game['id'])}"
+        idempotency_state = _begin_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
+        if idempotency_state.get('state') == 'completed':
+            payload = idempotency_state.get('payload') or {}
+            payload.setdefault('ok', True)
+            payload['idempotent'] = True
+            return jsonify(payload)
+        if idempotency_state.get('state') == 'processing':
+            return jsonify({'ok': False, 'purchase_status': 'processing', 'error': 'La recarga ya se está procesando'}), 409
+
+        precio_api = float(dyn_pkg.get('precio') or dyn_pkg.get('precio_venta') or 0.0)
+        tx_dynamic = None
 
         try:
             dyn_script_key = str(dyn_pkg.get('game_script_package_key') or '').strip()
             use_script_flow = bool(dyn_script_key and (bool(dyn_pkg.get('game_script_only')) or not dyn_pkg.get('gamepoint_package_id')))
 
+            tx_dynamic = create_dynamic_transaction(
+                api_user_id,
+                game['id'],
+                player_id,
+                dyn_pkg['id'],
+                precio_api,
+                player_id2=player_id2,
+                estado='procesando',
+                request_id=request_id,
+            )
+
             if use_script_flow:
-                request_id = (request.form.get('request_id') or request.headers.get('X-Request-ID') or f"api-dg-{game['id']}-{secrets.token_hex(8)}").strip()
                 script_data = _game_script_buy(player_id, dyn_script_key, request_id)
                 _dur = round(_t.time() - _start, 1)
                 if (script_data or {}).get('success'):
                     provider_ref = (script_data or {}).get('orden') or (script_data or {}).get('requestId') or request_id
                     ingame_name = (script_data or {}).get('jugador') or ''
+
+                    update_dynamic_transaction_status(
+                        tx_dynamic['id'],
+                        'aprobado',
+                        notas='API externa exitosa',
+                        gamepoint_referenceno=provider_ref,
+                        ingame_name=ingame_name,
+                    )
+                    conn_sync = get_db_connection()
+                    try:
+                        sync_dynamic_purchase_records(conn_sync, tx_dynamic['id'])
+                        conn_sync.commit()
+                    finally:
+                        conn_sync.close()
+
+                    success_payload = {
+                        'ok': True,
+                        'purchase_status': 'completed',
+                        'player_name': ingame_name,
+                        'duration': _dur,
+                        'reference_no': provider_ref,
+                        'game': game['nombre'],
+                    }
+                    _complete_whitelabel_api_purchase(api_user_id, endpoint_key, request_id, success_payload, tx_dynamic['transaccion_id'], tx_dynamic['numero_control'])
 
                     try:
                         _lc = get_db_connection()
@@ -11289,16 +11635,11 @@ def api_recharge_dynamic():
                         pass
 
                     logger.info(f'[API DynRecharge Script] OK game={game["nombre"]} player={player_id} pkg={package_id} script={dyn_script_key} dur={_dur}s')
-                    return jsonify({
-                        'ok': True,
-                        'purchase_status': 'completed',
-                        'player_name': ingame_name,
-                        'duration': _dur,
-                        'reference_no': provider_ref,
-                        'game': game['nombre'],
-                    })
+                    return jsonify(success_payload)
 
                 err_msg = (script_data or {}).get('error') or (script_data or {}).get('message') or 'Error creando orden en Game Script'
+                update_dynamic_transaction_status(tx_dynamic['id'], 'rechazado', notas=err_msg)
+                _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
                 try:
                     _lc = get_db_connection()
                     _lc.execute(
@@ -11315,6 +11656,8 @@ def api_recharge_dynamic():
             # 1. Get GamePoint token
             gc_token, gc_err = _gameclub_get_token()
             if not gc_token:
+                update_dynamic_transaction_status(tx_dynamic['id'], 'rechazado', notas=(gc_err or {}).get('message', 'No se pudo obtener token de GamePoint'))
+                _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
                 err = (gc_err or {}).get('message', 'No se pudo obtener token de GamePoint')
                 logger.error(f'[API DynRecharge] Token error: {err}')
                 return jsonify({'ok': False, 'error': f'Error proveedor: {err}'}), 502
@@ -11328,6 +11671,8 @@ def api_recharge_dynamic():
             validate_code = (validate_data or {}).get('code')
             if validate_code != 200 or not (validate_data or {}).get('validation_token'):
                 err_msg = (validate_data or {}).get('message', 'Error validando orden')
+                update_dynamic_transaction_status(tx_dynamic['id'], 'rechazado', notas=err_msg)
+                _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
                 logger.error(f'[API DynRecharge] Validate failed: code={validate_code} msg={err_msg}')
                 return jsonify({'ok': False, 'error': f'Validación falló: {err_msg}'}), 422
 
@@ -11357,6 +11702,29 @@ def api_recharge_dynamic():
                 except Exception as e:
                     logger.warning(f'[API DynRecharge] Inquiry error: {e}')
 
+                update_dynamic_transaction_status(
+                    tx_dynamic['id'],
+                    'aprobado',
+                    notas='API externa exitosa',
+                    gamepoint_referenceno=reference_no,
+                    ingame_name=ingame_name,
+                )
+                conn_sync = get_db_connection()
+                try:
+                    sync_dynamic_purchase_records(conn_sync, tx_dynamic['id'])
+                    conn_sync.commit()
+                finally:
+                    conn_sync.close()
+
+                success_payload = {
+                    'ok': True,
+                    'player_name': ingame_name,
+                    'duration': _dur,
+                    'reference_no': reference_no,
+                    'game': game['nombre'],
+                }
+                _complete_whitelabel_api_purchase(api_user_id, endpoint_key, request_id, success_payload, tx_dynamic['transaccion_id'], tx_dynamic['numero_control'])
+
                 # Log
                 try:
                     _lc = get_db_connection()
@@ -11370,15 +11738,11 @@ def api_recharge_dynamic():
                     pass
 
                 logger.info(f'[API DynRecharge] OK game={game["nombre"]} player={player_id} pkg={package_id} gp_pkg={gp_package_id} dur={_dur}s')
-                return jsonify({
-                    'ok': True,
-                    'player_name': ingame_name,
-                    'duration': _dur,
-                    'reference_no': reference_no,
-                    'game': game['nombre'],
-                })
+                return jsonify(success_payload)
             else:
                 err_msg = (create_data or {}).get('message', 'Error creando orden en GamePoint')
+                update_dynamic_transaction_status(tx_dynamic['id'], 'rechazado', notas=err_msg, gamepoint_referenceno=reference_no)
+                _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
                 logger.error(f'[API DynRecharge] Create failed: code={create_code} msg={err_msg}')
 
                 try:
@@ -11395,6 +11759,12 @@ def api_recharge_dynamic():
                 return jsonify({'ok': False, 'error': err_msg}), 422
 
         except Exception as e:
+            if tx_dynamic and tx_dynamic.get('id'):
+                try:
+                    update_dynamic_transaction_status(tx_dynamic['id'], 'rechazado', notas=str(e))
+                except Exception:
+                    pass
+            _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
             logger.error(f'[API DynRecharge] Error general: {e}')
             return jsonify({'ok': False, 'error': f'Error interno: {str(e)}'}), 500
 
@@ -11414,14 +11784,44 @@ def api_recharge_dynamic():
     if bs_pkg and bs_pkg['game_script_package_key']:
         import time as _t
         _start = _t.time()
-        request_id = (request.form.get('request_id') or request.headers.get('X-Request-ID') or f"api-bs-{secrets.token_hex(8)}").strip()
+        request_id = (request.form.get('request_id') or request.form.get('external_order_id') or request.headers.get('X-Request-ID') or f"api-bs-{secrets.token_hex(8)}").strip()
+        endpoint_key = 'api_bloodstrike_script'
+        idempotency_state = _begin_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
+        if idempotency_state.get('state') == 'completed':
+            payload = idempotency_state.get('payload') or {}
+            payload.setdefault('ok', True)
+            payload['idempotent'] = True
+            return jsonify(payload)
+        if idempotency_state.get('state') == 'processing':
+            return jsonify({'ok': False, 'purchase_status': 'processing', 'error': 'La recarga ya se está procesando'}), 409
+
+        tx_bs = None
 
         try:
+            tx_bs = create_bloodstriker_transaction(api_user_id, player_id, package_id, float(bs_pkg['precio'] or 0.0), estado='procesando')
             script_data = _game_script_buy(player_id, bs_pkg['game_script_package_key'], request_id)
             _dur = round(_t.time() - _start, 1)
             if (script_data or {}).get('success'):
                 provider_ref = (script_data or {}).get('orden') or (script_data or {}).get('requestId') or request_id
                 ingame_name = (script_data or {}).get('jugador') or ''
+
+                conn_sync = get_db_connection()
+                try:
+                    conn_sync.execute('UPDATE transacciones_bloodstriker SET estado = ?, gamepoint_referenceno = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP WHERE id = ?', ('aprobado', provider_ref, 'API externa exitosa', tx_bs['id']))
+                    sync_bloodstriker_purchase_records(conn_sync, tx_bs['id'])
+                    conn_sync.commit()
+                finally:
+                    conn_sync.close()
+
+                success_payload = {
+                    'ok': True,
+                    'purchase_status': 'completed',
+                    'player_name': ingame_name,
+                    'duration': _dur,
+                    'reference_no': provider_ref,
+                    'game': 'Blood Strike',
+                }
+                _complete_whitelabel_api_purchase(api_user_id, endpoint_key, request_id, success_payload, tx_bs['transaccion_id'], tx_bs['numero_control'])
 
                 try:
                     _lc = get_db_connection()
@@ -11434,16 +11834,17 @@ def api_recharge_dynamic():
                 except Exception:
                     pass
 
-                return jsonify({
-                    'ok': True,
-                    'purchase_status': 'completed',
-                    'player_name': ingame_name,
-                    'duration': _dur,
-                    'reference_no': provider_ref,
-                    'game': 'Blood Strike',
-                })
+                return jsonify(success_payload)
 
             err_msg = (script_data or {}).get('error') or (script_data or {}).get('message') or 'Error creando orden en Game Script'
+            if tx_bs and tx_bs.get('id'):
+                conn_sync = get_db_connection()
+                try:
+                    conn_sync.execute('UPDATE transacciones_bloodstriker SET estado = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP WHERE id = ?', ('rechazado', err_msg, tx_bs['id']))
+                    conn_sync.commit()
+                finally:
+                    conn_sync.close()
+            _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
             try:
                 _lc = get_db_connection()
                 _lc.execute(
@@ -11457,6 +11858,15 @@ def api_recharge_dynamic():
 
             return jsonify({'ok': False, 'purchase_status': 'failed', 'error': err_msg}), 422
         except Exception as e:
+            if tx_bs and tx_bs.get('id'):
+                try:
+                    conn_sync = get_db_connection()
+                    conn_sync.execute('UPDATE transacciones_bloodstriker SET estado = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP WHERE id = ?', ('rechazado', str(e), tx_bs['id']))
+                    conn_sync.commit()
+                    conn_sync.close()
+                except Exception:
+                    pass
+            _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
             logger.error(f'[API BSRecharge Script] Error general: {e}')
             return jsonify({'ok': False, 'error': f'Error interno: {str(e)}'}), 500
 
@@ -11464,10 +11874,30 @@ def api_recharge_dynamic():
         import time as _t
         _start = _t.time()
         bloodstrike_product_id = int(os.environ.get('BLOODSTRIKE_PRODUCT_ID', '155'))
+        request_id = (request.form.get('request_id') or request.form.get('external_order_id') or request.headers.get('X-Request-ID') or f"api-bs-{secrets.token_hex(8)}").strip()
+        endpoint_key = 'api_bloodstrike_gamepoint'
+        idempotency_state = _begin_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
+        if idempotency_state.get('state') == 'completed':
+            payload = idempotency_state.get('payload') or {}
+            payload.setdefault('ok', True)
+            payload['idempotent'] = True
+            return jsonify(payload)
+        if idempotency_state.get('state') == 'processing':
+            return jsonify({'ok': False, 'purchase_status': 'processing', 'error': 'La recarga ya se está procesando'}), 409
+
+        tx_bs = None
 
         try:
+            tx_bs = create_bloodstriker_transaction(api_user_id, player_id, package_id, float(bs_pkg['precio'] or 0.0), estado='procesando')
             gc_token, gc_err = _gameclub_get_token()
             if not gc_token:
+                conn_sync = get_db_connection()
+                try:
+                    conn_sync.execute('UPDATE transacciones_bloodstriker SET estado = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP WHERE id = ?', ('rechazado', (gc_err or {}).get('message', 'No se pudo obtener token de GamePoint'), tx_bs['id']))
+                    conn_sync.commit()
+                finally:
+                    conn_sync.close()
+                _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
                 err = (gc_err or {}).get('message', 'No se pudo obtener token de GamePoint')
                 logger.error(f'[API BSRecharge] Token error: {err}')
                 return jsonify({'ok': False, 'error': f'Error proveedor: {err}'}), 502
@@ -11477,6 +11907,13 @@ def api_recharge_dynamic():
             validate_code = (validate_data or {}).get('code')
             if validate_code != 200 or not (validate_data or {}).get('validation_token'):
                 err_msg = (validate_data or {}).get('message', 'Error validando orden')
+                conn_sync = get_db_connection()
+                try:
+                    conn_sync.execute('UPDATE transacciones_bloodstriker SET estado = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP WHERE id = ?', ('rechazado', err_msg, tx_bs['id']))
+                    conn_sync.commit()
+                finally:
+                    conn_sync.close()
+                _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
                 logger.error(f'[API BSRecharge] Validate failed: code={validate_code} msg={err_msg}')
                 return jsonify({'ok': False, 'error': f'Validación falló: {err_msg}'}), 422
 
@@ -11502,6 +11939,23 @@ def api_recharge_dynamic():
                 except Exception as e:
                     logger.warning(f'[API BSRecharge] Inquiry error: {e}')
 
+                conn_sync = get_db_connection()
+                try:
+                    conn_sync.execute('UPDATE transacciones_bloodstriker SET estado = ?, gamepoint_referenceno = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP WHERE id = ?', ('aprobado', reference_no, 'API externa exitosa', tx_bs['id']))
+                    sync_bloodstriker_purchase_records(conn_sync, tx_bs['id'])
+                    conn_sync.commit()
+                finally:
+                    conn_sync.close()
+
+                success_payload = {
+                    'ok': True,
+                    'player_name': ingame_name,
+                    'duration': _dur,
+                    'reference_no': reference_no,
+                    'game': 'Blood Strike',
+                }
+                _complete_whitelabel_api_purchase(api_user_id, endpoint_key, request_id, success_payload, tx_bs['transaccion_id'], tx_bs['numero_control'])
+
                 try:
                     _lc = get_db_connection()
                     _lc.execute(
@@ -11514,15 +11968,16 @@ def api_recharge_dynamic():
                     pass
 
                 logger.info(f'[API BSRecharge] OK player={player_id} pkg={package_id} gp_pkg={gp_package_id} dur={_dur}s')
-                return jsonify({
-                    'ok': True,
-                    'player_name': ingame_name,
-                    'duration': _dur,
-                    'reference_no': reference_no,
-                    'game': 'Blood Strike',
-                })
+                return jsonify(success_payload)
             else:
                 err_msg = (create_data or {}).get('message', 'Error creando orden en GamePoint')
+                conn_sync = get_db_connection()
+                try:
+                    conn_sync.execute('UPDATE transacciones_bloodstriker SET estado = ?, gamepoint_referenceno = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP WHERE id = ?', ('rechazado', reference_no, err_msg, tx_bs['id']))
+                    conn_sync.commit()
+                finally:
+                    conn_sync.close()
+                _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
                 logger.error(f'[API BSRecharge] Create failed: code={create_code} msg={err_msg}')
                 try:
                     _lc = get_db_connection()
@@ -11537,6 +11992,15 @@ def api_recharge_dynamic():
                 return jsonify({'ok': False, 'error': err_msg}), 422
 
         except Exception as e:
+            if tx_bs and tx_bs.get('id'):
+                try:
+                    conn_sync = get_db_connection()
+                    conn_sync.execute('UPDATE transacciones_bloodstriker SET estado = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP WHERE id = ?', ('rechazado', str(e), tx_bs['id']))
+                    conn_sync.commit()
+                    conn_sync.close()
+                except Exception:
+                    pass
+            _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
             logger.error(f'[API BSRecharge] Error general: {e}')
             return jsonify({'ok': False, 'error': f'Error interno: {str(e)}'}), 500
 
@@ -11560,6 +12024,10 @@ def api_recharge_freefire_id():
     if not env_key or req_key != env_key:
         return jsonify({'ok': False, 'error': 'API key inválida'}), 401
 
+    api_user_id, api_user_error = _resolve_whitelabel_api_user_id()
+    if not api_user_id:
+        return jsonify({'ok': False, 'error': api_user_error}), 500
+
     player_id  = (request.form.get('player_id') or '').strip()
     pkg_id_str = (request.form.get('package_id') or '').strip()
     if not player_id or not pkg_id_str:
@@ -11570,12 +12038,25 @@ def api_recharge_freefire_id():
     except ValueError:
         return jsonify({'ok': False, 'error': 'package_id debe ser un número'}), 400
 
+    request_id = (request.form.get('request_id') or request.form.get('external_order_id') or request.headers.get('X-Request-ID') or f"api-ffid-{secrets.token_hex(8)}").strip()
+    endpoint_key = 'api_freefire_id'
+    idempotency_state = _begin_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
+    if idempotency_state.get('state') == 'completed':
+        payload = idempotency_state.get('payload') or {}
+        payload.setdefault('ok', True)
+        payload['idempotent'] = True
+        return jsonify(payload)
+    if idempotency_state.get('state') == 'processing':
+        return jsonify({'ok': False, 'purchase_status': 'processing', 'error': 'La recarga ya se está procesando'}), 409
+
     precio = get_freefire_id_price_by_id(package_id)
     if precio == 0:
+        _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
         return jsonify({'ok': False, 'error': 'Paquete no encontrado o inactivo'}), 400
 
     pin_disponible = get_available_pin_freefire_global(package_id)
     if not pin_disponible:
+        _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
         return jsonify({'ok': False, 'error': f'Sin stock para paquete {package_id}'}), 409
 
     pin_codigo = pin_disponible['pin_codigo']
@@ -11586,9 +12067,10 @@ def api_recharge_freefire_id():
     _start = _t.time()
 
     try:
-        transaction_data = create_freefire_id_transaction(None, player_id, package_id, precio, pin_codigo=pin_codigo)
+        transaction_data = create_freefire_id_transaction(api_user_id, player_id, package_id, precio, pin_codigo=pin_codigo, request_id=request_id)
     except Exception as e:
         logger.error(f'[API FF-ID] Error creando registro FFID para pin log: {e}')
+        _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
         try:
             _c = get_db_connection()
             _c.execute('INSERT INTO pines_freefire_global (monto_id, pin_codigo, usado) VALUES (?, ?, FALSE)', (package_id, pin_codigo))
@@ -11624,6 +12106,7 @@ def api_recharge_freefire_id():
             _c.close()
         except Exception:
             pass
+        _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
         return jsonify({'ok': False, 'error': f'Error interno: {e}'}), 500
     _dur = round(_t.time() - _start, 1)
 
@@ -11652,9 +12135,17 @@ def api_recharge_freefire_id():
     if redeem_result and redeem_result.success:
         pname = redeem_result.player_name or ''
         _update_ffid_api_transaction('aprobado', f'API externa exitosa. Jugador: {pname}' if pname else 'API externa exitosa')
+        conn_sync = get_db_connection()
+        try:
+            sync_freefire_id_purchase_records(conn_sync, transaction_data['id'])
+            conn_sync.commit()
+        finally:
+            conn_sync.close()
         _log_api_recharge(True, player_name=pname)
+        success_payload = {'ok': True, 'player_name': pname, 'duration': _dur}
+        _complete_whitelabel_api_purchase(api_user_id, endpoint_key, request_id, success_payload, transaction_data['transaccion_id'], transaction_data['numero_control'])
         logger.info(f'[API FF-ID] Recarga exitosa player={player_id} pkg={package_id} dur={_dur}s')
-        return jsonify({'ok': True, 'player_name': pname, 'duration': _dur})
+        return jsonify(success_payload)
     else:
         # Devolver el PIN al stock
         try:
@@ -11666,6 +12157,7 @@ def api_recharge_freefire_id():
             pass
         err_msg = (redeem_result.message if redeem_result else None) or 'Redención fallida'
         _update_ffid_api_transaction('rechazado', f'API externa falló: {err_msg[:200]}')
+        _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
         _log_api_recharge(False, error_msg=err_msg)
         logger.warning(f'[API FF-ID] Redención fallida player={player_id} pkg={package_id}: {err_msg}')
         return jsonify({'ok': False, 'error': err_msg}), 422
