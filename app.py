@@ -3568,6 +3568,77 @@ def _resolve_whitelabel_api_user_id():
     return None, 'Configura WEBB_API_USER_ID o WEBB_API_USER_EMAIL con el usuario de Revendedores que debe recibir estas órdenes'
 
 
+def _get_request_api_key():
+    json_data = request.get_json(silent=True) or {}
+    if not isinstance(json_data, dict):
+        json_data = {}
+    return (
+        request.headers.get('X-API-Key')
+        or request.args.get('api_key')
+        or request.form.get('api_key')
+        or json_data.get('api_key')
+        or ''
+    ).strip()
+
+
+def _find_whitelabel_account_by_key(api_key: str):
+    normalized_key = str(api_key or '').strip()
+    if not normalized_key:
+        return None
+
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            '''
+            SELECT id, nombre, api_key, usuario_id, webhook_url, activo
+            FROM webservice_accounts
+            WHERE api_key = ? AND activo = TRUE
+            LIMIT 1
+            ''',
+            (normalized_key,)
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def _resolve_whitelabel_api_context(*, require_user: bool = True):
+    req_key = _get_request_api_key()
+    if not req_key:
+        return None, 'API key requerida', 401
+
+    account = _find_whitelabel_account_by_key(req_key)
+    if account:
+        ctx = {
+            'api_key': req_key,
+            'account_id': int(account['id']),
+            'account_name': str(account.get('nombre') or ''),
+            'user_id': int(account['usuario_id']),
+            'legacy': False,
+        }
+        return ctx, '', 200
+
+    env_key = os.environ.get('WEBB_API_KEY', '').strip()
+    if env_key and req_key == env_key:
+        if not require_user:
+            return {'api_key': req_key, 'account_id': None, 'account_name': 'legacy-env', 'user_id': None, 'legacy': True}, '', 200
+
+        api_user_id, api_user_error = _resolve_whitelabel_api_user_id()
+        if not api_user_id:
+            return None, api_user_error, 500
+
+        ctx = {
+            'api_key': req_key,
+            'account_id': None,
+            'account_name': 'legacy-env',
+            'user_id': int(api_user_id),
+            'legacy': True,
+        }
+        return ctx, '', 200
+
+    return None, 'API key inválida o cuenta desactivada', 401
+
+
 def _begin_whitelabel_api_purchase(user_id, endpoint_key, request_id):
     conn = get_db_connection()
     try:
@@ -11366,10 +11437,9 @@ def admin_get_user_costos_detail(day, user_id):
 def api_catalog_active():
     """Devuelve todos los paquetes activos (Free Fire ID + juegos dinámicos modo ID)
     para que Inefable Store pueda sincronizar su catálogo de mapeo."""
-    env_key = os.environ.get('WEBB_API_KEY', '').strip()
-    req_key = (request.args.get('api_key') or request.headers.get('X-API-Key') or '').strip()
-    if not env_key or req_key != env_key:
-        return jsonify({'ok': False, 'error': 'API key inválida'}), 401
+    api_ctx, api_error, status_code = _resolve_whitelabel_api_context(require_user=False)
+    if not api_ctx:
+        return jsonify({'ok': False, 'error': api_error}), status_code
 
     items = []
 
@@ -11448,10 +11518,9 @@ def api_catalog_active():
 def api_recharge_dynamic():
     """Endpoint unificado para Inefable Store. Maneja recargas de juegos dinámicos
     vía GamePoint API, y delega Free Fire ID al endpoint existente."""
-    env_key = os.environ.get('WEBB_API_KEY', '').strip()
-    req_key = (request.form.get('api_key') or '').strip()
-    if not env_key or req_key != env_key:
-        return jsonify({'ok': False, 'error': 'API key inválida'}), 401
+    api_ctx, api_error, status_code = _resolve_whitelabel_api_context(require_user=True)
+    if not api_ctx:
+        return jsonify({'ok': False, 'error': api_error}), status_code
 
     player_id  = (request.form.get('player_id') or '').strip()
     pkg_id_str = (request.form.get('package_id') or '').strip()
@@ -11480,9 +11549,7 @@ def api_recharge_dynamic():
     except ValueError:
         provider_package_id = None
 
-    api_user_id, api_user_error = _resolve_whitelabel_api_user_id()
-    if not api_user_id:
-        return jsonify({'ok': False, 'error': api_user_error}), 500
+    api_user_id = int(api_ctx['user_id'])
 
     from dynamic_games import get_dynamic_package_by_id, get_dynamic_game_by_id
 
@@ -12019,14 +12086,11 @@ def api_recharge_dynamic():
 @app.route('/api/recharge/freefire_id', methods=['POST'])
 def api_recharge_freefire_id():
     """Endpoint dedicado para Inefable Store. Solo requiere WEBB_API_KEY."""
-    env_key = os.environ.get('WEBB_API_KEY', '').strip()
-    req_key = (request.form.get('api_key') or '').strip()
-    if not env_key or req_key != env_key:
-        return jsonify({'ok': False, 'error': 'API key inválida'}), 401
+    api_ctx, api_error, status_code = _resolve_whitelabel_api_context(require_user=True)
+    if not api_ctx:
+        return jsonify({'ok': False, 'error': api_error}), status_code
 
-    api_user_id, api_user_error = _resolve_whitelabel_api_user_id()
-    if not api_user_id:
-        return jsonify({'ok': False, 'error': api_user_error}), 500
+    api_user_id = int(api_ctx['user_id'])
 
     player_id  = (request.form.get('player_id') or '').strip()
     pkg_id_str = (request.form.get('package_id') or '').strip()
