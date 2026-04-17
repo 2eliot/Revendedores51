@@ -1190,6 +1190,7 @@ def create_optimized_indexes(cursor):
         'CREATE INDEX IF NOT EXISTS idx_precios_compra_juego_paquete ON precios_compra(juego, paquete_id, activo)',
         'CREATE INDEX IF NOT EXISTS idx_bloodstriker_estado ON transacciones_bloodstriker(estado, fecha DESC)',
         'CREATE INDEX IF NOT EXISTS idx_creditos_usuario_visto ON creditos_billetera(usuario_id, visto)',
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_recargas_binance_txid_unique ON recargas_binance(binance_transaction_id) WHERE binance_transaction_id IS NOT NULL",
         'CREATE INDEX IF NOT EXISTS idx_noticias_fecha ON noticias(fecha DESC)'
     ]
     
@@ -2116,7 +2117,11 @@ def verificar_recarga_binance(recarga_id, _binance_tx_kwargs=None):
             # ¡Match encontrado! Acreditar saldo
             bonus = 0.0
             monto_total = monto_esperado
-            tx_id = tx.get('transactionId', '')
+            tx_id = str(tx.get('transactionId', '') or '').strip()
+
+            if not tx_id:
+                logger.warning(f"Recarga {recarga_id}: Binance devolvió una transacción sin transactionId; se omite para evitar doble acreditación")
+                continue
             
             try:
                 # === Transacción atómica: idempotencia + bono + crédito ===
@@ -2144,12 +2149,21 @@ def verificar_recarga_binance(recarga_id, _binance_tx_kwargs=None):
                 except Exception as e_bonus:
                     logger.warning(f"Recarga {recarga_id}: error consultando bono_activo: {e_bonus}")
 
-                # Actualizar recarga como completada
-                conn2.execute('''
+                # Reclamar la recarga pendiente dentro de la misma transacción.
+                # Si otro hilo/proceso ya la completó, rowcount será 0 y no se toca saldo.
+                claim_result = conn2.execute('''
                     UPDATE recargas_binance 
                     SET estado = 'completada', binance_transaction_id = ?, fecha_completada = CURRENT_TIMESTAMP, bonus = ?
                     WHERE id = ?
+                      AND estado = 'pendiente'
+                      AND (binance_transaction_id IS NULL OR binance_transaction_id = '')
                 ''', (tx_id, bonus, recarga_id))
+
+                if claim_result.rowcount != 1:
+                    conn2.rollback()
+                    conn2.close()
+                    logger.info(f"Recarga {recarga_id}: otro proceso ya acreditó la transacción {tx_id}")
+                    return {'status': 'ya_procesada', 'message': 'Esta transacción ya fue procesada'}
 
                 # Acreditar saldo al usuario (atómico, misma transacción)
                 saldo_row = conn2.execute('SELECT saldo FROM usuarios WHERE id = ?', (usuario_id,)).fetchone()
@@ -2210,6 +2224,7 @@ def _ensure_recargas_table():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_recargas_usuario ON recargas_binance(usuario_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_recargas_estado ON recargas_binance(estado)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_recargas_codigo ON recargas_binance(codigo_referencia)')
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_recargas_binance_txid_unique ON recargas_binance(binance_transaction_id) WHERE binance_transaction_id IS NOT NULL")
         conn.commit()
     except Exception as e:
         logger.error(f"Error creando tabla recargas_binance: {e}")
@@ -2281,24 +2296,8 @@ def get_all_recargas_admin(limit=50):
 
 def get_recargas_usuario(user_id, limit=20):
     """Obtiene el historial de recargas de un usuario"""
+    _ensure_recargas_table()
     conn = get_db_connection()
-    # Crear tabla si no existe (compatibilidad)
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS recargas_binance (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            usuario_id INTEGER NOT NULL,
-            codigo_referencia TEXT NOT NULL UNIQUE,
-            monto_solicitado REAL NOT NULL,
-            monto_unico REAL NOT NULL,
-            estado TEXT DEFAULT 'pendiente',
-            binance_transaction_id TEXT,
-            fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
-            fecha_expiracion DATETIME NOT NULL,
-            fecha_completada DATETIME,
-            bonus REAL DEFAULT 0.0,
-            FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
-        )
-    ''')
     recargas = conn.execute('''
         SELECT * FROM recargas_binance 
         WHERE usuario_id = ? 
