@@ -8130,75 +8130,113 @@ def admin_freefire_id_pin_log():
         flash('Acceso denegado. Solo administradores.', 'error')
         return redirect('/auth')
 
-    venezuela_day = datetime.now(pytz.timezone('America/Caracas')).strftime('%Y-%m-%d')
-    
+    venezuela_tz = pytz.timezone('America/Caracas')
+    now_venezuela = datetime.now(venezuela_tz)
+    venezuela_day = now_venezuela.strftime('%Y-%m-%d')
+    cutoff_day = (now_venezuela - timedelta(days=6)).strftime('%Y-%m-%d')  # últimos 7 días (incluye hoy)
+
+    view = (request.args.get('view') or '').strip().lower()
+
     conn = get_db_connection()
-    rows = conn.execute('''
-        SELECT * FROM (
-            SELECT
-                'FFID-' || fi.id as log_id,
-                fi.id,
-                fi.usuario_id,
-                fi.player_id,
-                fi.pin_codigo,
-                fi.paquete_id,
-                fi.numero_control,
-                fi.transaccion_id,
-                fi.monto,
-                fi.estado,
-                fi.fecha,
-                fi.fecha_procesado,
-                COALESCE(fi.notas, '') as notas,
-                CASE
-                    WHEN fi.usuario_id IS NULL THEN 'API Externa'
-                    ELSE TRIM(COALESCE(u.nombre, '') || ' ' || COALESCE(u.apellido, ''))
-                END as usuario_nombre,
-                COALESCE(u.correo, 'api@externa.local') as correo,
-                p.nombre as paquete_nombre,
-                'Free Fire ID' as origen
-            FROM transacciones_freefire_id fi
-            LEFT JOIN usuarios u ON fi.usuario_id = u.id
-            LEFT JOIN precios_freefire_id p ON fi.paquete_id = p.id
-            WHERE DATE(fi.fecha, '-4 hours') = ?
+    try:
+        if view == 'rechazados':
+            rows = conn.execute('''
+                SELECT
+                    'FFID-' || fi.id as log_id,
+                    fi.id,
+                    fi.usuario_id,
+                    fi.player_id,
+                    fi.pin_codigo,
+                    fi.paquete_id,
+                    fi.numero_control,
+                    fi.transaccion_id,
+                    fi.monto,
+                    fi.estado,
+                    fi.fecha,
+                    fi.fecha_procesado,
+                    COALESCE(fi.notas, '') as notas,
+                    CASE
+                        WHEN fi.usuario_id IS NULL THEN 'API Externa'
+                        ELSE TRIM(COALESCE(u.nombre, '') || ' ' || COALESCE(u.apellido, ''))
+                    END as usuario_nombre,
+                    COALESCE(u.correo, 'api@externa.local') as correo,
+                    p.nombre as paquete_nombre,
+                    'Free Fire ID' as origen
+                FROM transacciones_freefire_id fi
+                LEFT JOIN usuarios u ON fi.usuario_id = u.id
+                LEFT JOIN precios_freefire_id p ON fi.paquete_id = p.id
+                WHERE fi.estado = 'rechazado'
+                  AND DATE(fi.fecha, '-4 hours') >= ?
+                ORDER BY fi.fecha DESC
+            ''', (cutoff_day,)).fetchall()
+        else:
+            rows = conn.execute('''
+                SELECT * FROM (
+                    SELECT
+                        'FFID-' || fi.id as log_id,
+                        fi.id,
+                        fi.usuario_id,
+                        fi.player_id,
+                        fi.pin_codigo,
+                        fi.paquete_id,
+                        fi.numero_control,
+                        fi.transaccion_id,
+                        fi.monto,
+                        fi.estado,
+                        fi.fecha,
+                        fi.fecha_procesado,
+                        COALESCE(fi.notas, '') as notas,
+                        CASE
+                            WHEN fi.usuario_id IS NULL THEN 'API Externa'
+                            ELSE TRIM(COALESCE(u.nombre, '') || ' ' || COALESCE(u.apellido, ''))
+                        END as usuario_nombre,
+                        COALESCE(u.correo, 'api@externa.local') as correo,
+                        p.nombre as paquete_nombre,
+                        'Free Fire ID' as origen
+                    FROM transacciones_freefire_id fi
+                    LEFT JOIN usuarios u ON fi.usuario_id = u.id
+                    LEFT JOIN precios_freefire_id p ON fi.paquete_id = p.id
+                    WHERE DATE(fi.fecha, '-4 hours') = ?
 
-            UNION ALL
+                    UNION ALL
 
-            SELECT
-                'API-' || t.id as log_id,
-                t.id,
-                t.usuario_id,
-                COALESCE(ao.player_id, '') as player_id,
-                COALESCE(NULLIF(ao.redeemed_pin, ''), t.pin) as pin_codigo,
-                NULL as paquete_id,
-                t.numero_control,
-                t.transaccion_id,
-                t.monto,
-                'aprobado' as estado,
-                t.fecha,
-                t.fecha as fecha_procesado,
-                CASE
-                    WHEN t.request_id IS NOT NULL AND TRIM(t.request_id) <> '' THEN 'Compra API registrada con request_id'
-                    ELSE 'Compra API registrada'
-                END as notas,
-                CASE
-                    WHEN t.usuario_id IS NULL THEN 'API Externa'
-                    ELSE TRIM(COALESCE(u.nombre, '') || ' ' || COALESCE(u.apellido, ''))
-                END as usuario_nombre,
-                COALESCE(u.correo, 'api@externa.local') as correo,
-                COALESCE(t.paquete_nombre, 'Compra API') as paquete_nombre,
-                                'API FF ID' as origen
-            FROM transacciones t
-            LEFT JOIN usuarios u ON t.usuario_id = u.id
-                        LEFT JOIN api_orders ao ON t.transaccion_id = ('WL-API-' || ao.id)
-                        WHERE t.transaccion_id LIKE 'WL-API-%'
-                            AND ao.game_type = 'freefire_id'
-              AND t.pin IS NOT NULL
-              AND TRIM(t.pin) <> ''
-                            AND DATE(t.fecha, '-4 hours') = ?
-        ) tx
-        ORDER BY tx.fecha DESC
-        ''', (venezuela_day, venezuela_day)).fetchall()
-    conn.close()
+                    SELECT
+                        'API-' || t.id as log_id,
+                        t.id,
+                        t.usuario_id,
+                        COALESCE(ao.player_id, '') as player_id,
+                        COALESCE(NULLIF(ao.redeemed_pin, ''), t.pin) as pin_codigo,
+                        NULL as paquete_id,
+                        t.numero_control,
+                        t.transaccion_id,
+                        t.monto,
+                        'aprobado' as estado,
+                        t.fecha,
+                        t.fecha as fecha_procesado,
+                        CASE
+                            WHEN t.request_id IS NOT NULL AND TRIM(t.request_id) <> '' THEN 'Compra API registrada con request_id'
+                            ELSE 'Compra API registrada'
+                        END as notas,
+                        CASE
+                            WHEN t.usuario_id IS NULL THEN 'API Externa'
+                            ELSE TRIM(COALESCE(u.nombre, '') || ' ' || COALESCE(u.apellido, ''))
+                        END as usuario_nombre,
+                        COALESCE(u.correo, 'api@externa.local') as correo,
+                        COALESCE(t.paquete_nombre, 'Compra API') as paquete_nombre,
+                        'API FF ID' as origen
+                    FROM transacciones t
+                    LEFT JOIN usuarios u ON t.usuario_id = u.id
+                    LEFT JOIN api_orders ao ON t.transaccion_id = ('WL-API-' || ao.id)
+                    WHERE t.transaccion_id LIKE 'WL-API-%'
+                      AND ao.game_type = 'freefire_id'
+                      AND t.pin IS NOT NULL
+                      AND TRIM(t.pin) <> ''
+                      AND DATE(t.fecha, '-4 hours') = ?
+                ) tx
+                ORDER BY tx.fecha DESC
+            ''', (venezuela_day, venezuela_day)).fetchall()
+    finally:
+        conn.close()
 
     transactions = []
     for row in rows:
@@ -8220,7 +8258,13 @@ def admin_freefire_id_pin_log():
 
         transactions.append(item)
     
-    return render_template_string(PIN_LOG_TEMPLATE, transactions=transactions, venezuela_day=venezuela_day)
+    return render_template_string(
+        PIN_LOG_TEMPLATE,
+        transactions=transactions,
+        venezuela_day=venezuela_day,
+        view=view,
+        cutoff_day=cutoff_day,
+    )
 
 @app.route('/admin/freefire_id_audit')
 def admin_freefire_id_audit():
@@ -8378,7 +8422,7 @@ PIN_LOG_TEMPLATE = r'''
         .back-link { color: #00ff88; text-decoration: none; margin-bottom: 20px; display: inline-block; }
         .back-link:hover { text-decoration: underline; }
         .stats { display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; }
-        .stat-box { background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 12px 20px; }
+        .stat-box { display: block; background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 12px 20px; text-decoration: none; color: inherit; }
         .stat-box .num { font-size: 24px; font-weight: bold; }
         .stat-box .label { font-size: 12px; color: #888; }
         .stat-box.success .num { color: #00ff88; }
@@ -8406,17 +8450,21 @@ PIN_LOG_TEMPLATE = r'''
 <body>
     <a href="/admin" class="back-link">&#8592; Volver al Panel Admin</a>
     <h1>Log Diario de PINes FreeFire ID</h1>
+    {% if view == 'rechazados' %}
+    <p class="subtitle">PINes rechazados de los últimos 7 días (desde {{ cutoff_day }}) en horario de Venezuela.</p>
+    {% else %}
     <p class="subtitle">Compras registradas hoy ({{ venezuela_day }}) en horario de Venezuela. Solo incluye Free Fire ID web y compras API que redimen PIN real.</p>
+    {% endif %}
 
     <div class="stats">
         <div class="stat-box success">
             <div class="num">{{ transactions|selectattr('estado', 'equalto', 'aprobado')|list|length }}</div>
             <div class="label">Aprobadas</div>
         </div>
-        <div class="stat-box fail">
+        <a class="stat-box fail" href="/admin/freefire_id_pin_log?view=rechazados">
             <div class="num">{{ transactions|selectattr('estado', 'equalto', 'rechazado')|list|length }}</div>
             <div class="label">Rechazadas</div>
-        </div>
+        </a>
         <div class="stat-box pending">
             <div class="num">{{ transactions|selectattr('estado', 'equalto', 'pendiente')|list|length }}</div>
             <div class="label">Pendientes</div>
