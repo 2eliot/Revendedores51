@@ -54,6 +54,20 @@ from api_whitelabel import bp as whitelabel_bp, init_whitelabel_tables
 from update_monthly_spending import update_monthly_spending
 
 
+def _get_sqlite_database_path() -> str:
+    """Ruta SQLite legacy usada por PinManager.
+
+    Nota: la app principal usa pg_compat (SQLite o Postgres según env), pero
+    PinManager sigue usando sqlite3 directo y necesita un path.
+    """
+    if os.environ.get('RENDER'):
+        return 'usuarios.db'
+    return (os.environ.get('DATABASE_PATH') or 'usuarios.db').strip() or 'usuarios.db'
+
+
+DATABASE: str = _get_sqlite_database_path()
+
+
 def _b64url_encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode('utf-8').rstrip('=')
 
@@ -4385,7 +4399,7 @@ def get_user_pending_freefire_id_transactions(user_id):
     conn.close()
     return formatted_transactions
 
-def verify_pin_already_redeemed(pin_code, player_id, config=None):
+def verify_pin_already_redeemed(pin_code, player_id, config=None, consider_missing_stock=False):
     """
     Verifica si un PIN ya fue redimido exitosamente en el VPS.
     Esto previene devolver PINS que ya fueron usados.
@@ -4434,17 +4448,20 @@ def verify_pin_already_redeemed(pin_code, player_id, config=None):
             logger.warning(f"[FreeFire ID] PIN {pin_code[:8]}... ya fue redimido (verificación local)")
             return True
         
-        # Intento 3: Verificar si el PIN ya no está en el stock (fue removido)
-        conn = get_db_connection()
-        pin_in_stock = conn.execute('''
-            SELECT COUNT(*) as count FROM pines_freefire_global 
-            WHERE pin_codigo = ? AND usado = FALSE
-        ''', (pin_code,)).fetchone()
-        conn.close()
-        
-        if pin_in_stock and pin_in_stock['count'] == 0:
-            logger.warning(f"[FreeFire ID] PIN {pin_code[:8]}... no está en stock (probablemente usado)")
-            return True
+        if consider_missing_stock:
+            # Esta heurística solo es útil fuera del flujo en curso.
+            # Durante la redención el PIN sale del stock al reservarse, así que
+            # no debe considerarse evidencia de éxito a menos que se pida explícitamente.
+            conn = get_db_connection()
+            pin_in_stock = conn.execute('''
+                SELECT COUNT(*) as count FROM pines_freefire_global 
+                WHERE pin_codigo = ? AND usado = FALSE
+            ''', (pin_code,)).fetchone()
+            conn.close()
+            
+            if pin_in_stock and pin_in_stock['count'] == 0:
+                logger.warning(f"[FreeFire ID] PIN {pin_code[:8]}... no está en stock (probablemente usado)")
+                return True
         
         return False
         
@@ -4452,6 +4469,48 @@ def verify_pin_already_redeemed(pin_code, player_id, config=None):
         logger.error(f"[FreeFire ID] Error verificando PIN {pin_code[:8]}...: {str(e)}")
         # En caso de error, ser conservador y asumir que no fue usado
         return False
+
+def restore_freefire_id_pin_if_unverified(monto_id, pin_code, player_id, config=None, log_prefix='[FreeFire ID]'):
+    """
+    Devuelve el PIN al stock solo si no hay evidencia de que ya quedó redimido.
+    """
+    if not pin_code:
+        return {'restored': False, 'verified_used': False, 'reason': 'missing_pin'}
+
+    verified_used = False
+    if player_id:
+        verified_used = verify_pin_already_redeemed(
+            pin_code,
+            player_id,
+            config=config,
+            consider_missing_stock=False,
+        )
+
+    if verified_used:
+        logger.warning(
+            f"{log_prefix} PIN {pin_code[:8]}... no se devuelve al stock porque la verificación posterior indica que ya fue redimido"
+        )
+        return {'restored': False, 'verified_used': True, 'reason': 'already_redeemed'}
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        conn.execute(
+            'INSERT INTO pines_freefire_global (monto_id, pin_codigo, usado) VALUES (?, ?, FALSE)',
+            (monto_id, pin_code),
+        )
+        conn.commit()
+        logger.info(f"{log_prefix} PIN {pin_code[:8]}... devuelto al stock")
+        return {'restored': True, 'verified_used': False, 'reason': 'restored'}
+    except Exception as e:
+        logger.error(f"{log_prefix} Error devolviendo PIN al stock: {str(e)}")
+        return {'restored': False, 'verified_used': False, 'reason': 'restore_failed', 'error': str(e)}
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 def audit_freefire_id_inconsistent_transactions():
     """
@@ -12161,14 +12220,26 @@ def api_recharge_freefire_id():
         redeem_result = redeem_pin_vps(pin_codigo, player_id, redeemer_config)
     except Exception as e:
         logger.error(f'[API FF-ID] Error redención: {e}')
+        pin_restore = restore_freefire_id_pin_if_unverified(
+            package_id,
+            pin_codigo,
+            player_id,
+            config=redeemer_config,
+            log_prefix='[API FF-ID]',
+        )
+        if pin_restore.get('verified_used'):
+            success_payload = {'ok': True, 'player_name': '', 'duration': round(_t.time() - _start, 1), 'verified_after_error': True}
+            _update_ffid_api_transaction('aprobado', f'Verificada como exitosa tras excepción del API externo: {str(e)[:200]}')
+            conn_sync = get_db_connection()
+            try:
+                sync_freefire_id_purchase_records(conn_sync, transaction_data['id'])
+                conn_sync.commit()
+            finally:
+                conn_sync.close()
+            _complete_whitelabel_api_purchase(api_user_id, endpoint_key, request_id, success_payload, transaction_data['transaccion_id'], transaction_data['numero_control'])
+            logger.warning(f'[API FF-ID] Redención verificada tras excepción player={player_id} pkg={package_id}: {e}')
+            return jsonify(success_payload)
         _update_ffid_api_transaction('rechazado', f'API externa falló por excepción: {str(e)[:200]}')
-        try:
-            _c = get_db_connection()
-            _c.execute('INSERT INTO pines_freefire_global (monto_id, pin_codigo, usado) VALUES (?, ?, FALSE)', (package_id, pin_codigo))
-            _c.commit()
-            _c.close()
-        except Exception:
-            pass
         _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
         return jsonify({'ok': False, 'error': f'Error interno: {e}'}), 500
     _dur = round(_t.time() - _start, 1)
@@ -12210,15 +12281,28 @@ def api_recharge_freefire_id():
         logger.info(f'[API FF-ID] Recarga exitosa player={player_id} pkg={package_id} dur={_dur}s')
         return jsonify(success_payload)
     else:
-        # Devolver el PIN al stock
-        try:
-            _c = get_db_connection()
-            _c.execute('INSERT INTO pines_freefire_global (monto_id, pin_codigo, usado) VALUES (?, ?, FALSE)', (package_id, pin_codigo))
-            _c.commit()
-            _c.close()
-        except Exception:
-            pass
         err_msg = (redeem_result.message if redeem_result else None) or 'Redención fallida'
+        pin_restore = restore_freefire_id_pin_if_unverified(
+            package_id,
+            pin_codigo,
+            player_id,
+            config=redeemer_config,
+            log_prefix='[API FF-ID]',
+        )
+        if pin_restore.get('verified_used'):
+            pname = redeem_result.player_name or ''
+            _update_ffid_api_transaction('aprobado', f'Verificada como exitosa tras fallo reportado por API externa: {err_msg[:200]}')
+            conn_sync = get_db_connection()
+            try:
+                sync_freefire_id_purchase_records(conn_sync, transaction_data['id'])
+                conn_sync.commit()
+            finally:
+                conn_sync.close()
+            _log_api_recharge(True, player_name=pname, error_msg=f'verified_after_error: {err_msg[:120]}')
+            success_payload = {'ok': True, 'player_name': pname, 'duration': _dur, 'verified_after_error': True}
+            _complete_whitelabel_api_purchase(api_user_id, endpoint_key, request_id, success_payload, transaction_data['transaccion_id'], transaction_data['numero_control'])
+            logger.warning(f'[API FF-ID] Redención verificada tras fallo player={player_id} pkg={package_id}: {err_msg}')
+            return jsonify(success_payload)
         _update_ffid_api_transaction('rechazado', f'API externa falló: {err_msg[:200]}')
         _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
         _log_api_recharge(False, error_msg=err_msg)

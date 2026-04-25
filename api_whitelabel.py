@@ -466,7 +466,7 @@ def api_v1_recharge():
         return jsonify({'ok': False, 'error': 'package_id y product_id deben ser numéricos'}), 400
 
     # --- Resolver juego y paquete ---
-    game_type, game_name, pkg_name, precio, gp_package_id, gp_product_id = _resolve_package(product_id, package_id)
+    game_type, game_name, pkg_name, precio, gp_package_id, gp_product_id, provider_meta = _resolve_package(product_id, package_id)
     if not game_type:
         return jsonify({'ok': False, 'error': f'Paquete {package_id} no encontrado o inactivo'}), 404
 
@@ -555,6 +555,7 @@ def api_v1_recharge():
     # (se ejecuta síncrono porque el cliente espera el resultado)
     result = _execute_recharge(order_id, game_type, package_id, player_id, player_id2,
                                precio, gp_package_id, gp_product_id, usuario_id, account,
+                               provider_meta=provider_meta,
                                game_name=game_name, pkg_name=pkg_name)
 
     if external_order_id:
@@ -576,19 +577,21 @@ def api_v1_recharge():
 
 def _resolve_package(product_id, package_id):
     """Resuelve el tipo de juego, nombre, precio y IDs de GamePoint para un package_id.
-    Returns: (game_type, game_name, pkg_name, precio, gp_package_id, gp_product_id) or (None,...) si no existe.
+    Returns: (game_type, game_name, pkg_name, precio, gp_package_id, gp_product_id, provider_meta)
+    or (None,...) si no existe.
     """
     from dynamic_games import get_dynamic_package_by_id, get_dynamic_game_by_id
 
     # 1. Si product_id indica juego dinámico (> 0) o no especificado, buscar en dinámicos
     if product_id is None or (product_id is not None and product_id > 0):
         dyn_pkg = get_dynamic_package_by_id(package_id)
-        if dyn_pkg and dyn_pkg.get('activo') and dyn_pkg.get('gamepoint_package_id'):
+        if dyn_pkg and dyn_pkg.get('activo') and (dyn_pkg.get('gamepoint_package_id') or dyn_pkg.get('game_script_package_key')):
             if product_id and dyn_pkg.get('juego_id') != product_id:
                 pass  # No coincide, seguir buscando
             else:
                 game = get_dynamic_game_by_id(dyn_pkg['juego_id'])
                 if game and game.get('activo'):
+                    script_key = str(dyn_pkg.get('game_script_package_key') or '').strip() or None
                     return (
                         'dynamic',
                         game['nombre'],
@@ -596,6 +599,14 @@ def _resolve_package(product_id, package_id):
                         float(dyn_pkg['precio']),
                         dyn_pkg['gamepoint_package_id'],
                         game['gamepoint_product_id'],
+                        {
+                            'provider': 'game_script' if script_key and (bool(dyn_pkg.get('game_script_only')) or not dyn_pkg.get('gamepoint_package_id')) else 'gamepoint',
+                            'game_id': game['id'],
+                            'game_slug': game.get('slug'),
+                            'game_script_only': bool(dyn_pkg.get('game_script_only')),
+                            'script_package_key': script_key,
+                            'script_package_title': dyn_pkg.get('game_script_package_title'),
+                        },
                     )
 
     # 2. Blood Strike (product_id == -155 o fallback)
@@ -616,6 +627,7 @@ def _resolve_package(product_id, package_id):
                     float(bs['precio']),
                     bs['gamepoint_package_id'],
                     bs_product_id,
+                    {'provider': 'gamepoint'},
                 )
         except Exception:
             pass
@@ -637,21 +649,30 @@ def _resolve_package(product_id, package_id):
                     float(ff['precio']),
                     None,  # No usa GamePoint
                     None,
+                    {'provider': 'pin_redeem'},
                 )
         except Exception:
             pass
 
-    return (None, None, None, None, None, None)
+    return (None, None, None, None, None, None, None)
 
 
 def _execute_recharge(order_id, game_type, package_id, player_id, player_id2,
                       precio, gp_package_id, gp_product_id, usuario_id, account,
-                      game_name='', pkg_name=''):
+                      provider_meta=None, game_name='', pkg_name=''):
     """Ejecuta la recarga según el tipo de juego y actualiza la orden."""
     _start = time_module.time()
+    provider_meta = provider_meta or {}
 
     try:
-        if game_type in ('dynamic', 'bloodstriker'):
+        if game_type == 'dynamic' and provider_meta.get('provider') == 'game_script':
+            result = _execute_dynamic_script_recharge(
+                order_id,
+                package_id,
+                player_id,
+                provider_meta,
+            )
+        elif game_type in ('dynamic', 'bloodstriker'):
             result = _execute_gamepoint_recharge(
                 order_id, game_type, package_id, player_id, player_id2,
                 gp_package_id, gp_product_id
@@ -767,6 +788,29 @@ def _execute_recharge(order_id, game_type, package_id, player_id, player_id2,
     return jsonify(response), status_code
 
 
+def _execute_dynamic_script_recharge(order_id, package_id, player_id, provider_meta=None):
+    """Ejecuta recarga de juego dinámico vía proveedor Game Script."""
+    from app import _game_script_buy
+
+    provider_meta = provider_meta or {}
+    script_package_key = str(provider_meta.get('script_package_key') or '').strip()
+    if not script_package_key:
+        return {'ok': False, 'error': f'Paquete {package_id} sin mapeo Solo Game'}
+
+    request_id = f'WL-DYN-SCRIPT-{order_id}'
+    script_data = _game_script_buy(player_id, script_package_key, request_id)
+    if (script_data or {}).get('success') or (script_data or {}).get('processing'):
+        provider_ref = (script_data or {}).get('orden') or (script_data or {}).get('requestId') or request_id
+        return {
+            'ok': True,
+            'player_name': (script_data or {}).get('jugador') or '',
+            'reference_no': provider_ref,
+        }
+
+    err_msg = (script_data or {}).get('error') or (script_data or {}).get('message') or 'Error creando orden en Game Script'
+    return {'ok': False, 'error': err_msg}
+
+
 def _execute_gamepoint_recharge(order_id, game_type, package_id, player_id, player_id2,
                                 gp_package_id, gp_product_id):
     """Ejecuta recarga vía GamePoint API (juegos dinámicos y Blood Strike)."""
@@ -825,7 +869,7 @@ def _execute_gamepoint_recharge(order_id, game_type, package_id, player_id, play
 
 def _execute_freefire_id_recharge(order_id, package_id, player_id):
     """Ejecuta recarga de Free Fire ID vía redención de pin."""
-    from app import get_available_pin_freefire_global, redeem_pin_vps, get_redeemer_config_from_db
+    from app import get_available_pin_freefire_global, redeem_pin_vps, get_redeemer_config_from_db, restore_freefire_id_pin_if_unverified
 
     pin_disponible = get_available_pin_freefire_global(package_id)
     if not pin_disponible:
@@ -837,15 +881,15 @@ def _execute_freefire_id_recharge(order_id, package_id, player_id):
     try:
         redeem_result = redeem_pin_vps(pin_codigo, player_id, redeemer_config)
     except Exception as e:
-        # Devolver pin al stock
-        try:
-            conn = _get_conn()
-            conn.execute('INSERT INTO pines_freefire_global (monto_id, pin_codigo, usado) VALUES (?, ?, FALSE)',
-                         (package_id, pin_codigo))
-            conn.commit()
-            conn.close()
-        except Exception:
-            pass
+        pin_restore = restore_freefire_id_pin_if_unverified(
+            package_id,
+            pin_codigo,
+            player_id,
+            config=redeemer_config,
+            log_prefix='[API Whitelabel FF-ID]',
+        )
+        if pin_restore.get('verified_used'):
+            return {'ok': True, 'player_name': '', 'reference_no': '', 'redeemed_pin': pin_codigo, 'verified_after_error': True}
         return {'ok': False, 'error': f'Error redención: {str(e)}', 'redeemed_pin': pin_codigo}
 
     if redeem_result and redeem_result.success:
@@ -856,16 +900,22 @@ def _execute_freefire_id_recharge(order_id, package_id, player_id):
             'redeemed_pin': pin_codigo,
         }
     else:
-        # Devolver pin al stock
-        try:
-            conn = _get_conn()
-            conn.execute('INSERT INTO pines_freefire_global (monto_id, pin_codigo, usado) VALUES (?, ?, FALSE)',
-                         (package_id, pin_codigo))
-            conn.commit()
-            conn.close()
-        except Exception:
-            pass
         err_msg = (redeem_result.message if redeem_result else None) or 'Redención fallida'
+        pin_restore = restore_freefire_id_pin_if_unverified(
+            package_id,
+            pin_codigo,
+            player_id,
+            config=redeemer_config,
+            log_prefix='[API Whitelabel FF-ID]',
+        )
+        if pin_restore.get('verified_used'):
+            return {
+                'ok': True,
+                'player_name': redeem_result.player_name or '',
+                'reference_no': '',
+                'redeemed_pin': pin_codigo,
+                'verified_after_error': True,
+            }
         return {'ok': False, 'error': err_msg, 'redeemed_pin': pin_codigo}
 
 
