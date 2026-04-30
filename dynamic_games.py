@@ -1539,7 +1539,7 @@ def validar_dinamico(slug):
             ''', (estado_db, reference_no, ingame_name, serial_key or None, inquiry_note or None, _tx_procesando_id))
 
             if estado_db == 'aprobado':
-                sync_dynamic_purchase_records(conn, _tx_procesando_id)
+                _app.sync_dynamic_purchase_records(conn, _tx_procesando_id)
             else:
                 _upsert_dynamic_general_transaction(conn, _tx_procesando_id, duracion_segundos=_duration)
 
@@ -1612,6 +1612,8 @@ def _is_real_serial(s):
     if not s:
         return False
     s = str(s).strip()
+    if re.fullmatch(r'-?\d+(?:\.\d+)?', s):
+        return False
     # Los códigos de estado son puramente numéricos y cortos (ej: '100', '101')
     if s.isdigit() and len(s) <= 6:
         return False
@@ -1623,7 +1625,7 @@ _NON_SERIAL_FIELDS = {
     'code', 'message', 'referenceno', 'merchantcode', 'merchant_code',
     'ingamename', 'ingame_name', 'item', 'productid', 'product_id',
     'packageid', 'package_id', 'status', 'orderid', 'order_id',
-    'userid', 'user_id', 'token', 'timestamp', 'date', 'time',
+    'userid', 'user_id', 'token', 'timestamp', 'date', 'time', 'amount',
 }
 
 
@@ -1742,7 +1744,7 @@ def poll_pending_dynamic_transactions():
                     inquiry_note or None,
                     row['id'],
                 ))
-                sync_dynamic_purchase_records(conn2, row['id'])
+                _app.sync_dynamic_purchase_records(conn2, row['id'])
                 conn2.commit()
                 conn2.close()
                 logger.info(f"[DynGame Poll] ✅ tx={row['transaccion_id']} APROBADO")
