@@ -195,6 +195,185 @@ def _gp_helpers():
     )
 
 
+def _normalize_gamepoint_text(value):
+    return re.sub(r'\s+', ' ', str(value or '').strip()).upper()
+
+
+def _classify_gamepoint_inquiry(inquiry_data, serial_key=''):
+    """Map an order/inquiry payload to success, failed or pending."""
+    if _is_real_serial(serial_key):
+        return 'success', ''
+
+    data = inquiry_data or {}
+    status_text = _normalize_gamepoint_text(data.get('status'))
+    message_text = _normalize_gamepoint_text(data.get('message') or data.get('error'))
+    combined = ' '.join(part for part in (status_text, message_text) if part)
+
+    success_tokens = ('SUCCESS', 'COMPLETED', 'COMPLETE', 'APPROVED', 'DELIVERED', 'DONE')
+    failure_tokens = ('FAIL', 'FAILED', 'ERROR', 'REJECT', 'REJECTED', 'DENIED', 'CANCEL', 'EXPIRE', 'INVALID')
+    pending_tokens = ('PENDING', 'PROCESS', 'QUEUE', 'WAIT')
+
+    if any(token in status_text for token in success_tokens):
+        return 'success', str(data.get('message') or data.get('status') or '').strip()
+
+    if any(token in combined for token in failure_tokens):
+        provider_note = str(data.get('message') or data.get('error') or data.get('status') or 'Error reportado por GamePoint').strip()
+        return 'failed', provider_note
+
+    if any(token in combined for token in pending_tokens):
+        return 'pending', str(data.get('message') or data.get('status') or '').strip()
+
+    return 'pending', str(data.get('message') or data.get('status') or '').strip()
+
+
+def _build_dynamic_pin_info(tx):
+    serial_key = str(tx.get('pin_entregado') or '').strip()
+    reference_no = str(tx.get('gamepoint_referenceno') or '').strip()
+    estado = str(tx.get('estado') or '').strip().lower()
+    notas = re.sub(r'\s+', ' ', str(tx.get('notas') or '').strip())
+
+    if _is_real_serial(serial_key):
+        pin_info = f"Código: {serial_key}"
+        if reference_no:
+            pin_info = f"{pin_info} - Ref: {reference_no}"
+        return pin_info
+
+    player_bits = [str(tx.get('player_id') or '').strip()]
+    if str(tx.get('player_id2') or '').strip():
+        player_bits.append(str(tx.get('player_id2') or '').strip())
+    player_text = ' / '.join([bit for bit in player_bits if bit])
+    detail_parts = []
+    if player_text:
+        detail_parts.append(f"ID: {player_text}")
+    if str(tx.get('ingame_name') or '').strip():
+        detail_parts.append(f"Jugador: {str(tx.get('ingame_name')).strip()}")
+    if reference_no:
+        detail_parts.append(f"Ref: {reference_no}")
+
+    if estado in ('rechazado', 'error', 'fallida'):
+        failure_text = notas or 'Recarga fallida'
+        pin_info = f"❌ {failure_text}"
+        if reference_no:
+            pin_info = f"{pin_info} - Ref: {reference_no}"
+        return pin_info
+
+    if estado in ('pendiente', 'procesando'):
+        pending_parts = ['⏳ Recarga en proceso']
+        pending_parts.extend(detail_parts)
+        return ' - '.join([part for part in pending_parts if part])
+
+    if detail_parts:
+        return ' - '.join(detail_parts)
+
+    if reference_no:
+        return f"Ref: {reference_no}"
+
+    return ''
+
+
+def _upsert_dynamic_general_transaction(conn, transaction_id, *, duracion_segundos=None):
+    tx = conn.execute('''
+        SELECT td.usuario_id, td.player_id, td.player_id2, td.paquete_id, td.numero_control,
+               td.transaccion_id, td.monto, td.estado, td.gamepoint_referenceno,
+               td.ingame_name, td.pin_entregado, td.notas, jd.nombre AS juego_nombre,
+               pd.nombre AS paquete_nombre
+        FROM transacciones_dinamicas td
+        JOIN juegos_dinamicos jd ON td.juego_id = jd.id
+        JOIN paquetes_dinamicos pd ON td.paquete_id = pd.id
+        WHERE td.id = ?
+    ''', (transaction_id,)).fetchone()
+    if not tx:
+        return False
+
+    display_package_name = f"{tx['juego_nombre']} - {tx['paquete_nombre']}"
+    pin_info = _build_dynamic_pin_info(tx)
+    existing_row = conn.execute('SELECT id FROM transacciones WHERE transaccion_id = ?', (tx['transaccion_id'],)).fetchone()
+    amount_value = -abs(float(tx['monto'] or 0.0))
+
+    if existing_row:
+        if duracion_segundos is None:
+            conn.execute('''
+                UPDATE transacciones
+                SET pin = ?, paquete_nombre = ?, monto = ?
+                WHERE transaccion_id = ?
+            ''', (pin_info, display_package_name, amount_value, tx['transaccion_id']))
+        else:
+            conn.execute('''
+                UPDATE transacciones
+                SET pin = ?, paquete_nombre = ?, monto = ?, duracion_segundos = ?
+                WHERE transaccion_id = ?
+            ''', (pin_info, display_package_name, amount_value, duracion_segundos, tx['transaccion_id']))
+    else:
+        conn.execute('''
+            INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto, duracion_segundos, request_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            tx['usuario_id'],
+            tx['numero_control'],
+            pin_info,
+            tx['transaccion_id'],
+            display_package_name,
+            amount_value,
+            duracion_segundos,
+            tx['numero_control'],
+        ))
+    return True
+
+
+def _build_existing_dynamic_payload(tx, package_name):
+    estado_db = str(tx.get('estado') or '').strip().lower()
+    serial_key = str(tx.get('pin_entregado') or '').strip()
+
+    if _is_real_serial(serial_key):
+        estado = 'completado'
+    elif estado_db == 'pendiente':
+        estado = 'pendiente_serial'
+    elif estado_db == 'procesando':
+        estado = 'procesando'
+    elif estado_db in ('rechazado', 'error', 'fallida'):
+        estado = 'error'
+    else:
+        estado = 'completado'
+
+    return {
+        'paquete_nombre': package_name,
+        'monto_compra': abs(float(tx.get('monto') or 0.0)),
+        'numero_control': tx.get('numero_control') or '',
+        'transaccion_id': tx.get('transaccion_id') or '',
+        'player_id': str(tx.get('player_id') or '').strip(),
+        'player_id2': str(tx.get('player_id2') or '').strip(),
+        'servidor': str(tx.get('servidor') or '').strip(),
+        'player_name': str(tx.get('ingame_name') or '').strip(),
+        'estado': estado,
+        'gamepoint_ref': str(tx.get('gamepoint_referenceno') or '').strip(),
+        'serial_key': serial_key if _is_real_serial(serial_key) else '',
+        'error_mensaje': str(tx.get('notas') or '').strip(),
+    }
+
+
+def _find_dynamic_purchase_by_request_id(user_id, request_id):
+    conn = _get_conn()
+    try:
+        row = conn.execute('''
+            SELECT td.id, td.numero_control, td.transaccion_id, td.monto, td.estado, td.player_id, td.player_id2,
+                   td.servidor, td.ingame_name, td.pin_entregado, td.notas, td.gamepoint_referenceno,
+                   pd.nombre AS paquete_nombre
+            FROM transacciones_dinamicas
+            JOIN paquetes_dinamicos pd ON pd.id = td.paquete_id
+            WHERE usuario_id = ?
+              AND request_id = ?
+            LIMIT 1
+        ''', (int(user_id), str(request_id or '').strip())).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def _refund_without_session(conn, user_id, precio):
+    conn.execute('UPDATE usuarios SET saldo = saldo + ? WHERE id = ?', (precio, user_id))
+    logger.info(f"[DynGame] Saldo ${precio} reembolsado al usuario {user_id} desde poller")
+
+
 # ---------------------------------------------------------------------------
 # ADMIN: Tasa MYR → USD
 # ---------------------------------------------------------------------------
@@ -1045,6 +1224,12 @@ def validar_dinamico(slug):
         return redirect(f'/juego/d/{slug}?compra=exitosa')
 
     if idempotency_state['state'] == 'processing':
+        existing_tx = _find_dynamic_purchase_by_request_id(user_id, request_id)
+        if existing_tx:
+            existing_payload = _build_existing_dynamic_payload(existing_tx, existing_tx.get('paquete_nombre') or pkg['nombre'])
+            session[f'compra_dyn_{slug}_exitosa'] = existing_payload
+            flash('Esta orden ya se esta procesando. Se muestra el estado actual hasta que GamePoint la confirme.', 'info')
+            return redirect(f'/juego/d/{slug}?compra=exitosa')
         return redirect_dynamic_error('Esta compra ya se esta procesando. Espera unos segundos.', pkg['nombre'], precio)
 
     # Check balance
@@ -1254,6 +1439,7 @@ def validar_dinamico(slug):
         # 4.1 order/inquiry — extraer ingamename y serialkey (Gift Cards)
         # es_gift_card: True para vouchers/pins, False para recargas directas (ID)
         es_gift_card = (game.get('modo', 'id') != 'id')
+        inq_data = None
         item_name = ''
         serial_key = ''
         try:
@@ -1281,19 +1467,40 @@ def validar_dinamico(slug):
         _duration = round(time_module.time() - _start, 1)
 
         if create_code in (100, 101):
-            # === SUCCESS ===
+            inquiry_state, inquiry_note = _classify_gamepoint_inquiry(inq_data if reference_no else None, serial_key)
             transaccion_id = merchant_code
 
-            # Determinar estado: aprobado si tenemos serial REAL o es juego de ID
-            # Para Gift Cards sin serial todavía: pendiente (background polling completará)
             if not _is_real_serial(serial_key):
-                serial_key = ''  # Descartar si parece código de estado API
-            if serial_key:
+                serial_key = ''
+
+            if inquiry_state == 'failed':
+                err_msg = inquiry_note or (create_data or {}).get('message') or 'GamePoint rechazo la recarga'
+                logger.error(f"[DynGame:{game['slug']}] inquiry reported failure: {err_msg} | user={user_id} ref={reference_no}")
+
+                conn = _get_conn()
+                conn.execute('''
+                    UPDATE transacciones_dinamicas
+                    SET estado = 'rechazado', gamepoint_referenceno = ?, ingame_name = ?, pin_entregado = ?,
+                        notas = ?, fecha_procesado = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (reference_no, ingame_name or None, serial_key or None, err_msg, _tx_procesando_id))
+                _upsert_dynamic_general_transaction(conn, _tx_procesando_id, duracion_segundos=_duration)
+                conn.commit()
+                conn.close()
+
+                _refund(user_id, precio, is_admin)
+                conn_cleanup = _get_conn()
+                clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
+                conn_cleanup.commit()
+                conn_cleanup.close()
+                return redirect_dynamic_error(f'La recarga fallo: {err_msg}. Tu saldo ha sido devuelto.', pkg['nombre'], precio)
+
+            if inquiry_state == 'success':
                 estado_db = 'aprobado'
             elif es_gift_card:
                 estado_db = 'pendiente'
             else:
-                estado_db = 'aprobado'
+                estado_db = 'procesando'
 
             conn = _get_conn()
             # Idempotencia: si ya existe OTRA transacción con este gamepoint_referenceno, no duplicar
@@ -1323,79 +1530,27 @@ def validar_dinamico(slug):
                     session[f'compra_dyn_{slug}_exitosa'] = success_payload
                     return redirect(f'/juego/d/{slug}?compra=exitosa')
 
-            # Actualizar registro 'procesando' con resultados finales
+            # Actualizar registro y reflejarlo en el historial general.
             conn.execute('''
                 UPDATE transacciones_dinamicas
                 SET estado = ?, gamepoint_referenceno = ?, ingame_name = ?, pin_entregado = ?,
-                    fecha_procesado = CURRENT_TIMESTAMP
+                    notas = ?, fecha_procesado = CURRENT_TIMESTAMP
                 WHERE id = ?
-            ''', (estado_db, reference_no, ingame_name, serial_key or None, _tx_procesando_id))
+            ''', (estado_db, reference_no, ingame_name, serial_key or None, inquiry_note or None, _tx_procesando_id))
 
-            # Also insert into general transacciones table for unified history
-            if serial_key:
-                pin_info = f"Código: {serial_key} - Ref: {reference_no}"
-            elif es_gift_card:
-                pin_info = f"⏳ Código pendiente - Ref: {reference_no}"
-            elif ingame_name:
-                pin_info = f"ID: {player_id} - Jugador: {ingame_name} - Ref: {reference_no}"
+            if estado_db == 'aprobado':
+                sync_dynamic_purchase_records(conn, _tx_procesando_id)
             else:
-                pin_info = f"ID: {player_id} - Ref: {reference_no}"
-            if player_id and player_id2 and not serial_key and not es_gift_card:
-                pin_info = f"ID: {player_id} / {player_id2} - " + pin_info.split(' - ', 1)[1]
-
-            paquete_display = f"{game['nombre']} - {pkg['nombre']}"
-            conn.execute('''
-                INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto, duracion_segundos, request_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (user_id, numero_control, pin_info, transaccion_id, paquete_display, -precio, _duration, request_id))
-
-            # Record in historial_compras
-            _saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
-            _saldo = _saldo_row['saldo'] if _saldo_row else 0
-            conn.execute('''
-                INSERT INTO historial_compras (usuario_id, monto, paquete_nombre, pin, tipo_evento, duracion_segundos, saldo_antes, saldo_despues)
-                VALUES (?, ?, ?, ?, 'compra', ?, ?, ?)
-            ''', (user_id, precio, paquete_display, pin_info, _duration, _saldo + precio, _saldo))
-
-            # Record profit
-            try:
-                juego_key = f'dyn_{game["slug"]}'
-                admin_ids_env = os.environ.get('ADMIN_USER_IDS', '').strip()
-                admin_ids = [int(x.strip()) for x in admin_ids_env.split(',') if x.strip().isdigit()]
-                is_admin_target = user_id in admin_ids
-                costo_row = conn.execute('SELECT precio_compra FROM precios_compra WHERE juego=? AND paquete_id=?',
-                                         (juego_key, package_id)).fetchone()
-                costo_unit = costo_row['precio_compra'] if costo_row else 0
-                profit_unit = round(precio - costo_unit, 4)
-                conn.execute('''
-                    INSERT INTO profit_ledger (usuario_id, juego, paquete_id, cantidad, precio_venta_unit, costo_unit, profit_unit, profit_total, transaccion_id)
-                    VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)
-                ''', (user_id, juego_key, package_id, precio, costo_unit, profit_unit, profit_unit, transaccion_id))
-            except Exception:
-                pass
-
-            # Monthly spending
-            if not is_admin:
-                try:
-                    from update_monthly_spending import update_monthly_spending
-                    update_monthly_spending(conn, user_id, precio)
-                except Exception:
-                    pass
-
-            # Weekly sale
-            if not is_admin:
-                try:
-                    from app import register_weekly_sale
-                    register_weekly_sale(f'dyn_{game["slug"]}', package_id, pkg['nombre'], precio, 1)
-                except Exception:
-                    pass
+                _upsert_dynamic_general_transaction(conn, _tx_procesando_id, duracion_segundos=_duration)
 
             if serial_key:
                 estado_txt = 'completado'
-            elif es_gift_card:
+            elif estado_db == 'pendiente':
                 estado_txt = 'pendiente_serial'
+            elif estado_db == 'procesando':
+                estado_txt = 'procesando'
             else:
-                estado_txt = 'completado' if create_code == 100 else 'procesando'
+                estado_txt = 'completado'
             logger.info(f"[DynGame:{game['slug']}] storing in session: player_name='{ingame_name}' | player_id={player_id} | ref={reference_no}")
             success_payload = {
                 'paquete_nombre': pkg['nombre'],
@@ -1514,16 +1669,17 @@ def poll_pending_dynamic_transactions():
     try:
         conn = _get_conn()
         # Buscar pendientes Y aprobados con serial sospechoso (últimas 48 horas)
-        rows = conn.execute('''
-            SELECT td.id, td.transaccion_id, td.gamepoint_referenceno, td.juego_id,
-                   td.pin_entregado, jd.nombre as juego_nombre, jd.slug
+                rows = conn.execute('''
+                        SELECT td.id, td.transaccion_id, td.gamepoint_referenceno, td.juego_id,
+                                     td.usuario_id, td.monto, td.estado, td.pin_entregado,
+                                     jd.nombre as juego_nombre, jd.slug
             FROM transacciones_dinamicas td
             JOIN juegos_dinamicos jd ON td.juego_id = jd.id
             WHERE td.gamepoint_referenceno IS NOT NULL
               AND td.gamepoint_referenceno != ''
               AND td.fecha >= (NOW() - INTERVAL '48 hours')
               AND (
-                td.estado = 'pendiente'
+                                td.estado IN ('pendiente', 'procesando')
                 OR (
                   td.estado = 'aprobado'
                   AND td.pin_entregado IS NOT NULL
@@ -1543,6 +1699,7 @@ def poll_pending_dynamic_transactions():
     logger.info(f"[DynGame Poll] {len(rows)} transacciones pendientes a verificar")
 
     get_token, gp_post, order_validate, order_create, order_inquiry = _gp_helpers()
+    import app as _app
 
     try:
         gc_token, gc_err = get_token()
@@ -1557,26 +1714,49 @@ def poll_pending_dynamic_transactions():
         try:
             inq_data = order_inquiry(gc_token, row['gamepoint_referenceno'])
             serial_key = _extract_serial_from_inquiry(inq_data)
-            logger.info(f"[DynGame Poll] tx={row['transaccion_id']} ref={row['gamepoint_referenceno']} serial='{serial_key}' fields={list((inq_data or {}).keys())}")
+            inquiry_state, inquiry_note = _classify_gamepoint_inquiry(inq_data, serial_key)
+            logger.info(f"[DynGame Poll] tx={row['transaccion_id']} ref={row['gamepoint_referenceno']} state={inquiry_state} serial='{serial_key}' fields={list((inq_data or {}).keys())}")
 
-            if _is_real_serial(serial_key):
+            if inquiry_state == 'failed':
                 conn2 = _get_conn()
-                # Actualizar transacciones_dinamicas
                 conn2.execute('''
                     UPDATE transacciones_dinamicas
-                    SET estado = 'aprobado', pin_entregado = ?, fecha_procesado = CURRENT_TIMESTAMP
+                    SET estado = 'rechazado', notas = ?, fecha_procesado = CURRENT_TIMESTAMP
                     WHERE id = ?
-                ''', (serial_key, row['id']))
-                # Actualizar transacciones general (pin visible en historial)
-                nuevo_pin = f"Código: {serial_key} - Ref: {row['gamepoint_referenceno']}"
-                conn2.execute('''
-                    UPDATE transacciones SET pin = ? WHERE transaccion_id = ?
-                ''', (nuevo_pin, row['transaccion_id']))
+                ''', (inquiry_note or 'Error reportado por GamePoint', row['id']))
+                _upsert_dynamic_general_transaction(conn2, row['id'])
+                if not _app._is_admin_target_user(conn2, row['usuario_id']):
+                    _refund_without_session(conn2, row['usuario_id'], abs(float(row['monto'] or 0.0)))
                 conn2.commit()
                 conn2.close()
-                logger.info(f"[DynGame Poll] ✅ tx={row['transaccion_id']} APROBADO con serial")
+                logger.info(f"[DynGame Poll] ❌ tx={row['transaccion_id']} RECHAZADO por inquiry")
+            elif inquiry_state == 'success':
+                conn2 = _get_conn()
+                conn2.execute('''
+                    UPDATE transacciones_dinamicas
+                    SET estado = 'aprobado', pin_entregado = ?, ingame_name = COALESCE(NULLIF(?, ''), ingame_name), notas = ?, fecha_procesado = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (
+                    serial_key if _is_real_serial(serial_key) else None,
+                    str((inq_data or {}).get('ingamename') or '').strip(),
+                    inquiry_note or None,
+                    row['id'],
+                ))
+                sync_dynamic_purchase_records(conn2, row['id'])
+                conn2.commit()
+                conn2.close()
+                logger.info(f"[DynGame Poll] ✅ tx={row['transaccion_id']} APROBADO")
             else:
-                logger.debug(f"[DynGame Poll] tx={row['transaccion_id']} serial aún no disponible")
+                conn2 = _get_conn()
+                conn2.execute('''
+                    UPDATE transacciones_dinamicas
+                    SET notas = ?, fecha_procesado = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (inquiry_note or 'Esperando confirmacion de GamePoint', row['id']))
+                _upsert_dynamic_general_transaction(conn2, row['id'])
+                conn2.commit()
+                conn2.close()
+                logger.debug(f"[DynGame Poll] tx={row['transaccion_id']} sigue pendiente")
 
             time_module.sleep(0.5)  # Rate limit entre consultas
         except Exception as e:

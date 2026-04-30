@@ -252,6 +252,9 @@
 
       form.addEventListener('submit', function(e) {
         if (submitted) { e.preventDefault(); return false; }
+        if (!requestIdInput.value) {
+          requestIdInput.value = generateRequestId();
+        }
         submitted = true;
         btn.disabled = true;
         btn.style.background = '#28a745';

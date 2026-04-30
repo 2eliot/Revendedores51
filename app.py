@@ -1556,30 +1556,57 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
                 raw_pkg = str(transaction_dict.get('paquete_nombre') or '')
                 transaction_dict['juego_nombre'] = raw_pkg.split(' - ')[0].strip() if ' - ' in raw_pkg else raw_pkg
 
+                try:
+                    c_dg = get_db_connection()
+                    try:
+                        row_dg = c_dg.execute(
+                            'SELECT player_id, player_id2, ingame_name, pin_entregado, estado, notas, gamepoint_referenceno FROM transacciones_dinamicas WHERE transaccion_id = ? LIMIT 1',
+                            (txid,)
+                        ).fetchone()
+                    finally:
+                        c_dg.close()
+
+                    if row_dg:
+                        if row_dg.get('estado'):
+                            transaction_dict['estado'] = row_dg['estado']
+                        if row_dg.get('pin_entregado'):
+                            transaction_dict['serial_key'] = row_dg['pin_entregado']
+                        if row_dg.get('ingame_name'):
+                            transaction_dict['player_name'] = row_dg['ingame_name']
+                        player_bits = [str(row_dg.get('player_id') or '').strip()]
+                        if str(row_dg.get('player_id2') or '').strip():
+                            player_bits.append(str(row_dg.get('player_id2') or '').strip())
+                        player_text = ' / '.join([bit for bit in player_bits if bit])
+                        if player_text:
+                            transaction_dict['player_id'] = player_text
+                        if row_dg.get('gamepoint_referenceno'):
+                            transaction_dict['gamepoint_ref'] = row_dg['gamepoint_referenceno']
+                        if row_dg.get('notas'):
+                            transaction_dict['notas'] = row_dg['notas']
+                except Exception:
+                    pass
+
                 raw_pin_info = str(transaction_dict.get('pin') or '')
-                # Detectar Gift Card pendiente (sin serial todavía)
-                if raw_pin_info.startswith('⏳'):
+                if raw_pin_info.startswith('⏳') and not transaction_dict.get('estado'):
                     transaction_dict['estado'] = 'pendiente'
-                    m_ref = re.search(r"Ref:\s*(\S+)", raw_pin_info)
-                    if m_ref:
-                        transaction_dict['gamepoint_ref'] = m_ref.group(1).strip()
                 elif raw_pin_info.startswith('Código:'):
-                    transaction_dict['estado'] = 'completado'
-                    # Extraer serial: "Código: XXXX - Ref: ..."
+                    transaction_dict['estado'] = transaction_dict.get('estado') or 'completado'
                     m_serial = re.match(r"C[oó]digo:\s*(.+?)(?:\s+-\s+Ref:|$)", raw_pin_info)
                     if m_serial:
                         transaction_dict['serial_key'] = m_serial.group(1).strip()
-                    m_ref = re.search(r"Ref:\s*(\S+)", raw_pin_info)
-                    if m_ref:
-                        transaction_dict['gamepoint_ref'] = m_ref.group(1).strip()
+                elif raw_pin_info.startswith('❌'):
+                    transaction_dict['estado'] = transaction_dict.get('estado') or 'rechazado'
                 else:
                     transaction_dict['estado'] = transaction_dict.get('estado') or 'completado'
-                    m_id = re.search(r"ID:\s*([^\s\-/]+(?:\s*/\s*[^\s\-]+)?)", raw_pin_info)
-                    if m_id:
-                        transaction_dict['player_id'] = m_id.group(1).strip()
-                    m_name = re.search(r"(?:Jugador|Usuario):\s*([^\n\r\-]+)", raw_pin_info)
-                    if m_name:
-                        transaction_dict['player_name'] = m_name.group(1).strip()
+                    if not transaction_dict.get('player_id'):
+                        m_id = re.search(r"ID:\s*([^\s\-/]+(?:\s*/\s*[^\s\-]+)?)", raw_pin_info)
+                        if m_id:
+                            transaction_dict['player_id'] = m_id.group(1).strip()
+                    if not transaction_dict.get('player_name'):
+                        m_name = re.search(r"(?:Jugador|Usuario):\s*([^\n\r\-]+)", raw_pin_info)
+                        if m_name:
+                            transaction_dict['player_name'] = m_name.group(1).strip()
+                if not transaction_dict.get('gamepoint_ref'):
                     m_ref = re.search(r"Ref:\s*(\S+)", raw_pin_info)
                     if m_ref:
                         transaction_dict['gamepoint_ref'] = m_ref.group(1).strip()
@@ -3837,6 +3864,17 @@ def sync_dynamic_purchase_records(conn, transaction_id):
             -precio_total,
             tx['numero_control'],
         ))
+    else:
+        conn.execute('''
+            UPDATE transacciones
+            SET pin = ?, paquete_nombre = ?, monto = ?
+            WHERE transaccion_id = ?
+        ''', (
+            pin_info,
+            display_package_name,
+            -precio_total,
+            tx['transaccion_id'],
+        ))
 
     history_row = conn.execute('''
         SELECT 1 FROM historial_compras
@@ -5282,7 +5320,7 @@ def admin_save_prices_batch():
             try:
                 slug = game.replace('dyn_', '', 1)
                 row = conn.execute('SELECT id FROM juegos_dinamicos WHERE slug = ?', (slug,)).fetchone()
-                dyn_game_id = int(row['id']) if row and row.get('id') is not None else None
+                dyn_game_id = row['id'] if row else None
             except Exception:
                 dyn_game_id = None
 
