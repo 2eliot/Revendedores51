@@ -205,9 +205,6 @@ def _classify_gamepoint_inquiry(inquiry_data, serial_key='', is_gift_card=True):
         return 'success', ''
 
     data = inquiry_data or {}
-    if not is_gift_card and str(data.get('ingamename') or '').strip():
-        return 'success', str(data.get('message') or data.get('status') or '').strip()
-
     status_text = _normalize_gamepoint_text(data.get('status'))
     message_text = _normalize_gamepoint_text(data.get('message') or data.get('error'))
     combined = ' '.join(part for part in (status_text, message_text) if part)
@@ -225,6 +222,9 @@ def _classify_gamepoint_inquiry(inquiry_data, serial_key='', is_gift_card=True):
 
     if any(token in combined for token in pending_tokens):
         return 'pending', str(data.get('message') or data.get('status') or '').strip()
+
+    if not is_gift_card and data.get('referenceno'):
+        return 'success', str(data.get('message') or data.get('status') or '').strip()
 
     return 'pending', str(data.get('message') or data.get('status') or '').strip()
 
