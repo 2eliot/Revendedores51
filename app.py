@@ -7616,12 +7616,13 @@ def validar_freefire_id():
     package_id = request.form.get('monto')
     player_id = request.form.get('player_id')
 
-    def redirect_freefire_id_error(message, package_name='', amount=None):
+    def redirect_freefire_id_error(message, package_name='', amount=None, status_text=None):
         session['compra_freefire_id_error'] = {
             'paquete_nombre': package_name,
             'monto_compra': amount or 0,
             'player_id': player_id or '',
             'estado': 'error',
+            'estado_error': status_text or message,
             'error_mensaje': message,
         }
         return redirect('/juego/freefire_id?compra=error')
@@ -7908,7 +7909,12 @@ def validar_freefire_id():
                 conn_cleanup.commit()
                 conn_cleanup.close()
             
-            return redirect_freefire_id_error(f'La recarga fallo. Tu saldo ha sido devuelto. Puedes intentar nuevamente con otro PIN. Error: {error_msg}', paquete_nombre, precio)
+            return redirect_freefire_id_error(
+                f'La recarga fallo. Tu saldo ha sido devuelto. Error: {error_msg}',
+                paquete_nombre,
+                precio,
+                error_msg,
+            )
         
     except Exception as e:
         logger.error(f"[FreeFire ID] Error general: {str(e)}")
