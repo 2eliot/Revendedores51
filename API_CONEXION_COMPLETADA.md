@@ -5,12 +5,12 @@
 
 ## 🔗 URL de la API en Producción
 ```
-https://revendedores51.onrender.com/api.php
+https://inefablerevendedores.co/api.php
 ```
 
 ## 📋 Formato de Uso
 ```
-https://revendedores51.onrender.com/api.php?action=recarga&usuario=EMAIL&clave=PASSWORD&tipo=recargaPinFreefire&monto=PAQUETE&numero=0
+https://inefablerevendedores.co/api.php?action=recarga&usuario=EMAIL&clave=PASSWORD&tipo=recargaPinFreefire&monto=PAQUETE&numero=0
 ```
 
 ### Parámetros:
@@ -124,7 +124,7 @@ https://revendedores51.onrender.com/api.php?action=recarga&usuario=EMAIL&clave=P
 1. ✅ Código integrado en `app.py`
 2. ✅ Cambios committeados a Git
 3. ✅ Push a GitHub completado
-4. ✅ Deployment automático en Render iniciado
+4. ✅ Deployment en VPS (Nginx + Gunicorn) aplicado
 5. 🔄 Tests de producción ejecutándose
 
 ## 🧪 Testing
@@ -144,12 +144,12 @@ https://revendedores51.onrender.com/api.php?action=recarga&usuario=EMAIL&clave=P
 
 ### Obtener PIN de Paquete 1 ($5):
 ```
-https://revendedores51.onrender.com/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=1&numero=0
+https://inefablerevendedores.co/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=1&numero=0
 ```
 
 ### Obtener PIN de Paquete 5 ($25):
 ```
-https://revendedores51.onrender.com/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=5&numero=0
+https://inefablerevendedores.co/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=5&numero=0
 ```
 
 ## 🔒 Seguridad Implementada
@@ -170,7 +170,7 @@ https://inefableshop.net/conexion_api/api.php?action=recarga&usuario=aquiUsuario
 ## 📞 Soporte
 
 Para cualquier problema o consulta:
-1. Revisar los logs en Render
+1. Revisar los logs del servidor (nginx/gunicorn)
 2. Ejecutar `test_production_api.py` para diagnóstico
 3. Consultar la documentación en `DESPLIEGUE_API.md`
 

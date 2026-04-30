@@ -892,10 +892,14 @@ def dynamic_game_page(slug):
 
     # Check for successful purchase (no URL param required — handles browser timeout on redirect)
     compra_exitosa = False
+    compra_error = False
     compra_data = {}
     if f'compra_dyn_{slug}_exitosa' in session:
         compra_exitosa = True
         compra_data = session.pop(f'compra_dyn_{slug}_exitosa')
+    elif f'compra_dyn_{slug}_error' in session:
+        compra_error = True
+        compra_data = session.pop(f'compra_dyn_{slug}_error')
 
     # Generate one-time nonce for form submission
     nonce = secrets.token_urlsafe(16)
@@ -914,6 +918,7 @@ def dynamic_game_page(slug):
                            balance=session.get('saldo', 0),
                            is_admin=is_admin,
                            compra_exitosa=compra_exitosa,
+                           compra_error=compra_error,
                            games_active=games_active,
                            dynamic_games_menu=dynamic_games_menu,
                            dg_form_nonce=nonce,
@@ -942,12 +947,26 @@ def validar_dinamico(slug):
     campos = parse_campos_config(game)
     redirect_url = f'/juego/d/{slug}'
 
+    def redirect_dynamic_error(message, package_name='', amount=None):
+        session[f'compra_dyn_{slug}_error'] = {
+            'paquete_nombre': package_name,
+            'monto_compra': amount or 0,
+            'player_id': player_id,
+            'player_id2': player_id2,
+            'servidor': servidor,
+            'estado': 'error',
+            'error_mensaje': message,
+        }
+        return redirect(f'{redirect_url}?compra=error')
+
     # Validate one-time nonce (prevents double charges on browser retry / web down)
     nonce_form = request.form.get('dg_form_nonce')
     nonce_session = session.pop(f'dg_nonce_{slug}', None)
     if not nonce_form or not nonce_session or nonce_form != nonce_session:
-        flash('Solicitud duplicada o expirada. Recarga la página e intenta nuevamente.', 'error')
-        return redirect(redirect_url)
+        player_id = ''
+        player_id2 = ''
+        servidor = ''
+        return redirect_dynamic_error('Solicitud duplicada o expirada. Recarga la pagina e intenta nuevamente.')
 
     # Collect form fields
     package_id = request.form.get('monto')
@@ -956,47 +975,39 @@ def validar_dinamico(slug):
     servidor = request.form.get('servidor', '').strip()
 
     if not package_id:
-        flash('Selecciona un paquete.', 'error')
-        return redirect(redirect_url)
+        return redirect_dynamic_error('Selecciona un paquete.')
 
     # Validate required fields based on game mode
     if game['modo'] == 'id':
         if not player_id:
-            flash('Ingresa tu ID de jugador.', 'error')
-            return redirect(redirect_url)
+            return redirect_dynamic_error('Ingresa tu ID de jugador.')
         # Validate patterns
         campo_id_cfg = campos.get('campo_id', {})
         pattern = campo_id_cfg.get('pattern', '')
         if pattern:
             if not re.match(pattern, player_id):
-                flash(campo_id_cfg.get('pattern_msg', 'Formato de ID inválido.'), 'error')
-                return redirect(redirect_url)
+                return redirect_dynamic_error(campo_id_cfg.get('pattern_msg', 'Formato de ID invalido.'))
         # Dual ID
         campo_id2_cfg = campos.get('campo_id2', {})
         if campo_id2_cfg.get('enabled') and not player_id2:
-            flash(f'Ingresa tu {campo_id2_cfg.get("label", "Zone ID")}.', 'error')
-            return redirect(redirect_url)
+            return redirect_dynamic_error(f'Ingresa tu {campo_id2_cfg.get("label", "Zone ID")}.')
         if campo_id2_cfg.get('enabled') and campo_id2_cfg.get('pattern'):
             if not re.match(campo_id2_cfg['pattern'], player_id2):
-                flash(campo_id2_cfg.get('pattern_msg', 'Formato inválido.'), 'error')
-                return redirect(redirect_url)
+                return redirect_dynamic_error(campo_id2_cfg.get('pattern_msg', 'Formato invalido.'))
         # Server
         srv_cfg = campos.get('servidor', {})
         if srv_cfg.get('enabled') and not servidor:
-            flash(f'Selecciona un {srv_cfg.get("label", "servidor")}.', 'error')
-            return redirect(redirect_url)
+            return redirect_dynamic_error(f'Selecciona un {srv_cfg.get("label", "servidor")}.')
 
     package_id = int(package_id)
     user_id = session.get('user_db_id')
     request_id = (request.form.get('request_id') or '').strip()
     pkg = get_dynamic_package_by_id(package_id)
     if not pkg or pkg['juego_id'] != game['id']:
-        flash('Paquete no encontrado.', 'error')
-        return redirect(redirect_url)
+        return redirect_dynamic_error('Paquete no encontrado.')
 
     if not is_admin and not pkg['activo']:
-        flash('Paquete no disponible.', 'error')
-        return redirect(redirect_url)
+        return redirect_dynamic_error('Paquete no disponible.')
 
     precio = pkg['precio']
     script_only = bool(pkg.get('game_script_only'))
@@ -1004,16 +1015,13 @@ def validar_dinamico(slug):
     script_package_title = pkg.get('game_script_package_title')
     gp_package_id = pkg.get('gamepoint_package_id')
     if script_only and slug == 'blood-strike' and not script_package_key:
-        flash('Este paquete está marcado como Solo Game pero no tiene mapeo configurado.', 'error')
-        return redirect(redirect_url)
+        return redirect_dynamic_error('Este paquete esta marcado como Solo Game pero no tiene mapeo configurado.', pkg['nombre'], precio)
 
     if not script_only and not gp_package_id:
-        flash('Este paquete no tiene configurado el ID de GamePoint.', 'error')
-        return redirect(redirect_url)
+        return redirect_dynamic_error('Este paquete no tiene configurado el ID de GamePoint.', pkg['nombre'], precio)
 
     if not request_id:
-        flash('Solicitud inválida. Recarga la página e intenta nuevamente.', 'error')
-        return redirect(redirect_url)
+        return redirect_dynamic_error('Solicitud invalida. Recarga la pagina e intenta nuevamente.', pkg['nombre'], precio)
 
     from app import begin_idempotent_purchase, complete_idempotent_purchase, clear_idempotent_purchase
     endpoint_key = f'dynamic_game:{game["slug"]}'
@@ -1024,8 +1032,7 @@ def validar_dinamico(slug):
     except Exception:
         conn_idempotency.rollback()
         conn_idempotency.close()
-        flash('No se pudo registrar la solicitud de compra. Intenta nuevamente.', 'error')
-        return redirect(redirect_url)
+        return redirect_dynamic_error('No se pudo registrar la solicitud de compra. Intenta nuevamente.', pkg['nombre'], precio)
     finally:
         try:
             conn_idempotency.close()
@@ -1038,8 +1045,7 @@ def validar_dinamico(slug):
         return redirect(f'/juego/d/{slug}?compra=exitosa')
 
     if idempotency_state['state'] == 'processing':
-        flash('Esta compra ya se está procesando. Espera unos segundos.', 'warning')
-        return redirect(redirect_url)
+        return redirect_dynamic_error('Esta compra ya se esta procesando. Espera unos segundos.', pkg['nombre'], precio)
 
     # Check balance
     if not is_admin:
@@ -1053,8 +1059,7 @@ def validar_dinamico(slug):
             clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
             conn_cleanup.commit()
             conn_cleanup.close()
-            flash(f'Saldo insuficiente. Necesitas ${precio:.2f} pero tienes ${saldo_actual:.2f}', 'error')
-            return redirect(redirect_url)
+            return redirect_dynamic_error(f'Saldo insuficiente. Necesitas ${precio:.2f} pero tienes ${saldo_actual:.2f}', pkg['nombre'], precio)
 
     # === PURCHASE VIA GAMEPOINT ===
     _start = time_module.time()
@@ -1070,8 +1075,7 @@ def validar_dinamico(slug):
                 clear_idempotent_purchase(conn, user_id, endpoint_key, request_id)
                 conn.commit()
                 conn.close()
-                flash('Saldo insuficiente al momento de procesar.', 'error')
-                return redirect(redirect_url)
+                return redirect_dynamic_error('Saldo insuficiente al momento de procesar.', pkg['nombre'], precio)
             conn.commit()
             new_saldo = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
             conn.close()
@@ -1101,8 +1105,7 @@ def validar_dinamico(slug):
             clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
             conn_cleanup.commit()
             conn_cleanup.close()
-            flash('Error al procesar. Tu saldo ha sido devuelto.', 'error')
-            return redirect(redirect_url)
+            return redirect_dynamic_error('Error al procesar. Tu saldo ha sido devuelto.', pkg['nombre'], precio)
 
         if slug == 'blood-strike' and script_only:
             from app import _game_script_buy, register_weekly_sale
@@ -1204,8 +1207,7 @@ def validar_dinamico(slug):
             clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
             conn_cleanup.commit()
             conn_cleanup.close()
-            flash(f'La recarga falló: {provider_error}. Tu saldo ha sido devuelto.', 'error')
-            return redirect(redirect_url)
+            return redirect_dynamic_error(f'La recarga fallo: {provider_error}. Tu saldo ha sido devuelto.', pkg['nombre'], precio)
 
         # 2. Get GamePoint token
         gc_token, gc_err = get_token()
@@ -1216,8 +1218,7 @@ def validar_dinamico(slug):
             clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
             conn_cleanup.commit()
             conn_cleanup.close()
-            flash(f'Error de conexión con proveedor. Tu saldo ha sido devuelto.', 'error')
-            return redirect(redirect_url)
+            return redirect_dynamic_error('Error de conexion con proveedor. Tu saldo ha sido devuelto.', pkg['nombre'], precio)
 
         # 3. Validate order — build input fields
         input_fields = {'input1': str(player_id)}
@@ -1238,8 +1239,7 @@ def validar_dinamico(slug):
             conn_cleanup.close()
             err_msg = (validate_data or {}).get('message', 'Error validando orden')
             logger.error(f"[DynGame:{game['slug']}] validate failed: code={validate_code} msg={err_msg}")
-            flash(f'Error al validar: {err_msg}. Tu saldo ha sido devuelto.', 'error')
-            return redirect(redirect_url)
+            return redirect_dynamic_error(f'Error al validar: {err_msg}. Tu saldo ha sido devuelto.', pkg['nombre'], precio)
 
         validation_token = validate_data['validation_token']
         # validate NO devuelve ingamename según docs — solo code, message, validation_token
@@ -1436,8 +1436,7 @@ def validar_dinamico(slug):
             clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
             conn_cleanup.commit()
             conn_cleanup.close()
-            flash(f'La recarga falló: {err_msg}. Tu saldo ha sido devuelto.', 'error')
-            return redirect(redirect_url)
+            return redirect_dynamic_error(f'La recarga fallo: {err_msg}. Tu saldo ha sido devuelto.', pkg['nombre'], precio)
 
     except Exception as e:
         logger.error(f"[DynGame:{game['slug']}] Error general: {str(e)}")
@@ -1450,8 +1449,7 @@ def validar_dinamico(slug):
             conn_cleanup.close()
         except Exception:
             pass
-        flash('Error al procesar la compra. Tu saldo ha sido devuelto.', 'error')
-        return redirect(redirect_url)
+        return redirect_dynamic_error('Error al procesar la compra. Tu saldo ha sido devuelto.', pkg['nombre'], precio)
 
 
 def _is_real_serial(s):

@@ -65,10 +65,9 @@
       <!-- Botón de Dashboard (para usuarios normales y admin) -->
       <div class="dashboard-icon-container" onclick="window.location.href='/dashboard'" title="{% if session.get('is_admin') %}Dashboard Administrativo{% else %}Mi Dashboard{% endif %}">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="7" height="7" rx="1.5"/>
-          <rect x="14" y="3" width="7" height="7" rx="1.5"/>
-          <rect x="3" y="14" width="7" height="7" rx="1.5"/>
-          <rect x="14" y="14" width="7" height="7" rx="1.5"/>
+          <rect x="4" y="10" width="5" height="10" rx="1.2"/>
+          <rect x="10" y="4" width="4" height="16" rx="1.2"/>
+          <rect x="15" y="10" width="5" height="10" rx="1.2"/>
         </svg>
       </div>
       
@@ -127,7 +126,7 @@
       </div>
       <!-- Contenido -->
       <div style="padding:18px 20px 20px;">
-        <div style="font-size:0.95em; line-height:1.65; color:#ddd;" id="news-popup-content"></div>
+        <div style="font-size:0.95em; line-height:1.65; color:#ddd; word-break:break-word;" id="news-popup-content"></div>
         <label style="display:flex; align-items:center; gap:10px; margin-top:16px; cursor:pointer; font-size:0.87em; color:#aaa; user-select:none;">
           <input type="checkbox" id="news-popup-dismiss" style="width:18px; height:18px; accent-color:#4dd9ac; cursor:pointer;" onchange="onDismissChange(this)">
           No volver a mostrar
@@ -644,6 +643,43 @@
       }
     }
 
+    function buildNewsContentFragment(content) {
+      const fragment = document.createDocumentFragment();
+      const urlRegex = /(https?:\/\/[^\s]+)/g;
+      const lines = String(content || '').split(/\r?\n/);
+
+      lines.forEach((line, lineIndex) => {
+        if (lineIndex > 0) {
+          fragment.appendChild(document.createElement('br'));
+        }
+
+        let lastIndex = 0;
+        line.replace(urlRegex, function(match, offset) {
+          if (offset > lastIndex) {
+            fragment.appendChild(document.createTextNode(line.slice(lastIndex, offset)));
+          }
+
+          const link = document.createElement('a');
+          link.href = match;
+          link.textContent = match;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.style.color = '#7dd3fc';
+          link.style.textDecoration = 'underline';
+          link.style.fontWeight = '600';
+          fragment.appendChild(link);
+          lastIndex = offset + match.length;
+          return match;
+        });
+
+        if (lastIndex < line.length) {
+          fragment.appendChild(document.createTextNode(line.slice(lastIndex)));
+        }
+      });
+
+      return fragment;
+    }
+
     function showNewsPopup(n) {
       // Doble verificación: no mostrar si ya fue descartado
       if (_isNewsDismissed(n.id)) {
@@ -651,7 +687,8 @@
         return;
       }
       _currentNewsId = n.id;
-      document.getElementById('news-popup-content').textContent = n.contenido || '';
+      const contentNode = document.getElementById('news-popup-content');
+      contentNode.replaceChildren(buildNewsContentFragment(n.contenido || ''));
       document.getElementById('news-popup-dismiss').checked = false;
       const imgWrap = document.getElementById('news-popup-img-wrap');
       const img = document.getElementById('news-popup-img');

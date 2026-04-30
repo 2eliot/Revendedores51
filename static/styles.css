@@ -1,7 +1,7 @@
 /* Forzar icono de dashboard en blanco en todos los headers */
 .dashboard-icon-container .icon {
   color: #ffffff !important;
-  fill: currentColor !important;
+  fill: none !important;
   stroke: currentColor !important;
 }
 .dashboard-icon-container:hover .icon {

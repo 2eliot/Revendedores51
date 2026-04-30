@@ -2,7 +2,7 @@
 
 ## 📋 Descripción
 
-La API Simple de Conexión permite a tu web externa conectarse directamente con https://revendedores51.onrender.com/ usando un formato simple de URL con parámetros GET, similar a la API de inefableshop.net.
+La API Simple de Conexión permite a tu web externa conectarse directamente con https://inefablerevendedores.co/ usando un formato simple de URL con parámetros GET, similar a la API de inefableshop.net.
 
 ## ✅ Funcionalidades
 
@@ -15,7 +15,7 @@ La API Simple de Conexión permite a tu web externa conectarse directamente con 
 
 ### Producción (Tu web):
 ```
-https://revendedores51.onrender.com/api.php
+https://inefablerevendedores.co/api.php
 ```
 
 ### Desarrollo (Local):
@@ -27,7 +27,7 @@ http://localhost:5003/api.php
 
 ### URL Completa:
 ```
-https://revendedores51.onrender.com/api.php?action=recarga&usuario=EMAIL&clave=PASSWORD&tipo=recargaPinFreefire&monto=PACKAGE_ID&numero=QUANTITY
+https://inefablerevendedores.co/api.php?action=recarga&usuario=EMAIL&clave=PASSWORD&tipo=recargaPinFreefire&monto=PACKAGE_ID&numero=QUANTITY
 ```
 
 ### Parámetros:
@@ -59,17 +59,17 @@ https://revendedores51.onrender.com/api.php?action=recarga&usuario=EMAIL&clave=P
 
 ### 1. Comprar 1 PIN del paquete más barato:
 ```
-https://revendedores51.onrender.com/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=1&numero=1
+https://inefablerevendedores.co/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=1&numero=1
 ```
 
 ### 2. Comprar 3 PINs del paquete de $2.25:
 ```
-https://revendedores51.onrender.com/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=2&numero=3
+https://inefablerevendedores.co/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=2&numero=3
 ```
 
 ### 3. Comprar 1 PIN del paquete más caro:
 ```
-https://revendedores51.onrender.com/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=6&numero=1
+https://inefablerevendedores.co/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=6&numero=1
 ```
 
 ## 📝 Respuestas de la API
@@ -182,7 +182,7 @@ https://revendedores51.onrender.com/api.php?action=recarga&usuario=test@ejemplo.
 ### JavaScript/Fetch:
 ```javascript
 async function comprarPin(email, password, packageId, quantity = 1) {
-    const url = `https://revendedores51.onrender.com/api.php?action=recarga&usuario=${encodeURIComponent(email)}&clave=${encodeURIComponent(password)}&tipo=recargaPinFreefire&monto=${packageId}&numero=${quantity}`;
+    const url = `https://inefablerevendedores.co/api.php?action=recarga&usuario=${encodeURIComponent(email)}&clave=${encodeURIComponent(password)}&tipo=recargaPinFreefire&monto=${packageId}&numero=${quantity}`;
     
     try {
         const response = await fetch(url);
@@ -215,7 +215,7 @@ comprarPin('test@ejemplo.com', 'test123', 1, 1)
 ```php
 <?php
 function comprarPin($email, $password, $packageId, $quantity = 1) {
-    $url = "https://revendedores51.onrender.com/api.php?" . http_build_query([
+    $url = "https://inefablerevendedores.co/api.php?" . http_build_query([
         'action' => 'recarga',
         'usuario' => $email,
         'clave' => $password,
@@ -272,7 +272,7 @@ def comprar_pin(email, password, package_id, quantity=1):
         'numero': str(quantity)
     }
     
-    url = f"https://revendedores51.onrender.com/api.php?{urllib.parse.urlencode(params)}"
+    url = f"https://inefablerevendedores.co/api.php?{urllib.parse.urlencode(params)}"
     
     try:
         response = requests.get(url, timeout=30)
@@ -303,7 +303,7 @@ if result:
 ## 🧪 Pruebas
 
 ### Crear Usuario de Prueba:
-1. Ve a: https://revendedores51.onrender.com/
+1. Ve a: https://inefablerevendedores.co/
 2. Registra un usuario con:
    - Email: `test@ejemplo.com`
    - Contraseña: `test123`
@@ -312,10 +312,11 @@ if result:
 ### Probar con cURL:
 ```bash
 # Comprar 1 PIN del paquete más barato
-curl "https://revendedores51.onrender.com/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=1&numero=1"
+curl "https://inefablerevendedores.co/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=1&numero=1"
 
 # Comprar 3 PINs
-curl "https://revendedores51.onrender.com/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=1&numero=3"
+curl "https://inefablerevendedores.co/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=1&numero=3"
+
 ```
 
 ### Script de Pruebas Automáticas:
@@ -342,7 +343,7 @@ python test_simple_api.py
 
 ## 📞 Soporte
 
-- 🌐 **URL de producción**: https://revendedores51.onrender.com/api.php
+    - 🌐 **URL de producción**: https://inefablerevendedores.co/api.php
 - 📧 **Formato**: Igual que inefableshop.net pero con tu dominio
 - 🔧 **Integración**: Funciona con tu sistema existente
 - 📊 **Monitoreo**: Todas las transacciones se registran en tu panel
@@ -355,7 +356,7 @@ python test_simple_api.py
 // Función completa para integrar en tu web
 class Revendedores51API {
     constructor() {
-        this.baseUrl = 'https://revendedores51.onrender.com/api.php';
+        this.baseUrl = 'https://inefablerevendedores.co/api.php';
     }
     
     async comprarPin(email, password, packageId, quantity = 1) {

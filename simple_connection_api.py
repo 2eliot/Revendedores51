@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 API Simple de Conexión para Revendedores51
-Formato compatible con: https://revendedores51.onrender.com/api.php?action=recarga&usuario=X&clave=X&tipo=recargaPinFreefire&monto=1&numero=0
+Formato compatible con: https://inefablerevendedores.co/api.php?action=recarga&usuario=X&clave=X&tipo=recargaPinFreefire&monto=1&numero=0
 """
 
 from flask import Flask, request, jsonify
@@ -556,7 +556,7 @@ def root():
             'recarga': '/api.php?action=recarga&usuario=EMAIL&clave=PASSWORD&tipo=recargaPinFreefire&monto=PACKAGE_ID&numero=QUANTITY',
             'health': '/health'
         },
-        'example': 'https://revendedores51.onrender.com/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=1&numero=1',
+        'example': 'https://inefablerevendedores.co/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=1&numero=1',
         'documentation': 'Contacta al administrador para más información'
     })
 
@@ -589,7 +589,7 @@ if __name__ == '__main__':
     print("🔗 Iniciando API Simple de Conexión para Revendedores51...")
     print("=" * 70)
     print("📍 Formato de URL:")
-    print("   https://revendedores51.onrender.com/api.php?action=recarga&usuario=EMAIL&clave=PASSWORD&tipo=recargaPinFreefire&monto=PACKAGE_ID&numero=QUANTITY")
+    print("   https://inefablerevendedores.co/api.php?action=recarga&usuario=EMAIL&clave=PASSWORD&tipo=recargaPinFreefire&monto=PACKAGE_ID&numero=QUANTITY")
     print()
     print("📋 Parámetros:")
     print("   • action: recarga (obligatorio)")
@@ -603,7 +603,7 @@ if __name__ == '__main__':
     print("   /api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=1&numero=1")
     print("=" * 70)
     print("🌐 API corriendo en: http://localhost:5003")
-    print("🔗 Para producción: https://revendedores51.onrender.com/")
+    print("🔗 Para producción: https://inefablerevendedores.co/")
     print("=" * 70)
     
     app.run(debug=True, port=5003, host='0.0.0.0')

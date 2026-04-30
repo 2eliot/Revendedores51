@@ -7577,11 +7577,15 @@ def freefire_id():
         prices = get_freefire_id_prices()
     
     compra_exitosa = False
+    compra_error = False
     compra_data = {}
     
     if 'compra_freefire_id_exitosa' in session:
         compra_exitosa = True
         compra_data = session.pop('compra_freefire_id_exitosa')
+    elif 'compra_freefire_id_error' in session:
+        compra_error = True
+        compra_data = session.pop('compra_freefire_id_error')
     
     # Nonce de un solo uso para evitar doble submit/reintentos del navegador
     session['ffid_form_nonce'] = secrets.token_urlsafe(16)
@@ -7591,6 +7595,7 @@ def freefire_id():
                          balance=session.get('saldo', 0),
                          prices=prices,
                          compra_exitosa=compra_exitosa,
+                         compra_error=compra_error,
                          is_admin=is_admin,
                          games_active=get_games_active(),
                          ffid_form_nonce=session.get('ffid_form_nonce'),
@@ -7611,6 +7616,16 @@ def validar_freefire_id():
     package_id = request.form.get('monto')
     player_id = request.form.get('player_id')
 
+    def redirect_freefire_id_error(message, package_name='', amount=None):
+        session['compra_freefire_id_error'] = {
+            'paquete_nombre': package_name,
+            'monto_compra': amount or 0,
+            'player_id': player_id or '',
+            'estado': 'error',
+            'error_mensaje': message,
+        }
+        return redirect('/juego/freefire_id?compra=error')
+
     # Validar nonce (un solo uso) para prevenir reintentos/doble submit en caídas
     # Excepción: solicitudes API automáticas (Inefablestore) usan WEBB_API_KEY en su lugar
     _webb_api_key_env = os.environ.get('WEBB_API_KEY', '').strip()
@@ -7621,19 +7636,16 @@ def validar_freefire_id():
         nonce_form = request.form.get('ffid_form_nonce')
         nonce_session = session.pop('ffid_form_nonce', None)
         if not nonce_form or not nonce_session or nonce_form != nonce_session:
-            flash('Solicitud duplicada o expirada. Recarga la página e intenta nuevamente.', 'error')
-            return redirect('/juego/freefire_id')
+            return redirect_freefire_id_error('Solicitud duplicada o expirada. Recarga la pagina e intenta nuevamente.')
     else:
         session.pop('ffid_form_nonce', None)
     
     if not package_id or not player_id:
-        flash('Por favor complete todos los campos', 'error')
-        return redirect('/juego/freefire_id')
+        return redirect_freefire_id_error('Por favor complete todos los campos')
 
     request_id = (request.form.get('request_id') or '').strip()
     if not request_id and not _is_api_call:
-        flash('Solicitud inválida. Recarga la página e intenta nuevamente.', 'error')
-        return redirect('/juego/freefire_id')
+        return redirect_freefire_id_error('Solicitud invalida. Recarga la pagina e intenta nuevamente.')
     
     package_id = int(package_id)
     user_id = session.get('user_db_id')
@@ -7647,8 +7659,7 @@ def validar_freefire_id():
     paquete_nombre = f"{package_info.get('nombre', 'Paquete')} / ${precio:.2f}"
     
     if precio == 0:
-        flash('Paquete no encontrado o inactivo', 'error')
-        return redirect('/juego/freefire_id')
+        return redirect_freefire_id_error('Paquete no encontrado o inactivo')
 
     endpoint_key = 'validar_freefire_id'
     idempotency_enabled = bool(request_id)
@@ -7660,8 +7671,7 @@ def validar_freefire_id():
         except Exception:
             conn_idempotency.rollback()
             conn_idempotency.close()
-            flash('No se pudo registrar la solicitud de recarga. Intenta nuevamente.', 'error')
-            return redirect('/juego/freefire_id')
+            return redirect_freefire_id_error('No se pudo registrar la solicitud de recarga. Intenta nuevamente.', paquete_nombre, precio)
         finally:
             try:
                 conn_idempotency.close()
@@ -7674,8 +7684,7 @@ def validar_freefire_id():
             return redirect('/juego/freefire_id?compra=exitosa')
 
         if idempotency_state['state'] == 'processing':
-            flash('Esta recarga ya se está procesando. Espera unos segundos.', 'warning')
-            return redirect('/juego/freefire_id')
+            return redirect_freefire_id_error('Esta recarga ya se esta procesando. Espera unos segundos.', paquete_nombre, precio)
 
         # Evitar doble envío: solo bloquear mientras exista una transacción realmente activa.
         # No usar ventanas fijas de tiempo, porque eso impone una espera artificial entre recargas.
@@ -7701,8 +7710,7 @@ def validar_freefire_id():
                 clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
                 conn_cleanup.commit()
                 conn_cleanup.close()
-            flash('Ya se está procesando tu recarga. Espera unos segundos y revisa tu dashboard.', 'error')
-            return redirect('/juego/freefire_id')
+            return redirect_freefire_id_error('Ya se esta procesando tu recarga. Espera unos segundos y revisa tu dashboard.', paquete_nombre, precio)
     except Exception:
         pass
     
@@ -7722,8 +7730,7 @@ def validar_freefire_id():
             clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
             conn_cleanup.commit()
             conn_cleanup.close()
-        flash(f'Saldo insuficiente. Necesitas ${precio:.2f} pero tienes ${saldo_actual:.2f}', 'error')
-        return redirect('/juego/freefire_id')
+        return redirect_freefire_id_error(f'Saldo insuficiente. Necesitas ${precio:.2f} pero tienes ${saldo_actual:.2f}', paquete_nombre, precio)
     
     transaction_data = None
     pin_codigo = None
@@ -7739,8 +7746,7 @@ def validar_freefire_id():
                 clear_idempotent_purchase(conn_cleanup, user_id, endpoint_key, request_id)
                 conn_cleanup.commit()
                 conn_cleanup.close()
-            flash(f'No hay stock disponible para este paquete en este momento. Intenta más tarde.', 'error')
-            return redirect('/juego/freefire_id')
+            return redirect_freefire_id_error('No hay stock disponible para este paquete en este momento. Intenta mas tarde.', paquete_nombre, precio)
         
         pin_codigo = pin_disponible['pin_codigo']
         
@@ -7763,8 +7769,7 @@ def validar_freefire_id():
                     conn2.close()
                 except Exception:
                     pass
-                flash(f'Saldo insuficiente al momento de procesar. Recarga tu saldo e intenta de nuevo.', 'error')
-                return redirect('/juego/freefire_id')
+                return redirect_freefire_id_error('Saldo insuficiente al momento de procesar. Recarga tu saldo e intenta de nuevo.', paquete_nombre, precio)
             conn.commit()
             saldo_cobrado = True
             # Leer saldo actualizado desde DB
@@ -7903,8 +7908,7 @@ def validar_freefire_id():
                 conn_cleanup.commit()
                 conn_cleanup.close()
             
-            flash(f'La recarga falló. Tu saldo ha sido devuelto. Puedes intentar nuevamente con otro PIN. Error: {error_msg}', 'error')
-            return redirect('/juego/freefire_id')
+            return redirect_freefire_id_error(f'La recarga fallo. Tu saldo ha sido devuelto. Puedes intentar nuevamente con otro PIN. Error: {error_msg}', paquete_nombre, precio)
         
     except Exception as e:
         logger.error(f"[FreeFire ID] Error general: {str(e)}")
@@ -7977,8 +7981,7 @@ def validar_freefire_id():
             except Exception:
                 pass
 
-        flash('Error al procesar la compra. Intente nuevamente.', 'error')
-        return redirect('/juego/freefire_id')
+        return redirect_freefire_id_error('Error al procesar la compra. Intente nuevamente.', paquete_nombre, precio)
 
 # Rutas de administrador para Free Fire ID
 @app.route('/admin/freefire_id_transactions')
@@ -10214,8 +10217,8 @@ def dashboard():
         user = None
 
         dashboard_historial = conn.execute('''
-            SELECT h.fecha, h.monto, h.paquete_nombre, h.pin, h.duracion_segundos,
-                   u.nombre, u.apellido
+             SELECT h.fecha, h.monto, h.paquete_nombre, h.pin, h.duracion_segundos,
+                 u.id as usuario_id, u.nombre, u.apellido
             FROM historial_compras h
             JOIN usuarios u ON h.usuario_id = u.id
             WHERE h.tipo_evento = 'compra' AND DATE(h.fecha, '-4 hours') BETWEEN ? AND ?
@@ -10262,8 +10265,8 @@ def dashboard():
             session['saldo'] = user['saldo']
 
         dashboard_historial = conn.execute('''
-            SELECT h.fecha, h.monto, h.paquete_nombre, h.pin, h.duracion_segundos,
-                   u.nombre, u.apellido
+             SELECT h.fecha, h.monto, h.paquete_nombre, h.pin, h.duracion_segundos,
+                 u.id as usuario_id, u.nombre, u.apellido
             FROM historial_compras h
             JOIN usuarios u ON h.usuario_id = u.id
             WHERE h.usuario_id = ? AND h.tipo_evento = 'compra' AND DATE(h.fecha, '-4 hours') BETWEEN ? AND ?
@@ -10386,6 +10389,7 @@ def dashboard():
             'monto': abs(historial_row['monto']),
             'paquete': historial_row['paquete_nombre'] or 'Paquete',
             'pin': historial_row['pin'] or '',
+            'usuario_id': historial_row['usuario_id'],
             'nombre': historial_row['nombre'],
             'apellido': historial_row['apellido'],
             'duracion_segundos': historial_row['duracion_segundos'],
@@ -10630,6 +10634,7 @@ def dashboard():
 
     serie_map = OrderedDict((d, 0.0) for d in dias)
     compras_por_dia_paquete = {d: {} for d in dias}
+    compras_por_dia_paquete_usuarios = {d: {} for d in dias}
     for transaction in dashboard_source_transactions:
         fecha_str = str(transaction['fecha']).split(' ')[0]
         if fecha_str not in serie_map:
@@ -10641,6 +10646,7 @@ def dashboard():
         aggregate_key = f"{item_name}||{package_name}"
         if aggregate_key not in compras_por_dia_paquete[fecha_str]:
             compras_por_dia_paquete[fecha_str][aggregate_key] = {
+                'aggregate_key': aggregate_key,
                 'categoria': 'Juegos',
                 'item': item_name,
                 'paquete': package_name,
@@ -10652,6 +10658,22 @@ def dashboard():
         compras_por_dia_paquete[fecha_str][aggregate_key]['cantidad'] += int(transaction.get('dashboard_quantity') or 1)
         compras_por_dia_paquete[fecha_str][aggregate_key]['monto_total'] += float(transaction.get('monto') or 0.0)
         compras_por_dia_paquete[fecha_str][aggregate_key]['ganancia_total'] += float(transaction.get('dashboard_profit_total') or 0.0)
+
+        user_id_key = transaction.get('usuario_id')
+        if user_id_key is not None:
+            package_users = compras_por_dia_paquete_usuarios[fecha_str].setdefault(aggregate_key, {})
+            if user_id_key not in package_users:
+                package_users[user_id_key] = {
+                    'usuario_id': user_id_key,
+                    'nombre': transaction.get('nombre') or '',
+                    'apellido': transaction.get('apellido') or '',
+                    'cantidad': 0,
+                    'monto_total': 0.0,
+                    'ganancia_total': 0.0,
+                }
+            package_users[user_id_key]['cantidad'] += int(transaction.get('dashboard_quantity') or 1)
+            package_users[user_id_key]['monto_total'] += float(transaction.get('monto') or 0.0)
+            package_users[user_id_key]['ganancia_total'] += float(transaction.get('dashboard_profit_total') or 0.0)
 
     ganancias_por_dia = {d: 0.0 for d in dias}
     if is_admin:
@@ -10683,6 +10705,19 @@ def dashboard():
         rows = list((compras_por_dia_paquete.get(day, {}) or {}).values())
         rows.sort(key=lambda row: (game_order_key(row.get('item')), str(row.get('item', '')).lower(), package_order_key(row.get('paquete'))))
         compras_por_dia_detalle[day] = rows
+
+    compras_por_dia_paquete_usuarios_detalle = {d: {} for d in dias}
+    for day in dias:
+        package_groups = compras_por_dia_paquete_usuarios.get(day, {}) or {}
+        day_detail = {}
+        for aggregate_key, users_map in package_groups.items():
+            users_list = list(users_map.values())
+            for user_row in users_list:
+                user_row['monto_total'] = round(float(user_row.get('monto_total') or 0.0), 2)
+                user_row['ganancia_total'] = round(float(user_row.get('ganancia_total') or 0.0), 2)
+            users_list.sort(key=lambda row: (-float(row.get('ganancia_total') or 0.0), -int(row.get('cantidad') or 0), str(row.get('nombre') or '').lower(), str(row.get('apellido') or '').lower()))
+            day_detail[aggregate_key] = users_list
+        compras_por_dia_paquete_usuarios_detalle[day] = day_detail
 
     # Valores por defecto (si no existen tablas de stock/solicitudes)
     items_stock = 0
@@ -10736,6 +10771,7 @@ def dashboard():
                          compras_paquete_map=compras_paquete_counter,
                          compras_por_dia_paquete=compras_por_dia_paquete,
                          compras_por_dia_detalle=compras_por_dia_detalle,
+                         compras_por_dia_paquete_usuarios=compras_por_dia_paquete_usuarios_detalle,
                          games_active=get_games_active(),
                          total_users=total_users)
 

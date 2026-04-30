@@ -819,7 +819,7 @@ if __name__ == '__main__':
     print("   GET  /api/connection/user/<user_id>/transactions - Obtener transacciones")
     print("=" * 60)
     print("🌐 API de Conexión corriendo en: http://localhost:5002")
-    print("🔗 URL de tu web: https://revendedores51.onrender.com/")
+    print("🔗 URL de tu web: https://inefablerevendedores.co/")
     print("=" * 60)
     
     connection_app.run(debug=True, port=5002, host='0.0.0.0')

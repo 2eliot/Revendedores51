@@ -16,20 +16,19 @@ git commit -m "Integrar API de conexión simple - Formato compatible con inefabl
 git push origin main
 ```
 
-### 2. **Verificar despliegue en Render**
-- Render detectará automáticamente los cambios
-- El despliegue tomará 2-3 minutos
-- La API estará disponible en: `https://revendedores51.onrender.com/api.php`
+### 2. **Verificar despliegue en el VPS**
+- Verifica que el dominio responda por HTTPS
+- La API estará disponible en: `https://inefablerevendedores.co/api.php`
 
 ### 3. **Probar la API en producción**
 ```bash
 # Ejemplo de prueba
-curl "https://revendedores51.onrender.com/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=1&numero=1"
+curl "https://inefablerevendedores.co/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=1&numero=1"
 ```
 
 ## 🔗 **URL FINAL DE LA API**
 ```
-https://revendedores51.onrender.com/api.php?action=recarga&usuario=EMAIL&clave=PASSWORD&tipo=recargaPinFreefire&monto=PACKAGE_ID&numero=QUANTITY
+https://inefablerevendedores.co/api.php?action=recarga&usuario=EMAIL&clave=PASSWORD&tipo=recargaPinFreefire&monto=PACKAGE_ID&numero=QUANTITY
 ```
 
 ## 📋 **PARÁMETROS OBLIGATORIOS**
@@ -82,18 +81,18 @@ https://revendedores51.onrender.com/api.php?action=recarga&usuario=EMAIL&clave=P
 
 ### 1. **Health Check**
 ```
-https://revendedores51.onrender.com/api.php
+https://inefablerevendedores.co/api.php
 ```
 Debería devolver información de la API.
 
 ### 2. **Prueba de autenticación**
 ```
-https://revendedores51.onrender.com/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=1&numero=1
+https://inefablerevendedores.co/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=1&numero=1
 ```
 
 ### 3. **Prueba de error (credenciales incorrectas)**
 ```
-https://revendedores51.onrender.com/api.php?action=recarga&usuario=invalid@test.com&clave=wrong&tipo=recargaPinFreefire&monto=1&numero=1
+https://inefablerevendedores.co/api.php?action=recarga&usuario=invalid@test.com&clave=wrong&tipo=recargaPinFreefire&monto=1&numero=1
 ```
 Debería devolver error 401.
 

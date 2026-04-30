@@ -594,7 +594,7 @@ python test_connection_api.py
 
 Para que las pruebas funcionen, necesitas crear un usuario de prueba:
 
-1. Accede a tu web: https://revendedores51.onrender.com/
+1. Accede a tu web: https://inefablerevendedores.co/
 2. Registra un usuario con:
    - Email: `test@ejemplo.com`
    - Contraseña: `test123`

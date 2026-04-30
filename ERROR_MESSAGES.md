@@ -1,0 +1,306 @@
+# Error messages (deduped)
+
+Generado automáticamente desde llamadas a `flash(..., "error"|"warning")` y respuestas JSON de error.
+
+
+## Web (Flash) — 147
+
+- Acceso denegado. Solo administradores.
+- Nombre y usuario son requeridos para crear una cuenta API.
+- Usuario no encontrado.
+- Cuenta no encontrada.
+- ID de usuario inválido.
+- Error creando cuenta: {...}
+- Usuario ID {...} no encontrado.
+- Por favor, complete todos los campos
+- Credenciales incorrectas
+- El correo electrónico ya está registrado
+- Error al crear la cuenta. Intente nuevamente.
+- Datos inválidos para agregar crédito
+- Datos inválidos para importar CSV
+- El archivo CSV debe tener un nombre válido
+- Datos incompletos para guardar cambios.
+- Parámetros inválidos.
+- No se eliminaron pines del lote (puede que no existan o estén usados)
+- No se eliminaron pines (lista vacía)
+- Datos inválidos para actualizar saldo
+- ID de usuario inválido
+- Datos inválidos para agregar pin
+- Por favor complete todos los campos para el lote de pines
+- No se encontraron pines válidos en el texto
+- Datos inválidos para actualizar precio
+- Datos inválidos para actualizar nombre
+- Error de sesión
+- El monto debe estar entre {...} y {...} USDT
+- Error al crear la orden de recarga. Intenta de nuevo.
+- No tienes una recarga pendiente
+- Por favor selecciona un paquete y cantidad
+- La cantidad debe estar entre 1 y 10 pines
+- Paquete no encontrado o inactivo
+- Saldo insuficiente. Necesitas ${...} pero tienes ${...}
+- Por favor complete todos los campos
+- Este paquete no tiene configurado el ID de GamePoint. Contacta al administrador.
+- ID de transacción inválido
+- Solicitud inválida. Recarga la página e intenta nuevamente.
+- Debes ingresar un PIN y un Player ID para la prueba
+- Datos inválidos para cambiar fuente
+- Por favor complete todos los campos obligatorios
+- El título no puede exceder 200 caracteres
+- El contenido no puede exceder 2000 caracteres
+- ID de noticia inválido
+- Datos inválidos para actualizar precio de compra
+- Por favor selecciona un paquete
+- Esta compra ya se está procesando. Espera unos segundos.
+- Stock insuficiente. Solo hay {...} pines disponibles para este paquete.
+- Sube un archivo .zip de backup válido.
+- No se encontraron códigos de pin válidos en el CSV
+- Formato de datos inválido.
+- Error al guardar cambios: {...}
+- Error al actualizar estado del juego: {...}
+- Usuario no encontrado
+- Error al agregar pines en lote: {...}
+- Error al eliminar pines duplicados: {...}
+- El precio no puede ser negativo
+- Paquete no encontrado
+- Precio inválido. Debe ser un número válido.
+- Error al actualizar precio: {...}
+- El nombre no puede estar vacío
+- El nombre no puede exceder 50 caracteres
+- Error al actualizar nombre: {...}
+- Error al acceder a la billetera
+- Monto inválido
+- La orden de recarga ha expirado. Crea una nueva.
+- No se pudieron obtener pines. Intente nuevamente.
+- Saldo insuficiente para la cantidad obtenida. Necesitas ${...} pero tienes ${...}
+- Error inesperado al procesar la compra: {...}
+- Este juego está desactivado temporalmente.
+- Ya se está procesando tu recarga. Espera unos segundos y revisa tu historial.
+- La recarga falló: {...}. Tu saldo ha sido devuelto.
+- Error de conexión con proveedor: {...}. Tu saldo ha sido devuelto.
+- Error al validar la recarga: {...}. Tu saldo ha sido devuelto.
+- Error al procesar la compra. Tu saldo ha sido devuelto. Intente nuevamente.
+- Error al aprobar transacción: {...}
+- Error al rechazar transacción: {...}
+- Solicitud duplicada o expirada. Recarga la página e intenta nuevamente.
+- Esta recarga ya se está procesando. Espera unos segundos.
+- Ya se está procesando tu recarga. Espera unos segundos y revisa tu dashboard.
+- No hay stock disponible para este paquete en este momento. Intenta más tarde.
+- La recarga falló. Tu saldo ha sido devuelto. Puedes intentar nuevamente con otro PIN. Error: {...}
+- Error al procesar la compra. Intente nuevamente.
+- Transaccion no encontrada
+- Error al aprobar transaccion: {...}
+- Prueba fallida: {...}
+- Error en prueba: {...}
+- ❌ API Externa: {...}
+- Error al probar API externa: {...}
+- Monto ID debe estar entre 1 y 9
+- Fuente inválida. Debe ser "local" o "api_externa"
+- Monto ID debe ser un número válido
+- Error al actualizar configuración: {...}
+- Error al acceder a las noticias
+- Error al acceder a las notificaciones
+- Formato de imagen no válido. Use PNG, JPG, GIF o WEBP.
+- Error al crear la noticia: {...}
+- Error al eliminar la noticia: {...}
+- El precio de compra no puede ser negativo
+- Tipo de juego inválido
+- Error al actualizar precio de compra en la base de datos
+- Error al actualizar precio de compra: {...}
+- Error al obtener análisis de rentabilidad: {...}
+- Error al obtener estadísticas semanales: {...}
+- Error al limpiar ventas antiguas: {...}
+- Error al resetear estadísticas: {...}
+- La cantidad debe estar entre 1 y 20 pines
+- Datos inválidos
+- No se pudo registrar la solicitud de compra. Intenta nuevamente.
+- Stock insuficiente para completar la cantidad solicitada. Intente con una cantidad menor.
+- Error al procesar la transacción. Los PINs han sido devueltos al stock. Intente nuevamente.
+- Error al acceder al dashboard
+- No se encontraron pines nuevos en el backup (puede que ya estén en stock).
+- El archivo no es un ZIP válido.
+- Error al restaurar backup: {...}
+- Este archivo ya fue importado antes: {...}
+- Error al importar CSV: {...}
+- Juego no soportado.
+- Pago no detectado aún. Asegúrate de enviar el monto exacto con el código como nota y espera unos segundos.
+- Sin stock disponible para este paquete.
+- Error al procesar la transacción. Intente nuevamente.
+- Error al procesar la compra con el módulo Game. Tu saldo ha sido devuelto.
+- Saldo insuficiente al momento de procesar. Recarga tu saldo e intenta de nuevo.
+- Error al procesar. Tu saldo ha sido devuelto.
+- No se pudo registrar la solicitud de recarga. Intenta nuevamente.
+- No hay pines de Free Fire Global disponibles para el paquete {...}. Agrega pines al inventario primero.
+- Redención automática fallida: {...}. PIN devuelto al inventario. La transacción permanece pendiente para revisión manual.
+- No se encontró juego dinámico con slug: {...}
+- Esta transacción ya fue procesada anteriormente.
+- Advertencia: Solo se obtuvieron {...} pines de los {...} solicitados. Precio ajustado a ${...}
+- Error al obtener pines. {...}
+- Ya existe una solicitud de compra para este paquete. Espera unos segundos.
+- Error al procesar la solicitud. Tu saldo ha sido devuelto.
+- Error al redimir pin automaticamente: {...}. Pin devuelto al inventario.
+- Acceso denegado.
+- Juego no encontrado.
+- Selecciona un paquete.
+- Paquete no encontrado.
+- Paquete no disponible.
+- Este paquete está marcado como Solo Game pero no tiene mapeo configurado.
+- Este paquete no tiene configurado el ID de GamePoint.
+- Ingresa tu ID de jugador.
+- Ingresa tu {...}.
+- Selecciona un {...}.
+- Error de conexión con proveedor. Tu saldo ha sido devuelto.
+- Error al validar: {...}. Tu saldo ha sido devuelto.
+- Error al procesar la compra. Tu saldo ha sido devuelto.
+- Saldo insuficiente al momento de procesar.
+
+## API (JSON) — 149
+
+- unauthorized
+- query_failed
+- backfill_failed
+- invalid_payload
+- update_failed
+- Endpoint no encontrado
+- Método no permitido
+- Error interno del servidor
+- Error al obtener usuarios: {...}
+- El correo electrónico ya está registrado
+- Error al crear usuario: {...}
+- Usuario no encontrado
+- Error al obtener usuario: {...}
+- Campo requerido: saldo
+- El saldo no puede ser negativo
+- El saldo debe ser un número válido
+- Error al actualizar saldo: {...}
+- Error al obtener paquetes: {...}
+- Campo requerido: precio
+- El precio no puede ser negativo
+- Paquete no encontrado
+- El precio debe ser un número válido
+- Error al actualizar precio: {...}
+- Error al obtener stock: {...}
+- Campos requeridos: monto_id, pin_codigo
+- monto_id debe estar entre 1 y 9
+- pin_codigo no puede estar vacío
+- Este pin ya existe en el stock
+- monto_id debe ser un número entero
+- Error al agregar pin: {...}
+- Error al obtener transacciones: {...}
+- Error al obtener transacciones del usuario: {...}
+- Campos requeridos: correo, contraseña
+- Credenciales incorrectas
+- Error en login: {...}
+- Campo requerido: {...}
+- Paquete {...} sin mapeo Solo Game
+- Error proveedor: {...}
+- Validación falló: {...}
+- Sin stock para paquete {...}
+- Error redención: {...}
+- Usuario vinculado no encontrado
+- package_id y player_id son requeridos
+- Paquete {...} no encontrado o inactivo
+- Orden no encontrada
+- external_order_id requerido
+- Acceso denegado
+- API key requerida
+- API key inválida o cuenta desactivada
+- package_id y product_id deben ser numéricos
+- La orden ya se está procesando
+- Saldo insuficiente
+- Error interno al crear orden
+- No se pudo registrar la solicitud idempotente
+- Recarga no encontrada o ya procesada
+- fecha_expiracion inválida
+- Error al consultar Binance Pay API
+- No se encontraron paquetes en GamePoint para este producto
+- Usar método GET con parámetros en la URL
+- Paquete {...} no encontrado en juegos dinámicos, Blood Strike ni Free Fire ID
+- Falta roleId para mapear
+- Falta local_id
+- Paquete local no encontrado
+- Este paquete ya está asignado a GameClub. Quita esa asignación antes de enlazarlo al módulo Game.
+- No autorizado
+- Error de sesión
+- ID de transacción requerido
+- Transacción no encontrada
+- API no configurada (token vacío)
+- Authorization header requerido (Bearer token)
+- Token inválido
+- player_id es requerido
+- package_id debe estar entre 1 y 9
+- Sin stock disponible para el paquete {...} ({...})
+- Pin obtenido vacío, contacte al administrador
+- Admin no encontrado
+- player_id y package_id son requeridos
+- La recarga ya se está procesando
+- Paquete no encontrado o inactivo
+- Error al acreditar saldo
+- Acceso denegado. Solo administradores.
+- Datos incompletos para guardar cambios.
+- Datos inválidos
+- No se pudo calcular estadísticas: {...}
+- Parámetros requeridos: action, usuario, clave, tipo
+- Action debe ser "recarga"
+- Tipo debe ser "recargaPinFreefire"
+- Saldo insuficiente. Necesitas ${...} pero tienes ${...}
+- Error interno del servidor: {...}
+- package_id debe ser un número entero
+- Paquete {...} no encontrado o inactivo en {...}
+- Error obteniendo paquetes: {...}
+- Error en pin_manager: {...}
+- package_id debe ser un número
+- Juego dinámico no encontrado
+- Juego dinámico desactivado
+- Paquete dinámico desactivado
+- No se pudo crear el registro de la recarga
+- Error interno: {...}
+- Formato de datos inválido.
+- Monto debe estar entre 1 y 9
+- Monto debe ser un número válido
+- Numero debe estar entre 1 y 10
+- Numero debe ser un número válido
+- Sin stock disponible para este paquete
+- Error al obtener PINs: {...}
+- Formato inválido
+- Juego no soportado.
+- No se recibieron datos JSON
+- Email y contraseña son requeridos
+- Error en autenticación: {...}
+- Error al obtener saldo: {...}
+- user_id y package_id son requeridos
+- La cantidad debe estar entre 1 y 10
+- Error al procesar compra: {...}
+- Esta compra ya se está procesando
+- Sin stock disponible para este paquete: {...}
+- Juego no encontrado
+- No se encontraron paquetes en GamePoint
+- Nombre y Product ID son obligatorios
+- Tasa inválida, debe ser mayor a 0
+- Nombre y precio son obligatorios
+- Las tablas de juegos dinámicos no existen en la base de datos PostgreSQL
+- No se pudo agregar el paquete: {...}
+- El precio debe ser numérico
+- El orden debe ser numérico
+- El GamePoint Package ID debe ser numérico
+- Timeout al conectar con la API externa
+- Error de conexión con la API externa
+- Error en petición: {...}
+- Error inesperado: {...}
+- Monto ID {...} no válido. Debe estar entre 1 y 9.
+- Error al procesar respuesta: {...}
+- Monto ID {...} no válido
+- Error al verificar stock: {...}
+- No se pudo extraer el pin de la respuesta - posible falta de stock
+- Formato de respuesta no reconocido
+- Sin stock en API externa: {...}
+- Error en API externa: {...}
+- Pin no encontrado en respuesta JSON - posible falta de stock
+- Stock insuficiente. Disponible: {...}, Solicitado: {...}
+- Solo se pudieron obtener {...} de {...} pines
+- Sin stock disponible
+- La cantidad debe ser mayor a 0
+- No se pudo obtener ningún pin de la API externa
+- API externa no disponible: {...}
+- Error al conectar con API externa: {...}
+- Endpoint no encontrado. Usar: /api.php?action=recarga&usuario=EMAIL&clave=PASSWORD&tipo=recargaPinFreefire&monto=PACKAGE_ID&numero=QUANTITY
+- Método no permitido. Usar GET con parámetros en la URL

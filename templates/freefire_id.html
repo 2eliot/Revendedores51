@@ -108,10 +108,9 @@
       <svg class="icon" onclick="window.location.href='/'" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.5V19a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1V9.5"/></svg>
       <div class="dashboard-icon-container" onclick="window.location.href='/dashboard'" title="Mi Dashboard">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="7" height="7" rx="1.5"/>
-          <rect x="14" y="3" width="7" height="7" rx="1.5"/>
-          <rect x="3" y="14" width="7" height="7" rx="1.5"/>
-          <rect x="14" y="14" width="7" height="7" rx="1.5"/>
+          <rect x="4" y="10" width="5" height="10" rx="1.2"/>
+          <rect x="10" y="4" width="4" height="16" rx="1.2"/>
+          <rect x="15" y="10" width="5" height="10" rx="1.2"/>
         </svg>
       </div>
       <svg class="icon" onclick="window.location.href='/billetera'" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 10h20"/><circle cx="16.5" cy="15" r="1.5"/></svg>
@@ -207,9 +206,33 @@
     })();
     </script>
 
-    {% if compra_exitosa %}
-    <div class="compra-exitosa" id="compra-exitosa" data-monto="{{ monto_compra }}">
-      {% if estado == 'completado' %}
+    {% if compra_exitosa or compra_error %}
+    <div class="compra-exitosa{% if compra_error %} compra-resultado-error{% endif %}" id="compra-exitosa" data-monto="{{ monto_compra if compra_exitosa else 0 }}" data-resultado="{{ 'error' if compra_error else 'exito' }}">
+      {% if compra_error %}
+      <h3>No se pudo completar la recarga</h3>
+      <div class="solicitud-container solicitud-resultado-error">
+        <div class="solicitud-info">
+          <p class="solicitud-label">Estado:</p>
+          <p class="solicitud-estado" style="color: #ff7a90;">❌ ERROR</p>
+        </div>
+        <div class="detalles-info">
+          <p><strong>Free Fire</strong></p>
+          {% if paquete_nombre %}
+          <p><strong>Paquete:</strong> {{ paquete_nombre.split(' / ')[0] if ' / ' in paquete_nombre else paquete_nombre }}</p>
+          {% endif %}
+          {% if player_id %}
+          <p><strong>ID de Jugador:</strong> {{ player_id }}</p>
+          {% endif %}
+          {% if monto_compra %}
+          <p style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(255,255,255,0.1); color: #8896a6; font-size: 0.9em;"><strong>Monto:</strong> ${{ "%.2f"|format(monto_compra) }}</p>
+          {% endif %}
+          <p class="resultado-error-mensaje">{{ error_mensaje }}</p>
+        </div>
+      </div>
+      <div class="entrega-info entrega-resultado-error">
+        <p>Verifica el motivo del error y vuelve a intentarlo.</p>
+      </div>
+      {% elif estado == 'completado' %}
       <h3>¡Recarga Realizada con Éxito!</h3>
       <div class="solicitud-container">
         <div class="solicitud-info">
@@ -302,7 +325,7 @@
       
       // Animación de saldo cuando hay compra exitosa
       var compraEl = document.getElementById('compra-exitosa');
-      if (compraEl) {
+      if (compraEl && compraEl.getAttribute('data-resultado') === 'exito') {
         var saldoDisplay = document.getElementById('saldo-display');
         if (saldoDisplay) {
           var saldoActual = parseFloat(saldoDisplay.getAttribute('data-saldo'));

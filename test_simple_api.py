@@ -300,7 +300,7 @@ def run_all_tests():
     print(f"   {example_url}")
     
     print("\n🌐 Para producción, reemplaza localhost:5003 con:")
-    print("   https://revendedores51.onrender.com/")
+    print("   https://inefablerevendedores.co/")
     
     return success_rate >= 80
 

@@ -20,7 +20,7 @@ def print_banner():
     print("📅 Fecha:", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     print("🌐 Puerto: 5002")
     print("📍 URL: http://localhost:5002")
-    print("🔗 Web: https://revendedores51.onrender.com/")
+    print("🔗 Web: https://inefablerevendedores.co/")
     print("=" * 70)
 
 def check_dependencies():
@@ -240,7 +240,7 @@ def create_test_user():
     print("=" * 50)
     print("Para que las pruebas funcionen correctamente, necesitas:")
     print()
-    print("1. 🌐 Ir a: https://revendedores51.onrender.com/")
+    print("1. 🌐 Ir a: https://inefablerevendedores.co/")
     print("2. 📝 Registrar un usuario con:")
     print("   • Email: test@ejemplo.com")
     print("   • Contraseña: test123")

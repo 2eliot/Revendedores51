@@ -347,6 +347,24 @@
       white-space: nowrap;
     }
 
+    .qty-view-btn {
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.06);
+      color: #dbe7ff;
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+    }
+
+    .qty-view-btn:hover {
+      background: rgba(167,139,250,0.12);
+      border-color: rgba(167,139,250,0.28);
+      transform: translateY(-1px);
+    }
+
     /* Separador visual entre categorías */
     .category-separator td {
       border-top: 2px solid rgba(255,255,255,0.1);
@@ -1130,10 +1148,9 @@
       <!-- Botón de Dashboard (para usuarios normales y admin) -->
       <div class="dashboard-icon-container" onclick="window.location.href='/dashboard'" title="{% if session.get('is_admin') %}Dashboard Administrativo{% else %}Mi Dashboard{% endif %}">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="7" height="7" rx="1.5"/>
-          <rect x="14" y="3" width="7" height="7" rx="1.5"/>
-          <rect x="3" y="14" width="7" height="7" rx="1.5"/>
-          <rect x="14" y="14" width="7" height="7" rx="1.5"/>
+          <rect x="4" y="10" width="5" height="10" rx="1.2"/>
+          <rect x="10" y="4" width="4" height="16" rx="1.2"/>
+          <rect x="15" y="10" width="5" height="10" rx="1.2"/>
         </svg>
       </div>
       
@@ -1190,7 +1207,7 @@
       </div>
       <!-- Contenido -->
       <div style="padding:18px 20px 20px;">
-        <div style="font-size:0.95em; line-height:1.65; color:#ddd;" id="news-popup-content"></div>
+        <div style="font-size:0.95em; line-height:1.65; color:#ddd; word-break:break-word;" id="news-popup-content"></div>
         <label style="display:flex; align-items:center; gap:10px; margin-top:16px; cursor:pointer; font-size:0.87em; color:#aaa; user-select:none;">
           <input type="checkbox" id="news-popup-dismiss" style="width:18px; height:18px; accent-color:#4dd9ac; cursor:pointer;" onchange="onDismissChange(this)">
           No volver a mostrar
@@ -1285,6 +1302,11 @@
                   <span>{{ row.cantidad }}</span>
                   {% if is_admin %}
                   <span class="qty-profit">Ganancia: ${{ "%.2f"|format(row.ganancia_total or 0) }}</span>
+                  <button type="button" class="qty-view-btn"
+                          data-package-day="{{ fin }}"
+                          data-package-item="{{ row.item }}"
+                          data-package-name="{{ row.paquete }}"
+                          data-package-key="{{ row.aggregate_key }}">Ver</button>
                   {% endif %}
                 </div>
               </td>
@@ -1309,13 +1331,105 @@
   <script id="data-series-values" type="application/json">{{ series_values|tojson }}</script>
   <script id="data-compras-por-dia" type="application/json">{{ compras_por_dia_paquete|tojson }}</script>
   <script id="data-compras-por-dia-detalle" type="application/json">{{ compras_por_dia_detalle|tojson }}</script>
+  <script id="data-compras-usuarios-por-paquete" type="application/json">{{ compras_por_dia_paquete_usuarios|tojson }}</script>
 
   <script>
     const isAdminDashboard = {{ 'true' if is_admin else 'false' }};
 
+    function parseJsonScript(scriptId, fallbackValue) {
+      const node = document.getElementById(scriptId);
+      if (!node) {
+        return fallbackValue;
+      }
+
+      try {
+        return JSON.parse(node.textContent || 'null');
+      } catch (error) {
+        console.error('Error parsing JSON script:', scriptId, error);
+        return fallbackValue;
+      }
+    }
+
     function formatDashboardMoney(value) {
       return '$' + Number(value || 0).toFixed(2);
     }
+
+    function escapeHtml(value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function showPackageBuyersModal(day, itemName, packageName, aggregateKey) {
+      const packageUsersByDay = parseJsonScript('data-compras-usuarios-por-paquete', {});
+      const users = (((packageUsersByDay || {})[day] || {})[aggregateKey] || []);
+
+      let bodyHtml = '';
+      if (!users.length) {
+        bodyHtml = '<div style="text-align:center;padding:24px;color:#94a3b8;">No hay usuarios registrados para este paquete en ese día.</div>';
+      } else {
+        bodyHtml = users.map(user => {
+          const fullName = `${escapeHtml(user.nombre || '')} ${escapeHtml(user.apellido || '')}`.trim() || 'Usuario';
+          return `
+            <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 16px;margin-bottom:10px;">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;">
+                <div>
+                  <div style="color:#fff;font-weight:700;font-size:14px;">${fullName}</div>
+                  <div style="color:#94a3b8;font-size:12px;margin-top:4px;">ID: ${escapeHtml(user.usuario_id)}</div>
+                </div>
+                <div style="text-align:right;min-width:140px;">
+                  <div style="color:#4ade80;font-size:13px;font-weight:700;">Ganancia: ${formatDashboardMoney(user.ganancia_total || 0)}</div>
+                  <div style="color:#f59e0b;font-size:12px;font-weight:600;margin-top:4px;">Cantidad: ${Number(user.cantidad || 0)}</div>
+                  <div style="color:#cbd5e1;font-size:12px;margin-top:4px;">Comprado: ${formatDashboardMoney(user.monto_total || 0)}</div>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.78); z-index:10050; display:flex; align-items:center; justify-content:center; padding:20px;';
+      overlay.innerHTML = `
+        <div style="background:linear-gradient(135deg, #171726, #222235); border:1px solid rgba(255,255,255,0.08); border-radius:18px; width:100%; max-width:640px; box-shadow:0 16px 48px rgba(0,0,0,0.45); color:#e2e8f0; overflow:hidden;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:18px 20px 12px;border-bottom:1px solid rgba(255,255,255,0.06);">
+            <div>
+              <div style="font-size:17px;font-weight:700;color:#fff;">Compradores del paquete</div>
+              <div style="font-size:13px;color:#94a3b8;margin-top:6px;">${escapeHtml(itemName)} · ${escapeHtml(packageName)} · ${escapeHtml(day)}</div>
+            </div>
+            <button type="button" style="background:none;border:none;color:#fff;font-size:24px;line-height:1;cursor:pointer;" aria-label="Cerrar">×</button>
+          </div>
+          <div style="padding:18px 20px; max-height:60vh; overflow-y:auto;">${bodyHtml}</div>
+        </div>
+      `;
+
+      const closeButton = overlay.querySelector('button');
+      closeButton.addEventListener('click', function() { overlay.remove(); });
+      overlay.addEventListener('click', function(event) {
+        if (event.target === overlay) {
+          overlay.remove();
+        }
+      });
+      document.body.appendChild(overlay);
+    }
+
+    document.addEventListener('click', function(event) {
+      const viewButton = event.target.closest('.qty-view-btn');
+      if (!viewButton) {
+        return;
+      }
+
+      const day = viewButton.getAttribute('data-package-day') || '';
+      const itemName = viewButton.getAttribute('data-package-item') || '';
+      const packageName = viewButton.getAttribute('data-package-name') || '';
+      const aggregateKey = viewButton.getAttribute('data-package-key') || '';
+
+      showPackageBuyersModal(day, itemName, packageName, aggregateKey);
+    });
 
     // Funciones para los menús del header integrado
     function toggleUserBox() {
@@ -1392,6 +1506,43 @@
       }
     }
 
+    function buildNewsContentFragment(content) {
+      const fragment = document.createDocumentFragment();
+      const urlRegex = /(https?:\/\/[^\s]+)/g;
+      const lines = String(content || '').split(/\r?\n/);
+
+      lines.forEach((line, lineIndex) => {
+        if (lineIndex > 0) {
+          fragment.appendChild(document.createElement('br'));
+        }
+
+        let lastIndex = 0;
+        line.replace(urlRegex, function(match, offset) {
+          if (offset > lastIndex) {
+            fragment.appendChild(document.createTextNode(line.slice(lastIndex, offset)));
+          }
+
+          const link = document.createElement('a');
+          link.href = match;
+          link.textContent = match;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.style.color = '#7dd3fc';
+          link.style.textDecoration = 'underline';
+          link.style.fontWeight = '600';
+          fragment.appendChild(link);
+          lastIndex = offset + match.length;
+          return match;
+        });
+
+        if (lastIndex < line.length) {
+          fragment.appendChild(document.createTextNode(line.slice(lastIndex)));
+        }
+      });
+
+      return fragment;
+    }
+
     function showNewsPopup(n) {
       // Doble verificación: no mostrar si ya fue descartado
       if (_isNewsDismissed(n.id)) {
@@ -1399,7 +1550,8 @@
         return;
       }
       _currentNewsId = n.id;
-      document.getElementById('news-popup-content').textContent = n.contenido || '';
+      const contentNode = document.getElementById('news-popup-content');
+      contentNode.replaceChildren(buildNewsContentFragment(n.contenido || ''));
       document.getElementById('news-popup-dismiss').checked = false;
 
       const imgWrap = document.getElementById('news-popup-img-wrap');
@@ -1561,11 +1713,14 @@
                     const profitHtml = isAdminDashboard
                       ? `<span class="qty-profit">Ganancia: ${formatDashboardMoney(row.ganancia_total || 0)}</span>`
                       : '';
+                    const viewButtonHtml = isAdminDashboard
+                      ? `<button type="button" class="qty-view-btn" data-package-day="${escapeHtml(dateSel)}" data-package-item="${escapeHtml(itemDesktop)}" data-package-name="${escapeHtml(pkgDesktop)}" data-package-key="${escapeHtml(row.aggregate_key || '')}">Ver</button>`
+                      : '';
                     return `<tr class="table-row">
                       <td data-label="Categoría">${row.categoria || 'Juegos'}</td>
                       <td data-label="Ítem"><span class="item-desktop">${itemDesktop}</span><span class="item-mobile">${itemMobile}</span></td>
                       <td data-label="Paquete"><span class="item-desktop">${pkgDesktop}</span><span class="item-mobile">${pkgMobile}</span></td>
-                      <td data-label="Cantidad" class="col-cantidad ${qtyClass}"><div class="qty-stack"><span>${Number(row.cantidad || 0)}</span>${profitHtml}</div></td>
+                      <td data-label="Cantidad" class="col-cantidad ${qtyClass}"><div class="qty-stack"><span>${Number(row.cantidad || 0)}</span>${profitHtml}${viewButtonHtml}</div></td>
                     </tr>`;
                   }).join('');
                 }

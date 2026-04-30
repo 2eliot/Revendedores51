@@ -423,6 +423,39 @@ body {
   font-size: 1.3rem;
 }
 
+.compra-resultado-error {
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 1px rgba(255, 122, 144, 0.08) inset;
+}
+
+.compra-resultado-error h3 {
+  color: #ffd4db;
+}
+
+.solicitud-resultado-error {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.resultado-error-mensaje {
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  background: rgba(255, 122, 144, 0.12);
+  border: 1px solid rgba(255, 122, 144, 0.2);
+  color: #ffe1e7;
+  line-height: 1.5;
+}
+
+.entrega-resultado-error {
+  background-color: rgba(255,255,255,0.06);
+  border-left-color: #ff7a90;
+}
+
+.entrega-resultado-error p {
+  color: #ffd4db;
+}
+
 /* Contenedor del PIN */
 .pin-container {
   background: rgba(255,255,255,0.06);
