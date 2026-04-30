@@ -225,9 +225,9 @@
               <div class="ffid-voucher-status">
                 <span class="ffid-voucher-status-label">Estado:</span>
                 {% if (transaction.get('estado') or '')|lower == 'procesando' %}
-                <span class="ffid-voucher-status-value">⏳ PROCESANDO</span>
+                <span class="ffid-voucher-status-value" style="color:#f59e0b;background:rgba(245,158,11,0.12);border-color:rgba(245,158,11,0.35);">⏳ PROCESANDO</span>
                 {% elif (transaction.get('estado') or '')|lower == 'pendiente' %}
-                <span class="ffid-voucher-status-value">⏳ PENDIENTE</span>
+                <span class="ffid-voucher-status-value" style="color:#f59e0b;background:rgba(245,158,11,0.12);border-color:rgba(245,158,11,0.35);">⏳ PENDIENTE</span>
                 {% elif (transaction.get('estado') or '')|lower in ['rechazado', 'error', 'fallida'] %}
                 <span class="ffid-voucher-status-value" style="color:#ff6b6b;">❌ FALLIDA</span>
                 {% else %}
@@ -241,10 +241,6 @@
                   <div style="color:#8896a6;font-size:0.8em;margin-bottom:4px;">Tu código / serial:</div>
                   <div style="font-weight:700;letter-spacing:2px;color:#fff;font-size:1.05em;word-break:break-all;">{{ transaction.serial_key }}</div>
                   <button class="copy-btn-simple" style="margin-top:6px;" data-pin="{{ transaction.serial_key }}" onclick="copyTransactionPin(this.getAttribute('data-pin'))">📋 Copiar código</button>
-                </div>
-                {% elif transaction.get('is_dynamic_game') and (transaction.get('estado') or '')|lower in ['pendiente', 'procesando'] %}
-                <div style="margin:8px 0;padding:8px 12px;background:rgba(245,158,11,0.12);border:1px solid #f59e0b;border-radius:8px;">
-                  <span style="color:#f59e0b;font-size:0.88em;">⏳ Código en proceso — se actualizará automáticamente en este historial</span>
                 </div>
                 {% endif %}
                 {% if transaction.get('player_name') %}

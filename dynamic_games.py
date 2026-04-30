@@ -199,12 +199,15 @@ def _normalize_gamepoint_text(value):
     return re.sub(r'\s+', ' ', str(value or '').strip()).upper()
 
 
-def _classify_gamepoint_inquiry(inquiry_data, serial_key=''):
+def _classify_gamepoint_inquiry(inquiry_data, serial_key='', is_gift_card=True):
     """Map an order/inquiry payload to success, failed or pending."""
     if _is_real_serial(serial_key):
         return 'success', ''
 
     data = inquiry_data or {}
+    if not is_gift_card and str(data.get('ingamename') or '').strip():
+        return 'success', str(data.get('message') or data.get('status') or '').strip()
+
     status_text = _normalize_gamepoint_text(data.get('status'))
     message_text = _normalize_gamepoint_text(data.get('message') or data.get('error'))
     combined = ' '.join(part for part in (status_text, message_text) if part)
@@ -1467,7 +1470,11 @@ def validar_dinamico(slug):
         _duration = round(time_module.time() - _start, 1)
 
         if create_code in (100, 101):
-            inquiry_state, inquiry_note = _classify_gamepoint_inquiry(inq_data if reference_no else None, serial_key)
+            inquiry_state, inquiry_note = _classify_gamepoint_inquiry(
+                inq_data if reference_no else None,
+                serial_key,
+                is_gift_card=es_gift_card,
+            )
             transaccion_id = merchant_code
 
             if not _is_real_serial(serial_key):
@@ -1672,9 +1679,9 @@ def poll_pending_dynamic_transactions():
         conn = _get_conn()
         # Buscar pendientes Y aprobados con serial sospechoso (últimas 48 horas)
         rows = conn.execute('''
-            SELECT td.id, td.transaccion_id, td.gamepoint_referenceno, td.juego_id,
+                SELECT td.id, td.transaccion_id, td.gamepoint_referenceno, td.juego_id,
                td.usuario_id, td.monto, td.estado, td.pin_entregado,
-               jd.nombre as juego_nombre, jd.slug
+                    jd.nombre as juego_nombre, jd.slug, jd.modo
             FROM transacciones_dinamicas td
             JOIN juegos_dinamicos jd ON td.juego_id = jd.id
             WHERE td.gamepoint_referenceno IS NOT NULL
@@ -1716,7 +1723,11 @@ def poll_pending_dynamic_transactions():
         try:
             inq_data = order_inquiry(gc_token, row['gamepoint_referenceno'])
             serial_key = _extract_serial_from_inquiry(inq_data)
-            inquiry_state, inquiry_note = _classify_gamepoint_inquiry(inq_data, serial_key)
+            inquiry_state, inquiry_note = _classify_gamepoint_inquiry(
+                inq_data,
+                serial_key,
+                is_gift_card=(str(row.get('modo') or 'id').strip().lower() != 'id'),
+            )
             logger.info(f"[DynGame Poll] tx={row['transaccion_id']} ref={row['gamepoint_referenceno']} state={inquiry_state} serial='{serial_key}' fields={list((inq_data or {}).keys())}")
 
             if inquiry_state == 'failed':
