@@ -1205,6 +1205,7 @@ def validar_dinamico(slug):
     if not request_id:
         return redirect_dynamic_error('Solicitud invalida. Recarga la pagina e intenta nuevamente.', pkg['nombre'], precio)
 
+    import app as _app
     from app import begin_idempotent_purchase, complete_idempotent_purchase, clear_idempotent_purchase
     endpoint_key = f'dynamic_game:{game["slug"]}'
     conn_idempotency = _get_conn()
