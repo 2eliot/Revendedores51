@@ -1669,17 +1669,17 @@ def poll_pending_dynamic_transactions():
     try:
         conn = _get_conn()
         # Buscar pendientes Y aprobados con serial sospechoso (últimas 48 horas)
-                rows = conn.execute('''
-                        SELECT td.id, td.transaccion_id, td.gamepoint_referenceno, td.juego_id,
-                                     td.usuario_id, td.monto, td.estado, td.pin_entregado,
-                                     jd.nombre as juego_nombre, jd.slug
+        rows = conn.execute('''
+            SELECT td.id, td.transaccion_id, td.gamepoint_referenceno, td.juego_id,
+               td.usuario_id, td.monto, td.estado, td.pin_entregado,
+               jd.nombre as juego_nombre, jd.slug
             FROM transacciones_dinamicas td
             JOIN juegos_dinamicos jd ON td.juego_id = jd.id
             WHERE td.gamepoint_referenceno IS NOT NULL
               AND td.gamepoint_referenceno != ''
               AND td.fecha >= (NOW() - INTERVAL '48 hours')
               AND (
-                                td.estado IN ('pendiente', 'procesando')
+            td.estado IN ('pendiente', 'procesando')
                 OR (
                   td.estado = 'aprobado'
                   AND td.pin_entregado IS NOT NULL
