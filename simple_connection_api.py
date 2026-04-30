@@ -171,17 +171,6 @@ def create_transaction_record(user_id, pin_code, paquete_nombre, precio, conn=No
             VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (user_id, numero_control, pin_code, transaccion_id, paquete_nombre, -precio, request_id))
         
-        # Limitar transacciones a 30 por usuario
-        conn.execute('''
-            DELETE FROM transacciones 
-            WHERE usuario_id = ? AND id NOT IN (
-                SELECT id FROM transacciones 
-                WHERE usuario_id = ? 
-                ORDER BY fecha DESC 
-                LIMIT 30
-            )
-        ''', (user_id, user_id))
-
         if owns_connection:
             conn.commit()
         return {

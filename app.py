@@ -3153,6 +3153,18 @@ def clear_idempotent_purchase(conn, user_id, endpoint, request_id):
         WHERE usuario_id = ? AND endpoint = ? AND request_id = ?
     ''', (user_id, endpoint, request_id))
 
+def get_orders_retention_cutoff(reference_dt=None):
+    """Keep orders from the current month and the immediately previous month.
+
+    Example: in March, delete January and older records; in April, delete
+    February and older records.
+    """
+    reference_dt = reference_dt or datetime.now()
+    first_day_current_month = reference_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if first_day_current_month.month == 1:
+        return first_day_current_month.replace(year=first_day_current_month.year - 1, month=12)
+    return first_day_current_month.replace(month=first_day_current_month.month - 1)
+
 def delete_user(user_id):
     """Elimina un usuario y todos sus datos relacionados"""
     conn = get_db_connection()
@@ -6061,17 +6073,6 @@ def validar_freefire_latam():
             except Exception:
                 pass
             
-            # Limitar transacciones a 100 por usuario (aumentado de 30 para evitar eliminaciones frecuentes)
-            conn.execute('''
-                DELETE FROM transacciones 
-                WHERE usuario_id = ? AND id NOT IN (
-                    SELECT id FROM (SELECT id FROM transacciones 
-                    WHERE usuario_id = ? 
-                    ORDER BY fecha DESC 
-                    LIMIT 100) AS keep_ids
-                )
-            ''', (user_id, user_id))
-            
             conn.commit()
             
         except Exception as e:
@@ -7445,17 +7446,6 @@ def approve_bloodstriker_transaction(transaction_id):
             except Exception:
                 pass
             
-            # Limitar transacciones a 100 por usuario (aumentado de 30 para evitar eliminaciones frecuentes)
-            conn.execute('''
-                DELETE FROM transacciones 
-                WHERE usuario_id = ? AND id NOT IN (
-                    SELECT id FROM (SELECT id FROM transacciones 
-                    WHERE usuario_id = ? 
-                    ORDER BY fecha DESC 
-                    LIMIT 100) AS keep_ids
-                )
-            ''', (bs_transaction['usuario_id'], bs_transaction['usuario_id']))
-            
             conn.commit()
             
             # Registrar venta en estadísticas semanales (solo para usuarios normales)
@@ -8656,16 +8646,6 @@ def approve_freefire_id_transaction(transaction_id):
         except Exception:
             pass
         
-        conn.execute('''
-            DELETE FROM transacciones 
-            WHERE usuario_id = ? AND id NOT IN (
-                SELECT id FROM (SELECT id FROM transacciones 
-                WHERE usuario_id = ? 
-                ORDER BY fecha DESC 
-                LIMIT 100) AS keep_ids
-            )
-        ''', (fi_transaction['usuario_id'], fi_transaction['usuario_id']))
-        
         conn.commit()
         
         # Registrar venta en estadísticas semanales (solo para usuarios normales)
@@ -9591,7 +9571,7 @@ def clean_old_weekly_sales():
         conn.close()
 
 def clean_old_transactions():
-    """Limpia transacciones antiguas manteniendo solo las del último mes (mejorado)"""
+    """Limpia ordenes antiguas conservando el mes actual y el mes anterior."""
     from datetime import datetime, timedelta
     
     # Verificar si ya se ejecutó la limpieza hoy
@@ -9612,20 +9592,30 @@ def clean_old_transactions():
     conn = get_db_connection()
     
     try:
-        # Calcular fecha límite (1 MES atrás en lugar de 1 semana)
-        fecha_limite = datetime.now() - timedelta(days=30)  # 30 días = 1 mes
+        # Conservar el mes actual y el inmediatamente anterior.
+        fecha_limite = get_orders_retention_cutoff(datetime.now())
         fecha_limite_str = fecha_limite.strftime('%Y-%m-%d %H:%M:%S')
         
-        # Eliminar transacciones normales más antiguas de 1 mes
+        # Eliminar transacciones generales más antiguas que la ventana de dos meses.
         deleted_normal = conn.execute('''
             DELETE FROM transacciones 
             WHERE fecha < ?
         ''', (fecha_limite_str,)).rowcount
         
-        # Eliminar transacciones de Blood Striker más antiguas de 1 mes (excepto pendientes)
+        # Mantener ordenes activas; solo limpiar finalizadas antiguas.
         deleted_bs = conn.execute('''
             DELETE FROM transacciones_bloodstriker 
-            WHERE fecha < ? AND estado != 'pendiente'
+            WHERE fecha < ? AND estado NOT IN ('pendiente', 'procesando')
+        ''', (fecha_limite_str,)).rowcount
+
+        deleted_ffid = conn.execute('''
+            DELETE FROM transacciones_freefire_id
+            WHERE fecha < ? AND estado NOT IN ('pendiente', 'procesando')
+        ''', (fecha_limite_str,)).rowcount
+
+        deleted_dynamic = conn.execute('''
+            DELETE FROM transacciones_dinamicas
+            WHERE fecha < ? AND estado NOT IN ('pendiente', 'procesando')
         ''', (fecha_limite_str,)).rowcount
         
         # Eliminar historial_compras más antiguo de 3 días (mismo rango que la visualización en Costo)
@@ -9636,9 +9626,13 @@ def clean_old_transactions():
         
         conn.commit()
         
-        total_deleted = deleted_normal + deleted_bs + deleted_hist
+        total_deleted = deleted_normal + deleted_bs + deleted_ffid + deleted_dynamic + deleted_hist
         if total_deleted > 0:
-            print(f"🧹 Limpieza automática diaria: {total_deleted} registros antiguos eliminados ({deleted_normal} transacciones, {deleted_bs} Blood Striker, {deleted_hist} historial_compras)")
+            print(
+                f"🧹 Limpieza automática diaria: {total_deleted} registros antiguos eliminados "
+                f"({deleted_normal} transacciones, {deleted_bs} Blood Striker, {deleted_ffid} Free Fire ID, "
+                f"{deleted_dynamic} dinamicas, {deleted_hist} historial_compras)"
+            )
         
         # Guardar fecha de última limpieza
         try:
@@ -10091,18 +10085,6 @@ def validar_freefire():
             record_profit_for_transaction(conn, user_id, is_admin, 'freefire_global', monto_id, cantidad, precio_unitario, transaccion_id)
         except Exception:
             pass
-        
-        # Limitar transacciones (100 para admin, 30 para usuarios normales)
-        limit = 100 if is_admin else 30
-        conn.execute('''
-            DELETE FROM transacciones 
-            WHERE usuario_id = ? AND id NOT IN (
-                SELECT id FROM (SELECT id FROM transacciones 
-                WHERE usuario_id = ? 
-                ORDER BY fecha DESC 
-                LIMIT ?) AS keep_ids
-            )
-        ''', (user_id, user_id, limit))
         
         success_payload = {
             'paquete_nombre': paquete_nombre,
