@@ -19,6 +19,7 @@ class ConnectionAPITester:
         self.base_url = base_url
         self.session = requests.Session()
         self.user_data = None
+        self.auth_headers = {}
         
     def print_header(self, title):
         """Imprime un encabezado para las pruebas"""
@@ -85,6 +86,11 @@ class ConnectionAPITester:
                 data = response.json()
                 if data.get('status') == 'success':
                     self.user_data = data.get('data', {})
+                    token = self.user_data.get('token')
+                    self.auth_headers = {
+                        'Content-Type': 'application/json',
+                        'Authorization': f'Bearer {token}'
+                    } if token else {'Content-Type': 'application/json'}
                     self.print_test(
                         "Login Exitoso",
                         True,
@@ -127,7 +133,10 @@ class ConnectionAPITester:
         user_id = self.user_data.get('user_id')
         
         try:
-            response = self.session.get(f"{self.base_url}/api/connection/balance/{user_id}")
+            response = self.session.get(
+                f"{self.base_url}/api/connection/balance/{user_id}",
+                headers={'Authorization': self.auth_headers.get('Authorization', '')}
+            )
             
             if response.status_code == 200:
                 data = response.json()
@@ -243,7 +252,7 @@ class ConnectionAPITester:
             response = self.session.post(
                 f"{self.base_url}/api/connection/purchase",
                 json=purchase_data,
-                headers={'Content-Type': 'application/json'}
+                headers=self.auth_headers
             )
             
             if response.status_code == 200:
@@ -299,7 +308,10 @@ class ConnectionAPITester:
         user_id = self.user_data.get('user_id')
         
         try:
-            response = self.session.get(f"{self.base_url}/api/connection/user/{user_id}/transactions?limit=5")
+            response = self.session.get(
+                f"{self.base_url}/api/connection/user/{user_id}/transactions?limit=5",
+                headers={'Authorization': self.auth_headers.get('Authorization', '')}
+            )
             
             if response.status_code == 200:
                 data = response.json()
@@ -364,6 +376,20 @@ class ConnectionAPITester:
                 self.print_test("Login inválido", False, f"Status Code inesperado: {response.status_code}")
         except Exception as e:
             self.print_test("Login inválido", False, f"Error: {str(e)}")
+
+        if self.user_data:
+            try:
+                other_user_id = self.user_data.get('user_id', 0) + 999999
+                response = self.session.get(
+                    f"{self.base_url}/api/connection/balance/{other_user_id}",
+                    headers={'Authorization': self.auth_headers.get('Authorization', '')}
+                )
+                if response.status_code == 403:
+                    self.print_test("Aislamiento entre usuarios", True, "Acceso cruzado bloqueado correctamente")
+                else:
+                    self.print_test("Aislamiento entre usuarios", False, f"Status Code inesperado: {response.status_code}")
+            except Exception as e:
+                self.print_test("Aislamiento entre usuarios", False, f"Error: {str(e)}")
         
         # Probar compra sin saldo suficiente (si el usuario tiene poco saldo)
         if self.user_data and self.user_data.get('balance', 0) < 100:
@@ -376,7 +402,7 @@ class ConnectionAPITester:
                 response = self.session.post(
                     f"{self.base_url}/api/connection/purchase",
                     json=expensive_purchase,
-                    headers={'Content-Type': 'application/json'}
+                    headers=self.auth_headers
                 )
                 if response.status_code == 400:
                     data = response.json()

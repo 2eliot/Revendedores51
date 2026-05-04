@@ -74,10 +74,14 @@ Autentica un usuario con email y contraseña.
     "email": "usuario@ejemplo.com",
     "balance": 15.50,
     "token": "auth_token_here",
+    "token_type": "Bearer",
+    "expires_at": "2026-05-04T20:30:00",
     "phone": "1234567890"
   }
 }
 ```
+
+Usa ese token en el header `Authorization: Bearer <token>` para los endpoints sensibles.
 
 **Respuesta de error (401):**
 ```json
@@ -97,6 +101,11 @@ Obtiene el saldo actual de un usuario.
 
 **Parámetros:**
 - `user_id`: ID del usuario (obtenido del login)
+
+**Headers requeridos:**
+- `Authorization: Bearer <token>`
+
+El `user_id` debe coincidir con el usuario autenticado por el token.
 
 **Respuesta:**
 ```json
@@ -162,6 +171,11 @@ Compra un PIN verificando saldo y descontándolo automáticamente.
 - `user_id`: ID del usuario
 - `package_id`: ID del paquete (1-9)
 - `quantity`: Cantidad de PINs (1-10)
+
+**Headers requeridos:**
+- `Authorization: Bearer <token>`
+
+El `user_id` del body debe coincidir con el usuario autenticado por el token.
 
 **Respuesta exitosa (200) - Un PIN:**
 ```json
@@ -251,6 +265,11 @@ Obtiene las transacciones recientes de un usuario.
 **Parámetros de consulta:**
 - `limit`: Número máximo de transacciones (por defecto: 10, máximo: 50)
 
+**Headers requeridos:**
+- `Authorization: Bearer <token>`
+
+El `user_id` debe coincidir con el usuario autenticado por el token.
+
 **Ejemplo:** `/api/connection/user/123/transactions?limit=5`
 
 **Respuesta:**
@@ -302,7 +321,11 @@ async function login(email, password) {
 
 // 2. Verificar saldo
 async function checkBalance(userId) {
-    const response = await fetch(`http://localhost:5002/api/connection/balance/${userId}`);
+  const response = await fetch(`http://localhost:5002/api/connection/balance/${userId}`, {
+    headers: {
+      'Authorization': `Bearer ${window.connectionToken}`
+    }
+  });
     const data = await response.json();
     
     if (data.status === 'success') {
@@ -317,7 +340,8 @@ async function buyPin(userId, packageId, quantity = 1) {
     const response = await fetch('http://localhost:5002/api/connection/purchase', {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${window.connectionToken}`
         },
         body: JSON.stringify({
             user_id: userId,
@@ -342,6 +366,7 @@ async function example() {
     // Login
     const user = await login('usuario@ejemplo.com', 'contraseña123');
     if (!user) return;
+    window.connectionToken = user.token;
     
     // Verificar saldo
     const balance = await checkBalance(user.user_id);
@@ -365,6 +390,7 @@ import requests
 import json
 
 API_BASE = "http://localhost:5002"
+AUTH_TOKEN = None
 
 def login(email, password):
     """Autenticar usuario"""
@@ -379,7 +405,10 @@ def login(email, password):
 
 def check_balance(user_id):
     """Verificar saldo"""
-    response = requests.get(f"{API_BASE}/api/connection/balance/{user_id}")
+  response = requests.get(
+    f"{API_BASE}/api/connection/balance/{user_id}",
+    headers={'Authorization': f'Bearer {AUTH_TOKEN}'}
+  )
     
     if response.status_code == 200:
         data = response.json()
@@ -394,7 +423,8 @@ def buy_pin(user_id, package_id, quantity=1):
                                "user_id": user_id,
                                "package_id": package_id,
                                "quantity": quantity
-                           })
+               },
+               headers={'Authorization': f'Bearer {AUTH_TOKEN}'})
     
     if response.status_code == 200:
         data = response.json()
@@ -404,11 +434,13 @@ def buy_pin(user_id, package_id, quantity=1):
 
 # Ejemplo de uso
 def main():
+  global AUTH_TOKEN
     # Login
     user = login('usuario@ejemplo.com', 'contraseña123')
     if not user:
         print("Error de login")
         return
+  AUTH_TOKEN = user['token']
     
     print(f"Usuario: {user['name']}")
     print(f"Saldo: ${user['balance']:.2f}")
@@ -431,6 +463,7 @@ if __name__ == "__main__":
 
 class Revendedores51API {
     private $baseUrl = 'http://localhost:5002';
+  private $token = null;
     
     public function login($email, $password) {
         $data = json_encode([
@@ -441,6 +474,7 @@ class Revendedores51API {
         $response = $this->makeRequest('/api/connection/login', 'POST', $data);
         
         if ($response && $response['status'] === 'success') {
+          $this->token = $response['data']['token'];
             return $response['data'];
         }
         
@@ -448,7 +482,9 @@ class Revendedores51API {
     }
     
     public function checkBalance($userId) {
-        $response = $this->makeRequest("/api/connection/balance/{$userId}");
+      $response = $this->makeRequest("/api/connection/balance/{$userId}", 'GET', null, [
+        'Authorization: Bearer ' . $this->token
+      ]);
         
         if ($response && $response['status'] === 'success') {
             return $response['data']['balance'];
@@ -464,7 +500,9 @@ class Revendedores51API {
             'quantity' => $quantity
         ]);
         
-        $response = $this->makeRequest('/api/connection/purchase', 'POST', $data);
+        $response = $this->makeRequest('/api/connection/purchase', 'POST', $data, [
+          'Authorization: Bearer ' . $this->token
+        ]);
         
         if ($response && $response['status'] === 'success') {
             return $response['data'];
@@ -473,15 +511,15 @@ class Revendedores51API {
         return null;
     }
     
-    private function makeRequest($endpoint, $method = 'GET', $data = null) {
+    private function makeRequest($endpoint, $method = 'GET', $data = null, $extraHeaders = []) {
         $url = $this->baseUrl . $endpoint;
         
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        curl_setopt($ch, CURLOPT_HTTPHEADER, array_merge([
             'Content-Type: application/json'
-        ]);
+        ], $extraHeaders));
         
         if ($method === 'POST') {
             curl_setopt($ch, CURLOPT_POST, true);
@@ -611,8 +649,9 @@ curl -X POST http://localhost:5002/api/connection/login \
   -H "Content-Type: application/json" \
   -d '{"email":"test@ejemplo.com","password":"test123"}'
 
-# Obtener saldo (reemplaza 123 con el user_id real)
-curl http://localhost:5002/api/connection/balance/123
+# Obtener saldo (reemplaza TOKEN y 123)
+curl http://localhost:5002/api/connection/balance/123 \
+  -H "Authorization: Bearer TOKEN"
 
 # Obtener paquetes
 curl http://localhost:5002/api/connection/packages
@@ -620,6 +659,7 @@ curl http://localhost:5002/api/connection/packages
 # Comprar PIN
 curl -X POST http://localhost:5002/api/connection/purchase \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
   -d '{"user_id":123,"package_id":1,"quantity":1}'
 ```
 
@@ -645,7 +685,7 @@ En producción, asegúrate de usar HTTPS para todas las comunicaciones.
 ### 3. Autenticación Mejorada
 
 Para producción, considera implementar:
-- JWT tokens con expiración
+- JWT tokens con expiración y revocación centralizada
 - Rate limiting
 - Autenticación por API key
 - Logs de auditoría

@@ -3,12 +3,15 @@
 API de Conexión para Revendedores51
 Permite autenticación, verificación de saldo y obtención de PINs con descuento automático
 """
-from flask import Flask, jsonify, request
+from flask import Flask, g, jsonify, request
+import json
 import sqlite3
 import hashlib
 import os
 import secrets
+import time
 from datetime import datetime
+from functools import wraps
 import random
 import string
 import pytz
@@ -23,6 +26,7 @@ connection_app.secret_key = os.environ.get('CONNECTION_API_SECRET_KEY', secrets.
 
 # Configuración de la base de datos (usar la misma que la aplicación principal)
 DATABASE = os.environ.get('DATABASE_PATH', 'usuarios.db')
+CONNECTION_API_TOKEN_TTL_SECONDS = int(os.environ.get('CONNECTION_API_TOKEN_TTL_SECONDS', '86400'))
 
 def get_db_connection():
     """Obtiene una conexión a la base de datos"""
@@ -46,6 +50,98 @@ def get_user_by_email(email):
     user = conn.execute('SELECT * FROM usuarios WHERE correo = ?', (email,)).fetchone()
     conn.close()
     return user
+
+def ensure_connection_api_token_schema(conn):
+    """Asegura la tabla de tokens de acceso de la API de conexión."""
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS connection_api_tokens (
+            token TEXT PRIMARY KEY,
+            usuario_id INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_connection_api_tokens_user ON connection_api_tokens(usuario_id)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_connection_api_tokens_expires ON connection_api_tokens(expires_at)')
+
+def cleanup_expired_connection_api_tokens(conn):
+    """Elimina tokens expirados para reducir exposición y basura."""
+    conn.execute('DELETE FROM connection_api_tokens WHERE expires_at <= ?', (int(time.time()),))
+
+def create_connection_api_token(conn, user_id):
+    """Genera y persiste un token bearer para la API de conexión."""
+    ensure_connection_api_token_schema(conn)
+    cleanup_expired_connection_api_tokens(conn)
+
+    token = secrets.token_urlsafe(32)
+    expires_at = int(time.time()) + max(CONNECTION_API_TOKEN_TTL_SECONDS, 60)
+    conn.execute(
+        'INSERT INTO connection_api_tokens (token, usuario_id, expires_at) VALUES (?, ?, ?)',
+        (token, user_id, expires_at)
+    )
+    return token, expires_at
+
+def get_connection_api_authenticated_user():
+    """Resuelve el usuario autenticado por bearer token."""
+    auth_header = (request.headers.get('Authorization') or '').strip()
+    if not auth_header.lower().startswith('bearer '):
+        return None, (jsonify({'status': 'error', 'message': 'Token Bearer requerido'}), 401)
+
+    token = auth_header[7:].strip()
+    if not token:
+        return None, (jsonify({'status': 'error', 'message': 'Token Bearer requerido'}), 401)
+
+    conn = get_db_connection()
+    try:
+        ensure_connection_api_token_schema(conn)
+        cleanup_expired_connection_api_tokens(conn)
+        user = conn.execute(
+            '''
+            SELECT u.*
+            FROM connection_api_tokens t
+            JOIN usuarios u ON u.id = t.usuario_id
+            WHERE t.token = ? AND t.expires_at > ?
+            ''',
+            (token, int(time.time()))
+        ).fetchone()
+        conn.commit()
+    finally:
+        conn.close()
+
+    if not user:
+        return None, (jsonify({'status': 'error', 'message': 'Token inválido o expirado'}), 401)
+
+    return user, None
+
+def require_connection_api_auth(view_func):
+    """Exige autenticación Bearer y bloquea acceso cruzado entre usuarios."""
+    @wraps(view_func)
+    def wrapped(*args, **kwargs):
+        auth_user, error_response = get_connection_api_authenticated_user()
+        if error_response:
+            return error_response
+
+        g.connection_api_user = auth_user
+
+        route_user_id = kwargs.get('user_id')
+        if route_user_id is not None and int(route_user_id) != int(auth_user['id']):
+            return jsonify({'status': 'error', 'message': 'No autorizado para acceder a este usuario'}), 403
+
+        if request.is_json:
+            payload = request.get_json(silent=True) or {}
+            payload_user_id = payload.get('user_id')
+            if payload_user_id is not None:
+                try:
+                    payload_user_id = int(payload_user_id)
+                except (TypeError, ValueError):
+                    return jsonify({'status': 'error', 'message': 'user_id inválido'}), 400
+
+                if payload_user_id != int(auth_user['id']):
+                    return jsonify({'status': 'error', 'message': 'No autorizado para operar sobre otro usuario'}), 403
+
+        return view_func(*args, **kwargs)
+
+    return wrapped
 
 def ensure_idempotency_schema(conn):
     """Asegura columnas y tabla necesarias para idempotencia en compras API."""
@@ -297,8 +393,12 @@ def api_login():
                 'message': 'Credenciales incorrectas'
             }), 401
         
-        # Generar token simple (en producción usar JWT)
-        auth_token = secrets.token_urlsafe(32)
+        conn = get_db_connection()
+        try:
+            auth_token, auth_token_expires_at = create_connection_api_token(conn, user['id'])
+            conn.commit()
+        finally:
+            conn.close()
         
         return jsonify({
             'status': 'success',
@@ -309,6 +409,8 @@ def api_login():
                 'email': user['correo'],
                 'balance': float(user['saldo']),
                 'token': auth_token,
+                'token_type': 'Bearer',
+                'expires_at': datetime.fromtimestamp(auth_token_expires_at).isoformat(),
                 'phone': user['telefono']
             }
         })
@@ -320,6 +422,7 @@ def api_login():
         }), 500
 
 @connection_app.route('/api/connection/balance/<int:user_id>', methods=['GET'])
+@require_connection_api_auth
 def get_user_balance(user_id):
     """
     Obtiene el saldo actual de un usuario
@@ -407,6 +510,7 @@ def get_available_packages():
         }), 500
 
 @connection_app.route('/api/connection/purchase', methods=['POST'])
+@require_connection_api_auth
 def purchase_pin():
     """
     Compra un PIN verificando saldo y descontándolo automáticamente
@@ -697,6 +801,7 @@ def get_stock_status():
         }), 500
 
 @connection_app.route('/api/connection/user/<int:user_id>/transactions', methods=['GET'])
+@require_connection_api_auth
 def get_user_transactions(user_id):
     """
     Obtiene las transacciones recientes de un usuario

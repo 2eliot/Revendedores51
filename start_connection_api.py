@@ -220,11 +220,13 @@ def show_usage_examples():
     print("  -d '{\"email\":\"test@ejemplo.com\",\"password\":\"test123\"}'")
     
     print("\n💰 2. Verificar saldo (cURL):")
-    print("curl http://localhost:5002/api/connection/balance/123")
+    print("curl http://localhost:5002/api/connection/balance/123 \\")
+    print("  -H 'Authorization: Bearer TOKEN'")
     
     print("\n🛒 3. Comprar PIN (cURL):")
     print("curl -X POST http://localhost:5002/api/connection/purchase \\")
     print("  -H 'Content-Type: application/json' \\")
+    print("  -H 'Authorization: Bearer TOKEN' \\")
     print("  -d '{\"user_id\":123,\"package_id\":1,\"quantity\":1}'")
     
     print("\n🐍 4. Ejemplo en Python:")
@@ -232,6 +234,7 @@ def show_usage_examples():
     print("response = requests.post('http://localhost:5002/api/connection/login',")
     print("                       json={'email': 'test@ejemplo.com', 'password': 'test123'})")
     print("user_data = response.json()['data']")
+    print("headers = {'Authorization': f\"Bearer {user_data['token']}\"}")
     print("print(f'Saldo: ${user_data[\"balance\"]:.2f}')")
 
 def create_test_user():
