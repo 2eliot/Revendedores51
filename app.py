@@ -5335,6 +5335,7 @@ def admin_game_bloodstrike_set_script_mapping():
     })
 
 @app.route('/admin/add_credit', methods=['POST'])
+@csrf_protect('/admin')
 def admin_add_credit():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -5700,6 +5701,7 @@ def admin_delete_pins():
     return redirect(f'/admin/pins?game={game}')
 
 @app.route('/admin/update_balance', methods=['POST'])
+@csrf_protect('/admin')
 def admin_update_balance():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -5717,6 +5719,7 @@ def admin_update_balance():
     return redirect('/admin')
 
 @app.route('/admin/delete_user', methods=['POST'])
+@csrf_protect('/admin')
 def admin_delete_user():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -5733,6 +5736,7 @@ def admin_delete_user():
     return redirect('/admin')
 
 @app.route('/admin/toggle_sin_ganancia', methods=['POST'])
+@csrf_protect('/admin')
 def admin_toggle_sin_ganancia():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -5757,6 +5761,7 @@ def admin_toggle_sin_ganancia():
     return redirect('/admin')
 
 @app.route('/admin/toggle_bono_activo', methods=['POST'])
+@csrf_protect('/admin')
 def admin_toggle_bono_activo():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -7627,6 +7632,7 @@ def admin_update_freefire_global_name():
     return redirect('/admin')
 
 @app.route('/admin/approve_bloodstriker/<int:transaction_id>', methods=['POST'])
+@csrf_protect('/')
 def approve_bloodstriker_transaction(transaction_id):
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -7734,6 +7740,7 @@ def approve_bloodstriker_transaction(transaction_id):
     return redirect('/')
 
 @app.route('/admin/reject_bloodstriker/<int:transaction_id>', methods=['POST'])
+@csrf_protect('/')
 def reject_bloodstriker_transaction(transaction_id):
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -7759,6 +7766,8 @@ def reject_bloodstriker_transaction(transaction_id):
         flash('Transacción rechazada y saldo devuelto al usuario', 'success')
     except Exception as e:
         flash(f'Error al rechazar transacción: {str(e)}', 'error')
+
+    return redirect('/')
 
 @app.route('/juego/freefire_id')
 def freefire_id():
@@ -8760,6 +8769,7 @@ PIN_LOG_TEMPLATE = r'''
 '''
 
 @app.route('/admin/approve_freefire_id/<int:transaction_id>', methods=['POST'])
+@csrf_protect('/')
 def approve_freefire_id_transaction(transaction_id):
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -8987,6 +8997,7 @@ def fix_freefire_id_transaction():
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/admin/reject_freefire_id/<int:transaction_id>', methods=['POST'])
+@csrf_protect('/')
 def reject_freefire_id_transaction(transaction_id):
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -12779,6 +12790,7 @@ def admin_api_recharges_log():
 
 
 @app.route('/admin/restore_backup', methods=['POST'])
+@csrf_protect('/admin')
 def admin_restore_backup():
     if not session.get('is_admin'):
         return jsonify({'ok': False, 'error': 'Acceso denegado'}), 403

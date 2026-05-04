@@ -117,24 +117,29 @@
             </div>
             <div class="user-card-actions">
               <form method="POST" action="/admin/add_credit" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="user_id" value="{{ user.id }}">
                 <input type="number" name="amount" placeholder="Monto" step="0.01" min="0.01" required class="small-input">
                 <button type="submit" class="btn btn-success">+ Crédito</button>
               </form>
               <form method="POST" action="/admin/update_balance" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="user_id" value="{{ user.id }}">
                 <input type="number" name="new_balance" placeholder="Nuevo saldo" step="0.01" min="0" required class="small-input">
                 <button type="submit" class="btn btn-warning">Modificar</button>
               </form>
               <form method="POST" action="/admin/toggle_sin_ganancia" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="user_id" value="{{ user.id }}">
                 <button type="submit" class="btn {{ 'btn-danger' if user.sin_ganancia else 'btn-secondary' }}" title="Si está activo, esta cuenta no genera profit, no suma al saldo activo total y no compite en el top clientes">{{ '🚫 Sin ganancia' if user.sin_ganancia else '💰 Con ganancia' }}</button>
               </form>
               <form method="POST" action="/admin/toggle_bono_activo" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="user_id" value="{{ user.id }}">
                 <button type="submit" class="btn {{ 'btn-success' if user.bono_activo else 'btn-secondary' }}" title="Si está activo y la recarga Binance es >= $1000, se aplica un bono del 1.5% sobre el monto recargado">{{ '🎁 Bono 1.5% ON' if user.bono_activo else '🎁 Bono 1.5% OFF' }}</button>
               </form>
               <form method="POST" action="/admin/delete_user" class="inline-form" onsubmit="return confirm('¿Estás seguro de eliminar este usuario? Esta acción no se puede deshacer.')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="user_id" value="{{ user.id }}">
                 <button type="submit" class="btn btn-danger">Eliminar</button>
               </form>
@@ -452,6 +457,7 @@
         <h4 style="color:#58a6ff;margin:0 0 8px;font-size:14px;">🗂️ Restaurar Backup de Pines</h4>
         <p style="color:#8b949e;font-size:12px;margin:0 0 10px;">Importa un archivo <strong style="color:#c9d1d9;">backup_YYYY-MM-DD.zip</strong> recibido por correo para restablecer el stock de pines Free Fire Global sin duplicados.</p>
         <form method="POST" action="/admin/restore_backup" enctype="multipart/form-data" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="file" name="backup_zip" accept=".zip" required style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#e6edf3;padding:6px 10px;font-size:13px;flex:1;min-width:200px;">
           <button type="submit" class="btn btn-primary" style="padding:8px 18px;font-size:13px;white-space:nowrap;">📥 Importar Backup</button>
         </form>
