@@ -2555,10 +2555,43 @@ body {
     grid-template-columns: 1fr;
     gap: 1rem;
   }
+
+  .news-management > * {
+    min-width: 0;
+  }
   
   .create-news-container,
   .existing-news-container {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     padding: 1rem;
+  }
+
+  .news-form,
+  .news-form .form-group,
+  .news-form .form-group input,
+  .news-form .form-group textarea,
+  .news-form .form-help,
+  .image-upload-area,
+  .admin-news-list,
+  .admin-news-card,
+  .admin-news-header,
+  .admin-news-meta,
+  .admin-news-content,
+  .admin-news-actions,
+  .admin-news-actions .inline-form,
+  .btn-delete-news {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .form-help,
+  .admin-news-content,
+  .admin-news-content p {
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
   
   .admin-news-header {
