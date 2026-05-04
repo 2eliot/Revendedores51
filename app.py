@@ -10945,12 +10945,63 @@ def logout():
 
 # ============= API SIMPLE DE CONEXIÓN =============
 
-@app.route('/api.php', methods=['GET'])
+def _extract_api_simple_request_params():
+    json_data = request.get_json(silent=True) or {}
+    auth = request.authorization
+
+    def _pick_param(name, default=''):
+        form_value = request.form.get(name)
+        if form_value not in (None, ''):
+            return form_value, 'form-body'
+
+        json_value = json_data.get(name)
+        if json_value not in (None, ''):
+            return json_value, 'json-body'
+
+        query_value = request.args.get(name)
+        if query_value not in (None, ''):
+            return query_value, 'query-string'
+
+        return default, 'default'
+
+    action, action_source = _pick_param('action')
+    tipo, tipo_source = _pick_param('tipo')
+    monto, monto_source = _pick_param('monto', '1')
+    numero, numero_source = _pick_param('numero', '1')
+
+    if auth and (auth.username or auth.password):
+        usuario = auth.username or ''
+        clave = auth.password or ''
+        credential_source = 'authorization-basic'
+    else:
+        usuario, usuario_source = _pick_param('usuario')
+        clave, clave_source = _pick_param('clave')
+        credential_source = usuario_source if usuario_source != 'default' else clave_source
+
+    return {
+        'action': str(action or '').lower(),
+        'usuario': str(usuario or '').strip(),
+        'clave': str(clave or ''),
+        'tipo': str(tipo or '').lower(),
+        'monto': str(monto or '1'),
+        'numero': str(numero or '1'),
+        'sources': {
+            'action': action_source,
+            'tipo': tipo_source,
+            'monto': monto_source,
+            'numero': numero_source,
+            'credentials': credential_source,
+        },
+    }
+
+
+@app.route('/api.php', methods=['GET', 'POST'])
 def api_simple_endpoint():
     """
     API Simple de Conexión para Revendedores51
     
-    Formato: /api.php?action=recarga&usuario=email&clave=password&tipo=recargaPinFreefire&monto=1&numero=1
+    Formato legado: /api.php?action=recarga&usuario=email&clave=password&tipo=recargaPinFreefire&monto=1&numero=1
+    Formatos recomendados: POST form/json o Authorization: Basic
     
     Parámetros:
     - action: Siempre debe ser "recarga"
@@ -10962,13 +11013,19 @@ def api_simple_endpoint():
     """
     
     try:
-        # Obtener parámetros
-        action = request.args.get('action', '').lower()
-        usuario = request.args.get('usuario', '')
-        clave = request.args.get('clave', '')
-        tipo = request.args.get('tipo', '').lower()
-        monto = request.args.get('monto', '1')
-        numero = request.args.get('numero', '1')
+        params = _extract_api_simple_request_params()
+        action = params['action']
+        usuario = params['usuario']
+        clave = params['clave']
+        tipo = params['tipo']
+        monto = params['monto']
+        numero = params['numero']
+
+        if params['sources']['credentials'] == 'query-string':
+            app.logger.warning(
+                '[API Simple] Credenciales recibidas por query string. '
+                'Se recomienda usar POST o Authorization: Basic.'
+            )
         
         # Validar parámetros básicos
         if not all([action, usuario, clave, tipo]):
@@ -11201,15 +11258,6 @@ def api_simple_endpoint():
             'code': '500',
             'message': f'Error interno del servidor: {str(e)}'
         }), 500
-
-@app.route('/api.php', methods=['POST'])
-def api_simple_endpoint_post():
-    """Endpoint POST para la API simple (redirige al GET)"""
-    return jsonify({
-        'status': 'error',
-        'code': '405',
-        'message': 'Usar método GET con parámetros en la URL'
-    }), 405
 
 
 # ============= API v1: RECARGA AUTOMÁTICA DESDE WEB A =============

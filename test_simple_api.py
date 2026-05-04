@@ -218,22 +218,23 @@ def test_invalid_package():
         return False
 
 def test_post_method():
-    """Prueba método POST (debe fallar)"""
+    """Prueba método POST con credenciales inválidas"""
     print_header("MÉTODO POST")
     
     try:
         response = requests.post(f"{API_BASE_URL}/api.php", json={
             'action': 'recarga',
-            'usuario': TEST_USER_EMAIL,
-            'clave': TEST_USER_PASSWORD,
+            'usuario': 'invalid@test.com',
+            'clave': 'wrongpassword',
             'tipo': 'recargaPinFreefire',
-            'monto': '1'
+            'monto': '1',
+            'numero': '1'
         })
         
         data = response.json()
         
-        if response.status_code == 405 and data.get('code') == '405':
-            print_test("Método POST", True, "Error 405 manejado correctamente", data)
+        if response.status_code == 401 and data.get('code') == '401':
+            print_test("Método POST", True, "POST JSON autenticado y error 401 manejado correctamente", data)
             return True
         else:
             print_test("Método POST", False, f"Respuesta inesperada: {data}")
@@ -241,6 +242,35 @@ def test_post_method():
             
     except Exception as e:
         print_test("Método POST", False, f"Error: {str(e)}")
+        return False
+
+def test_basic_auth_method():
+    """Prueba Authorization: Basic con credenciales inválidas"""
+    print_header("AUTHORIZATION BASIC")
+
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/api.php",
+            json={
+                'action': 'recarga',
+                'tipo': 'recargaPinFreefire',
+                'monto': '1',
+                'numero': '1'
+            },
+            auth=('invalid@test.com', 'wrongpassword')
+        )
+
+        data = response.json()
+
+        if response.status_code == 401 and data.get('code') == '401':
+            print_test("Authorization Basic", True, "Basic auth procesado correctamente", data)
+            return True
+        else:
+            print_test("Authorization Basic", False, f"Respuesta inesperada: {data}")
+            return False
+
+    except Exception as e:
+        print_test("Authorization Basic", False, f"Error: {str(e)}")
         return False
 
 def run_all_tests():
@@ -263,7 +293,8 @@ def run_all_tests():
         ("Credenciales Inválidas", test_invalid_credentials),
         ("Parámetros Faltantes", test_missing_parameters),
         ("Paquete Inválido", test_invalid_package),
-        ("Método POST", test_post_method)
+        ("Método POST", test_post_method),
+        ("Authorization Basic", test_basic_auth_method)
     ]
     
     # Ejecutar pruebas

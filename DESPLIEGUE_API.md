@@ -85,12 +85,39 @@ https://inefablerevendedores.co/api.php
 ```
 Debería devolver información de la API.
 
-### 2. **Prueba de autenticación**
+### 2. **Prueba de autenticación legado (GET)**
 ```
 https://inefablerevendedores.co/api.php?action=recarga&usuario=test@ejemplo.com&clave=test123&tipo=recargaPinFreefire&monto=1&numero=1
 ```
 
-### 3. **Prueba de error (credenciales incorrectas)**
+### 3. **Prueba recomendada (POST JSON)**
+```bash
+curl -X POST "https://inefablerevendedores.co/api.php" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "recarga",
+    "usuario": "test@ejemplo.com",
+    "clave": "test123",
+    "tipo": "recargaPinFreefire",
+    "monto": "1",
+    "numero": "1"
+  }'
+```
+
+### 4. **Prueba recomendada (Authorization Basic)**
+```bash
+curl -X POST "https://inefablerevendedores.co/api.php" \
+  -u "test@ejemplo.com:test123" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "recarga",
+    "tipo": "recargaPinFreefire",
+    "monto": "1",
+    "numero": "1"
+  }'
+```
+
+### 5. **Prueba de error (credenciales incorrectas)**
 ```
 https://inefablerevendedores.co/api.php?action=recarga&usuario=invalid@test.com&clave=wrong&tipo=recargaPinFreefire&monto=1&numero=1
 ```
@@ -102,6 +129,8 @@ Debería devolver error 401.
 - Usa la misma base de datos que la aplicación principal
 - Compatible con el sistema de usuarios existente
 - Maneja automáticamente el stock de PINs
+- `GET` con `usuario` y `clave` en la URL se mantiene solo por compatibilidad legado
+- Para integraciones nuevas se recomienda `POST` o `Authorization: Basic`
 
 ## 🎯 **PRÓXIMOS PASOS DESPUÉS DEL DESPLIEGUE**
 1. Probar la API con usuarios reales
