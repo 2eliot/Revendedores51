@@ -15,12 +15,25 @@ import string
 import pytz
 from werkzeug.security import check_password_hash
 from pin_manager import create_pin_manager
+from request_security import consume_rate_limit, get_request_client_ip
 
 # Crear aplicación Flask
 app = Flask(__name__)
 
 # Configuración de la base de datos (usar la misma que la aplicación principal)
 DATABASE = os.environ.get('DATABASE_PATH', 'usuarios.db')
+SIMPLE_API_RATE_LIMIT_REQUESTS = max(int(os.environ.get('SIMPLE_API_RATE_LIMIT_REQUESTS', '90')), 1)
+SIMPLE_API_RATE_LIMIT_WINDOW_SECONDS = max(int(os.environ.get('SIMPLE_API_RATE_LIMIT_WINDOW_SECONDS', '60')), 1)
+
+
+def _rate_limited_response(message, rate_state):
+    response = jsonify({'status': 'error', 'code': '429', 'message': message})
+    response.status_code = 429
+    response.headers['Retry-After'] = str(rate_state['retry_after'])
+    response.headers['X-RateLimit-Limit'] = str(rate_state['limit'])
+    response.headers['X-RateLimit-Remaining'] = str(rate_state['remaining'])
+    response.headers['X-RateLimit-Window'] = str(rate_state['window_seconds'])
+    return response
 
 def get_db_connection():
     """Obtiene una conexión a la base de datos"""
@@ -246,8 +259,17 @@ def api_endpoint():
     - monto: ID del paquete (1-9)
     - numero: Cantidad de PINs (por defecto 1, máximo 10)
     """
-    
+
     try:
+        rate_state = consume_rate_limit(
+            'simple_connection_api',
+            get_request_client_ip(request),
+            SIMPLE_API_RATE_LIMIT_REQUESTS,
+            SIMPLE_API_RATE_LIMIT_WINDOW_SECONDS,
+        )
+        if not rate_state['allowed']:
+            return _rate_limited_response('Demasiadas solicitudes a la API Simple.', rate_state)
+
         # Obtener parámetros
         action = request.args.get('action', '').lower()
         usuario = request.args.get('usuario', '')

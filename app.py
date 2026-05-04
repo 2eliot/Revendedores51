@@ -43,6 +43,7 @@ from pin_manager import create_pin_manager
 from pin_redeemer import PinRedeemResult, get_redeemer_config_from_db
 from redeem_hype_vps import redeem_pin_vps
 from csrf_utils import csrf_protect, get_csrf_token
+from request_security import build_compat_csp, consume_rate_limit
 from contextlib import contextmanager
 from functools import lru_cache
 import random
@@ -454,11 +455,35 @@ app.config['SESSION_COOKIE_SECURE'] = is_production  # True en Render, False en 
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # Prevenir XSS
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Protección CSRF
 
+LOGIN_RATE_LIMIT_ATTEMPTS = max(int(os.environ.get('LOGIN_RATE_LIMIT_ATTEMPTS', '8')), 1)
+LOGIN_RATE_LIMIT_WINDOW_SECONDS = max(int(os.environ.get('LOGIN_RATE_LIMIT_WINDOW_SECONDS', '300')), 1)
+API_SIMPLE_RATE_LIMIT_REQUESTS = max(int(os.environ.get('API_SIMPLE_RATE_LIMIT_REQUESTS', '90')), 1)
+API_SIMPLE_RATE_LIMIT_WINDOW_SECONDS = max(int(os.environ.get('API_SIMPLE_RATE_LIMIT_WINDOW_SECONDS', '60')), 1)
+API_BEARER_RATE_LIMIT_REQUESTS = max(int(os.environ.get('API_BEARER_RATE_LIMIT_REQUESTS', '120')), 1)
+API_BEARER_RATE_LIMIT_WINDOW_SECONDS = max(int(os.environ.get('API_BEARER_RATE_LIMIT_WINDOW_SECONDS', '60')), 1)
+CSP_REPORT_ONLY = _is_truthy_env(os.environ.get('CSP_REPORT_ONLY'))
+
 # Configuración de duración de sesión (30 minutos)
 app.permanent_session_lifetime = timedelta(minutes=30)
 
 if is_production and not (os.environ.get('ADMIN_EMAIL', '').strip() and os.environ.get('ADMIN_PASSWORD', '').strip()):
     logger.error('ADMIN_EMAIL/ADMIN_PASSWORD no configurados en producción; login admin por entorno deshabilitado.')
+
+
+def _get_rate_limit_headers(rate_state: dict) -> dict[str, str]:
+    return {
+        'Retry-After': str(rate_state['retry_after']),
+        'X-RateLimit-Limit': str(rate_state['limit']),
+        'X-RateLimit-Remaining': str(rate_state['remaining']),
+        'X-RateLimit-Window': str(rate_state['window_seconds']),
+    }
+
+
+def _json_rate_limited_response(message: str, rate_state: dict):
+    response = jsonify({'ok': False, 'error': message})
+    response.status_code = 429
+    response.headers.update(_get_rate_limit_headers(rate_state))
+    return response
 
 
 @app.after_request
@@ -467,6 +492,12 @@ def apply_security_headers(response):
     response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
     response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
     response.headers.setdefault('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
+
+    csp_header_name = 'Content-Security-Policy-Report-Only' if CSP_REPORT_ONLY else 'Content-Security-Policy'
+    response.headers.setdefault(
+        csp_header_name,
+        build_compat_csp(include_upgrade_insecure_requests=(is_production or _request_is_https()))
+    )
 
     if is_production or _request_is_https():
         response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
@@ -3063,6 +3094,18 @@ def control_aviso_guardar():
 
 @app.route('/login', methods=['POST'])
 def login():
+    login_rate_state = consume_rate_limit(
+        'main_login',
+        _get_request_client_ip(),
+        LOGIN_RATE_LIMIT_ATTEMPTS,
+        LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+    )
+    if not login_rate_state['allowed']:
+        flash('Demasiados intentos de inicio de sesión. Espera un momento e inténtalo de nuevo.', 'error')
+        response = redirect('/auth')
+        response.headers.update(_get_rate_limit_headers(login_rate_state))
+        return response
+
     correo = request.form['correo']
     contraseña = request.form['contraseña']
     correo_normalizado = (correo or '').strip().lower()
@@ -11137,6 +11180,18 @@ def api_simple_endpoint():
     - numero: Cantidad de PINs (por defecto 1, máximo 10)
     """
     
+    api_rate_state = consume_rate_limit(
+        'main_api_simple',
+        _get_request_client_ip(),
+        API_SIMPLE_RATE_LIMIT_REQUESTS,
+        API_SIMPLE_RATE_LIMIT_WINDOW_SECONDS,
+    )
+    if not api_rate_state['allowed']:
+        return _json_rate_limited_response(
+            'Demasiadas solicitudes a la API Simple. Intenta de nuevo más tarde.',
+            api_rate_state,
+        )
+
     try:
         params = _extract_api_simple_request_params()
         action = params['action']
@@ -11410,6 +11465,18 @@ def api_v1_ejecutar_recarga():
     Respuesta de error:
         { "ok": false, "error": "..." }
     """
+    api_rate_state = consume_rate_limit(
+        'main_api_bearer_recharge',
+        _get_request_client_ip(),
+        API_BEARER_RATE_LIMIT_REQUESTS,
+        API_BEARER_RATE_LIMIT_WINDOW_SECONDS,
+    )
+    if not api_rate_state['allowed']:
+        return _json_rate_limited_response(
+            'Demasiadas solicitudes de recarga API. Intenta de nuevo más tarde.',
+            api_rate_state,
+        )
+
     # --- Autenticación por Bearer Token ---
     expected_token = os.environ.get('REVENDEDORES_API_TOKEN', '').strip()
     if not expected_token:

@@ -17,6 +17,7 @@ import string
 import pytz
 from werkzeug.security import check_password_hash
 from pin_manager import create_pin_manager
+from request_security import consume_rate_limit, get_request_client_ip
 
 # Crear aplicación Flask para API de conexión
 connection_app = Flask(__name__)
@@ -27,6 +28,22 @@ connection_app.secret_key = os.environ.get('CONNECTION_API_SECRET_KEY', secrets.
 # Configuración de la base de datos (usar la misma que la aplicación principal)
 DATABASE = os.environ.get('DATABASE_PATH', 'usuarios.db')
 CONNECTION_API_TOKEN_TTL_SECONDS = int(os.environ.get('CONNECTION_API_TOKEN_TTL_SECONDS', '86400'))
+CONNECTION_API_LOGIN_RATE_LIMIT_ATTEMPTS = max(int(os.environ.get('CONNECTION_API_LOGIN_RATE_LIMIT_ATTEMPTS', '12')), 1)
+CONNECTION_API_LOGIN_RATE_LIMIT_WINDOW_SECONDS = max(int(os.environ.get('CONNECTION_API_LOGIN_RATE_LIMIT_WINDOW_SECONDS', '300')), 1)
+CONNECTION_API_AUTH_FAILURE_LIMIT = max(int(os.environ.get('CONNECTION_API_AUTH_FAILURE_LIMIT', '30')), 1)
+CONNECTION_API_AUTH_FAILURE_WINDOW_SECONDS = max(int(os.environ.get('CONNECTION_API_AUTH_FAILURE_WINDOW_SECONDS', '300')), 1)
+CONNECTION_API_PURCHASE_RATE_LIMIT_REQUESTS = max(int(os.environ.get('CONNECTION_API_PURCHASE_RATE_LIMIT_REQUESTS', '120')), 1)
+CONNECTION_API_PURCHASE_RATE_LIMIT_WINDOW_SECONDS = max(int(os.environ.get('CONNECTION_API_PURCHASE_RATE_LIMIT_WINDOW_SECONDS', '60')), 1)
+
+
+def _rate_limited_response(message, rate_state):
+    response = jsonify({'status': 'error', 'message': message})
+    response.status_code = 429
+    response.headers['Retry-After'] = str(rate_state['retry_after'])
+    response.headers['X-RateLimit-Limit'] = str(rate_state['limit'])
+    response.headers['X-RateLimit-Remaining'] = str(rate_state['remaining'])
+    response.headers['X-RateLimit-Window'] = str(rate_state['window_seconds'])
+    return response
 
 def get_db_connection():
     """Obtiene una conexión a la base de datos"""
@@ -83,12 +100,29 @@ def create_connection_api_token(conn, user_id):
 
 def get_connection_api_authenticated_user():
     """Resuelve el usuario autenticado por bearer token."""
+    client_ip = get_request_client_ip(request)
     auth_header = (request.headers.get('Authorization') or '').strip()
     if not auth_header.lower().startswith('bearer '):
+        rate_state = consume_rate_limit(
+            'connection_api_auth_fail',
+            client_ip,
+            CONNECTION_API_AUTH_FAILURE_LIMIT,
+            CONNECTION_API_AUTH_FAILURE_WINDOW_SECONDS,
+        )
+        if not rate_state['allowed']:
+            return None, _rate_limited_response('Demasiados intentos de autenticación Bearer.', rate_state)
         return None, (jsonify({'status': 'error', 'message': 'Token Bearer requerido'}), 401)
 
     token = auth_header[7:].strip()
     if not token:
+        rate_state = consume_rate_limit(
+            'connection_api_auth_fail',
+            client_ip,
+            CONNECTION_API_AUTH_FAILURE_LIMIT,
+            CONNECTION_API_AUTH_FAILURE_WINDOW_SECONDS,
+        )
+        if not rate_state['allowed']:
+            return None, _rate_limited_response('Demasiados intentos de autenticación Bearer.', rate_state)
         return None, (jsonify({'status': 'error', 'message': 'Token Bearer requerido'}), 401)
 
     conn = get_db_connection()
@@ -109,6 +143,14 @@ def get_connection_api_authenticated_user():
         conn.close()
 
     if not user:
+        rate_state = consume_rate_limit(
+            'connection_api_auth_fail',
+            client_ip,
+            CONNECTION_API_AUTH_FAILURE_LIMIT,
+            CONNECTION_API_AUTH_FAILURE_WINDOW_SECONDS,
+        )
+        if not rate_state['allowed']:
+            return None, _rate_limited_response('Demasiados intentos de autenticación Bearer.', rate_state)
         return None, (jsonify({'status': 'error', 'message': 'Token inválido o expirado'}), 401)
 
     return user, None
@@ -367,6 +409,15 @@ def api_login():
     }
     """
     try:
+        rate_state = consume_rate_limit(
+            'connection_api_login',
+            get_request_client_ip(request),
+            CONNECTION_API_LOGIN_RATE_LIMIT_ATTEMPTS,
+            CONNECTION_API_LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+        )
+        if not rate_state['allowed']:
+            return _rate_limited_response('Demasiados intentos de inicio de sesión.', rate_state)
+
         data = request.get_json()
         
         if not data:
@@ -538,6 +589,15 @@ def purchase_pin():
     }
     """
     try:
+        rate_state = consume_rate_limit(
+            'connection_api_purchase',
+            f"{get_request_client_ip(request)}:{int(g.connection_api_user['id'])}",
+            CONNECTION_API_PURCHASE_RATE_LIMIT_REQUESTS,
+            CONNECTION_API_PURCHASE_RATE_LIMIT_WINDOW_SECONDS,
+        )
+        if not rate_state['allowed']:
+            return _rate_limited_response('Demasiadas solicitudes de compra API.', rate_state)
+
         data = request.get_json()
         
         if not data:

@@ -29,10 +29,16 @@ import time as time_module
 import requests as req_lib
 from flask import Blueprint, jsonify, request, session, flash, redirect
 from csrf_utils import csrf_protect
+from request_security import consume_rate_limit, get_request_client_ip
 
 logger = logging.getLogger(__name__)
 
 bp = Blueprint('api_whitelabel', __name__)
+
+WHITELABEL_AUTH_FAILURE_LIMIT = max(int(os.environ.get('WHITELABEL_AUTH_FAILURE_LIMIT', '20')), 1)
+WHITELABEL_AUTH_FAILURE_WINDOW_SECONDS = max(int(os.environ.get('WHITELABEL_AUTH_FAILURE_WINDOW_SECONDS', '300')), 1)
+WHITELABEL_RECHARGE_RATE_LIMIT_REQUESTS = max(int(os.environ.get('WHITELABEL_RECHARGE_RATE_LIMIT_REQUESTS', '120')), 1)
+WHITELABEL_RECHARGE_RATE_LIMIT_WINDOW_SECONDS = max(int(os.environ.get('WHITELABEL_RECHARGE_RATE_LIMIT_WINDOW_SECONDS', '60')), 1)
 
 # ---------------------------------------------------------------------------
 # Helpers – DB connection (importados de pg_compat igual que el resto del app)
@@ -41,6 +47,16 @@ bp = Blueprint('api_whitelabel', __name__)
 def _get_conn():
     from pg_compat import get_db_connection
     return get_db_connection()
+
+
+def _rate_limited_response(message, rate_state):
+    response = jsonify({'ok': False, 'error': message})
+    response.status_code = 429
+    response.headers['Retry-After'] = str(rate_state['retry_after'])
+    response.headers['X-RateLimit-Limit'] = str(rate_state['limit'])
+    response.headers['X-RateLimit-Remaining'] = str(rate_state['remaining'])
+    response.headers['X-RateLimit-Window'] = str(rate_state['window_seconds'])
+    return response
 
 
 def _begin_idempotent_order(conn, usuario_id, endpoint, request_id):
@@ -254,6 +270,7 @@ def require_api_key(f):
     """Decorator: valida X-API-Key header o ?api_key param."""
     @functools.wraps(f)
     def decorated(*args, **kwargs):
+        client_ip = get_request_client_ip(request)
         api_key = (
             request.headers.get('X-API-Key')
             or request.args.get('api_key')
@@ -261,9 +278,25 @@ def require_api_key(f):
             or ''
         ).strip()
         if not api_key:
+            rate_state = consume_rate_limit(
+                'whitelabel_auth_fail',
+                client_ip,
+                WHITELABEL_AUTH_FAILURE_LIMIT,
+                WHITELABEL_AUTH_FAILURE_WINDOW_SECONDS,
+            )
+            if not rate_state['allowed']:
+                return _rate_limited_response('Demasiados intentos de autenticación API.', rate_state)
             return jsonify({'ok': False, 'error': 'API key requerida'}), 401
         account = _get_account_by_key(api_key)
         if not account:
+            rate_state = consume_rate_limit(
+                'whitelabel_auth_fail',
+                client_ip,
+                WHITELABEL_AUTH_FAILURE_LIMIT,
+                WHITELABEL_AUTH_FAILURE_WINDOW_SECONDS,
+            )
+            if not rate_state['allowed']:
+                return _rate_limited_response('Demasiados intentos de autenticación API.', rate_state)
             return jsonify({'ok': False, 'error': 'API key inválida o cuenta desactivada'}), 401
         # Inyectar la cuenta en el request context
         request._ws_account = account
@@ -448,6 +481,14 @@ def api_v1_recharge():
     """
     account = request._ws_account
     usuario_id = account['usuario_id']
+    rate_state = consume_rate_limit(
+        'whitelabel_recharge',
+        f"{get_request_client_ip(request)}:{account['id']}",
+        WHITELABEL_RECHARGE_RATE_LIMIT_REQUESTS,
+        WHITELABEL_RECHARGE_RATE_LIMIT_WINDOW_SECONDS,
+    )
+    if not rate_state['allowed']:
+        return _rate_limited_response('Demasiadas solicitudes de recarga API.', rate_state)
 
     data = request.get_json(silent=True) or {}
     product_id = data.get('product_id')
