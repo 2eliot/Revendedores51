@@ -38,17 +38,30 @@ def is_valid_csrf_token(token: str | None = None) -> bool:
     return hmac.compare_digest(provided, expected)
 
 
+def _expects_json_error() -> bool:
+    accept_header = (request.headers.get('Accept') or '').lower()
+    return (
+        request.is_json
+        or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+        or 'application/json' in accept_header
+        or bool(request.headers.get('X-CSRF-Token'))
+    )
+
+
 def csrf_protect(on_error_redirect: str = '/admin', error_message: str = 'Sesión expirada o solicitud inválida. Intenta de nuevo.'):
     def decorator(func):
         @functools.wraps(func)
         def wrapped(*args, **kwargs):
+            if request.method in ('GET', 'HEAD', 'OPTIONS', 'TRACE'):
+                return func(*args, **kwargs)
+
             if not session.get('is_admin'):
                 return func(*args, **kwargs)
 
             if is_valid_csrf_token():
                 return func(*args, **kwargs)
 
-            if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            if _expects_json_error():
                 return jsonify({'ok': False, 'error': 'CSRF token inválido o faltante'}), 403
 
             flash(error_message, 'error')

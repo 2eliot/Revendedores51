@@ -12,6 +12,7 @@ import time as time_module
 import logging
 
 from flask import Blueprint, jsonify, request, render_template, session, flash, redirect
+from csrf_utils import csrf_protect
 
 logger = logging.getLogger(__name__)
 
@@ -394,6 +395,7 @@ def admin_get_gp_rate():
 
 
 @bp.route('/admin/dynamic-games/gp-rate', methods=['POST'])
+@csrf_protect('/admin')
 def admin_set_gp_rate():
     if not session.get('is_admin'):
         return jsonify({'error': 'Acceso denegado'}), 403
@@ -479,6 +481,7 @@ def admin_dynamic_games_page():
 
 
 @bp.route('/admin/dynamic-games/create', methods=['POST'])
+@csrf_protect('/admin')
 def admin_create_game():
     if not session.get('is_admin'):
         return jsonify({'error': 'Acceso denegado'}), 403
@@ -552,6 +555,7 @@ def admin_create_game():
 
 
 @bp.route('/admin/dynamic-games/<int:game_id>/update', methods=['POST'])
+@csrf_protect('/admin')
 def admin_update_game(game_id):
     if not session.get('is_admin'):
         return jsonify({'error': 'Acceso denegado'}), 403
@@ -616,6 +620,7 @@ def admin_update_game(game_id):
 
 
 @bp.route('/admin/dynamic-games/<int:game_id>/toggle', methods=['POST'])
+@csrf_protect('/admin')
 def admin_toggle_game(game_id):
     if not session.get('is_admin'):
         return jsonify({'error': 'Acceso denegado'}), 403
@@ -632,6 +637,7 @@ def admin_toggle_game(game_id):
 
 
 @bp.route('/admin/dynamic-games/<int:game_id>/delete', methods=['POST'])
+@csrf_protect('/admin')
 def admin_delete_game(game_id):
     if not session.get('is_admin'):
         return jsonify({'error': 'Acceso denegado'}), 403
@@ -660,6 +666,7 @@ def admin_get_packages(game_id):
 
 
 @bp.route('/admin/dynamic-games/<int:game_id>/packages/add', methods=['POST'])
+@csrf_protect('/admin')
 def admin_add_package(game_id):
     if not session.get('is_admin'):
         return jsonify({'error': 'Acceso denegado'}), 403
@@ -731,6 +738,7 @@ def admin_add_package(game_id):
 
 
 @bp.route('/admin/dynamic-games/packages/<int:pkg_id>/update', methods=['POST'])
+@csrf_protect('/admin')
 def admin_update_package(pkg_id):
     if not session.get('is_admin'):
         return jsonify({'error': 'Acceso denegado'}), 403
@@ -761,6 +769,7 @@ def admin_update_package(pkg_id):
 
 
 @bp.route('/admin/dynamic-games/packages/<int:pkg_id>/delete', methods=['POST'])
+@csrf_protect('/admin')
 def admin_delete_package(pkg_id):
     if not session.get('is_admin'):
         return jsonify({'error': 'Acceso denegado'}), 403
@@ -776,6 +785,7 @@ def admin_delete_package(pkg_id):
 # ---------------------------------------------------------------------------
 
 @bp.route('/admin/dynamic-games/<int:game_id>/auto-import-packages', methods=['POST'])
+@csrf_protect('/admin')
 def admin_auto_import_packages(game_id):
     """Fetch GP catalog and auto-create local packages (name + gp_id mapped, price $0)."""
     if not session.get('is_admin'):
@@ -897,6 +907,7 @@ def admin_dyn_gamepoint_packages(game_id):
 
 
 @bp.route('/admin/dynamic-games/<int:game_id>/set_gamepoint_id', methods=['POST'])
+@csrf_protect('/admin')
 def admin_dyn_set_gamepoint_id(game_id):
     """Assign a gamepoint_package_id to a local dynamic package."""
     if not session.get('is_admin'):
@@ -1019,6 +1030,7 @@ def sync_dynamic_game_prices(game_id):
 
 
 @bp.route('/admin/dynamic-games/<int:game_id>/sync-prices', methods=['POST'])
+@csrf_protect('/admin')
 def admin_sync_game_prices(game_id):
     if not session.get('is_admin'):
         return jsonify({'error': 'Acceso denegado'}), 403

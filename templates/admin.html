@@ -593,11 +593,13 @@
               </div>
               <div class="form-group" style="display:flex;align-items:flex-end;gap:8px;">
                 <form method="POST" action="/admin/toggle_game" onsubmit="document.getElementById('tg_game').value = document.getElementById('price_game_select').value; document.getElementById('tg_active').value = '1';">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="game" id="tg_game" value="freefire_global">
                   <input type="hidden" name="active" id="tg_active" value="1">
                   <button type="submit" class="btn btn-success">Activar</button>
                 </form>
                 <form method="POST" action="/admin/toggle_game" onsubmit="document.getElementById('tg_game2').value = document.getElementById('price_game_select').value; document.getElementById('tg_active2').value = '0';">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="game" id="tg_game2" value="freefire_global">
                   <input type="hidden" name="active" id="tg_active2" value="0">
                   <button type="submit" class="btn btn-danger">Desactivar</button>
@@ -639,6 +641,7 @@
           </div>
 
           <form id="batch-price-form" method="POST" action="/admin/save_prices_batch">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="game" id="batch_game" value="freefire_global">
             <input type="hidden" name="payload" id="batch_payload" value="[]">
 
@@ -686,6 +689,7 @@
             <div class="create-news-container">
               <h3>✍️ Crear Nueva Noticia</h3>
               <form method="POST" action="/admin/create_news" class="news-form" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group">
                   <label for="news_title">📝 Título de la Noticia:</label>
                   <input type="text" id="news_title" name="titulo" placeholder="Ingrese el título de la noticia" required maxlength="200">
@@ -760,6 +764,7 @@
                     </div>
                     <div class="admin-news-actions">
                       <form method="POST" action="/admin/delete_news" class="inline-form" onsubmit="return confirm('¿Estás seguro de eliminar esta noticia?')">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="news_id" value="{{ noticia.id }}">
                         <button type="submit" class="btn btn-delete-news">🗑️ Eliminar</button>
                       </form>
@@ -788,6 +793,7 @@
             <div class="redeemer-config-card" style="background:#1a1a2e;border-radius:12px;padding:20px;border:1px solid #333;">
               <h3 style="color:#00d4aa;margin-bottom:16px;">Configuracion</h3>
               <form method="POST" action="/admin/redeemer_config" id="redeemer-config-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div style="margin-bottom:12px;">
                   <label style="display:block;color:#ccc;margin-bottom:4px;font-size:13px;">Nombre Completo:</label>
                   <input type="text" name="nombre_completo" id="rc_nombre" value="{{ redeemer_config.nombre_completo }}" style="width:100%;padding:8px;border-radius:6px;border:1px solid #444;background:#0d0d1a;color:#fff;" required>
@@ -844,6 +850,7 @@
               <h3 style="color:#ff9800;margin-bottom:16px;">Prueba Manual</h3>
               <p style="color:#888;font-size:13px;margin-bottom:16px;">Prueba la redencion de un pin manualmente. El navegador se abrira visible para que puedas ver el proceso.</p>
               <form method="POST" action="/admin/test_redeem">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div style="margin-bottom:12px;">
                   <label style="display:block;color:#ccc;margin-bottom:4px;font-size:13px;">Codigo PIN:</label>
                   <input type="text" name="test_pin_code" placeholder="41D26298-7BF3-4308-A576-17CBEE8373BC" style="width:100%;padding:8px;border-radius:6px;border:1px solid #444;background:#0d0d1a;color:#fff;" required>
@@ -967,6 +974,13 @@
 
     // Datos de usuarios para el dropdown de edición
     window.adminCsrfToken = {{ csrf_token()|tojson }};
+    function adminCsrfHeaders(extraHeaders) {
+      return Object.assign({ 'X-CSRF-Token': window.adminCsrfToken }, extraHeaders || {});
+    }
+
+    function adminCsrfHiddenInput() {
+      return '<input type="hidden" name="csrf_token" value="' + window.adminCsrfToken + '">';
+    }
 
     var _wsUsers = [
       {% for user in users %}
@@ -1210,6 +1224,7 @@
               <span class="pin-ajax-status" style="font-size:11px;margin-left:6px;"></span>
             </form>
             <form method="POST" action="/admin/import_pins_csv" enctype="multipart/form-data" class="package-form collapse" id="csv-form-${pkg.id}">
+              ${adminCsrfHiddenInput()}
               <input type="hidden" name="game_type" value="${game}">
               <input type="hidden" name="batch_monto_id" value="${pkg.id}">
               <label>CSV (solo se extrae el código del pin)</label>
@@ -1422,10 +1437,10 @@
       try {
         const response = await fetch('/admin/save_prices_batch', {
           method: 'POST',
-          headers: {
+          headers: adminCsrfHeaders({
             'Content-Type': 'application/json',
             'Accept': 'application/json'
-          },
+          }),
           body: JSON.stringify({ game: currentGame, items: list })
         });
         const data = await parseJsonResponseSafe(response);
@@ -1479,7 +1494,7 @@
       }
       try {
         const res = await fetch('/admin/dynamic-games/create', {
-          method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
+          method:'POST', headers: adminCsrfHeaders({'Content-Type':'application/json','Accept':'application/json'}),
           body: JSON.stringify(payload)
         });
         const data = await parseJsonResponseSafe(res);
@@ -1505,7 +1520,7 @@
       st.innerHTML = '<span style="color:#aaa;">Añadiendo...</span>';
       try {
         const res = await fetch(`/admin/dynamic-games/${_currentDynGameId}/packages/add`, {
-          method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
+          method:'POST', headers: adminCsrfHeaders({'Content-Type':'application/json','Accept':'application/json'}),
           body: JSON.stringify({ nombre, precio, game_script_only: gameScriptOnly })
         });
         const data = await parseJsonResponseSafe(res);
@@ -1575,7 +1590,7 @@
       if (!confirm(`¿Eliminar "${gameName}" y todos sus paquetes? Esta acción no se puede deshacer.`)) return;
       try {
         const res = await fetch(`/admin/dynamic-games/${_currentDynGameId}/delete`, {
-          method:'POST', headers:{'Accept':'application/json'}
+          method:'POST', headers: adminCsrfHeaders({'Accept':'application/json'})
         });
         const data = await res.json();
         if (data.success) {
@@ -2388,7 +2403,7 @@
       try {
         const res = await fetch('/admin/dynamic-games/gp-rate', {
           method: 'POST',
-          headers: {'Content-Type':'application/json','Accept':'application/json'},
+          headers: adminCsrfHeaders({'Content-Type':'application/json','Accept':'application/json'}),
           body: JSON.stringify({rate})
         });
         const data = await res.json();
@@ -2565,7 +2580,7 @@
       if (!st) return;
       st.textContent = 'Importando paquetes desde GamePoint...';
       try {
-        const res = await fetch(`/admin/dynamic-games/${gameId}/auto-import-packages`, {method:'POST',headers:{'Accept':'application/json'}});
+        const res = await fetch(`/admin/dynamic-games/${gameId}/auto-import-packages`, {method:'POST',headers: adminCsrfHeaders({'Accept':'application/json'})});
         let data = null;
         try { data = await res.json(); } catch(_) { st.innerHTML = '<span style="color:#ff6b6b;">Error del servidor (respuesta inválida). Revisa los logs.</span>'; return; }
         if (!res.ok || data.error) { st.innerHTML = '<span style="color:#ff6b6b;">'+(data.error||'Error '+res.status)+'</span>'; return; }
@@ -2580,7 +2595,7 @@
       const st = document.getElementById('dyn-mapping-status-'+gameId);
       try {
         const res = await fetch(`/admin/dynamic-games/${gameId}/set_gamepoint_id`, {
-          method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
+          method:'POST', headers: adminCsrfHeaders({'Content-Type':'application/json','Accept':'application/json'}),
           body: JSON.stringify({local_id: localId, gamepoint_package_id: sel.value || null})
         });
         const data = await res.json();
@@ -2596,7 +2611,7 @@
       st.textContent = 'Sincronizando precios...';
       if (rpt) { rpt.style.display = 'none'; rpt.innerHTML = ''; }
       try {
-        const res = await fetch(`/admin/dynamic-games/${gameId}/sync-prices`, {method:'POST',headers:{'Accept':'application/json'}});
+        const res = await fetch(`/admin/dynamic-games/${gameId}/sync-prices`, {method:'POST',headers: adminCsrfHeaders({'Accept':'application/json'})});
         const data = await res.json();
         if (!res.ok || data.error) { st.innerHTML = '<span style="color:#ff6b6b;">'+(data.error||'Error')+'</span>'; return; }
         st.innerHTML = '<span style="color:#4ade80;">✅ Sync OK: '+data.packages_updated+'/'+data.total_gp+' actualizados</span>';

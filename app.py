@@ -42,7 +42,7 @@ import requests
 from pin_manager import create_pin_manager
 from pin_redeemer import PinRedeemResult, get_redeemer_config_from_db
 from redeem_hype_vps import redeem_pin_vps
-from csrf_utils import get_csrf_token
+from csrf_utils import csrf_protect, get_csrf_token
 from contextlib import contextmanager
 from functools import lru_cache
 import random
@@ -5353,6 +5353,7 @@ def admin_add_credit():
 
 
 @app.route('/admin/import_pins_csv', methods=['POST'])
+@csrf_protect('/admin')
 def admin_import_pins_csv():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -5428,6 +5429,7 @@ def admin_import_pins_csv():
 
 # ======= Batch update de nombres y precios =======
 @app.route('/admin/save_prices_batch', methods=['POST'])
+@csrf_protect('/admin')
 def admin_save_prices_batch():
     expects_json = request.is_json or 'application/json' in (request.headers.get('Accept') or '')
 
@@ -5543,6 +5545,7 @@ def admin_save_prices_batch():
     return redirect('/admin')
 
 @app.route('/admin/toggle_game', methods=['POST'])
+@csrf_protect('/admin')
 def admin_toggle_game():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -9010,6 +9013,7 @@ def reject_freefire_id_transaction(transaction_id):
     return redirect('/')
 
 @app.route('/admin/redeemer_config', methods=['GET', 'POST'])
+@csrf_protect('/admin')
 def admin_redeemer_config():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -9035,6 +9039,7 @@ def admin_redeemer_config():
     return jsonify(config)
 
 @app.route('/admin/test_redeem', methods=['POST'])
+@csrf_protect('/admin')
 def admin_test_redeem():
     """Prueba manual de redención de pin - solo para testing"""
     if not session.get('is_admin'):
@@ -9210,6 +9215,7 @@ def notificaciones():
                          is_admin=is_admin)
 
 @app.route('/admin/create_news', methods=['POST'])
+@csrf_protect('/admin')
 def admin_create_news():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -9257,6 +9263,7 @@ def admin_create_news():
     return redirect('/admin')
 
 @app.route('/admin/delete_news', methods=['POST'])
+@csrf_protect('/admin')
 def admin_delete_news():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
