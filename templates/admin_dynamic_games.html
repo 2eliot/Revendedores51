@@ -260,6 +260,11 @@
   {% endif %}
 
   <script>
+  const adminCsrfToken = {{ csrf_token()|tojson }};
+  function adminCsrfHeaders(extraHeaders) {
+    return Object.assign({ 'X-CSRF-Token': adminCsrfToken }, extraHeaders || {});
+  }
+
   async function createGame(e) {
     e.preventDefault();
     const frm = document.getElementById('frm-create');
@@ -273,7 +278,7 @@
     st.innerHTML = '<div class="status-msg">Creando...</div>';
     try {
       const res = await fetch('/admin/dynamic-games/create', {
-        method: 'POST', headers: {'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify(body)
+        method: 'POST', headers: adminCsrfHeaders({'Content-Type':'application/json','Accept':'application/json'}), body: JSON.stringify(body)
       });
       const data = await res.json();
       if (data.success) { st.innerHTML = '<div class="status-msg status-ok">✅ Juego creado. Recargando...</div>'; setTimeout(() => location.reload(), 800); }
@@ -282,13 +287,13 @@
   }
 
   async function toggleGame(id) {
-    const res = await fetch(`/admin/dynamic-games/${id}/toggle`, {method:'POST',headers:{'Accept':'application/json'}});
+    const res = await fetch(`/admin/dynamic-games/${id}/toggle`, {method:'POST',headers: adminCsrfHeaders({'Accept':'application/json'})});
     const data = await res.json();
     if (data.success) location.reload();
   }
 
   async function deleteGame(id) {
-    await fetch(`/admin/dynamic-games/${id}/delete`, {method:'POST',headers:{'Accept':'application/json'}});
+    await fetch(`/admin/dynamic-games/${id}/delete`, {method:'POST',headers: adminCsrfHeaders({'Accept':'application/json'})});
     document.getElementById('game-card-'+id)?.remove();
   }
 
@@ -296,7 +301,7 @@
     const st = document.getElementById('sync-status-'+id);
     st.innerHTML = '<div class="status-msg">Sincronizando...</div>';
     try {
-      const res = await fetch(`/admin/dynamic-games/${id}/sync-prices`, {method:'POST',headers:{'Accept':'application/json'}});
+      const res = await fetch(`/admin/dynamic-games/${id}/sync-prices`, {method:'POST',headers: adminCsrfHeaders({'Accept':'application/json'})});
       const data = await res.json();
       if (data.error) { st.innerHTML = '<div class="status-msg status-err">❌ '+data.error+'</div>'; return; }
       let html = `<div class="status-msg status-ok">✅ ${data.packages_updated}/${data.total_gp} paquetes actualizados</div>`;
@@ -336,7 +341,7 @@
     const precio = Math.round((costo + 0.10) * 100) / 100;
     const body = { nombre: gpName, precio: precio, gamepoint_package_id: gpId, orden: 0 };
     const res = await fetch(`/admin/dynamic-games/${gameId}/packages/add`, {
-      method: 'POST', headers: {'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify(body)
+      method: 'POST', headers: adminCsrfHeaders({'Content-Type':'application/json','Accept':'application/json'}), body: JSON.stringify(body)
     });
     const data = await res.json();
     if (data.success) location.reload();
@@ -356,7 +361,7 @@
       orden: parseInt(document.getElementById('new-pkg-order-'+gameId).value) || 0,
     };
     const res = await fetch(`/admin/dynamic-games/${gameId}/packages/add`, {
-      method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify(body)
+      method:'POST', headers: adminCsrfHeaders({'Content-Type':'application/json','Accept':'application/json'}), body: JSON.stringify(body)
     });
     const data = await res.json();
     if (data.success) location.reload();
@@ -372,7 +377,7 @@
       activo: !!document.getElementById('pkg-active-'+id).checked,
     };
     const res = await fetch(`/admin/dynamic-games/packages/${id}/update`, {
-      method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify(body)
+      method:'POST', headers: adminCsrfHeaders({'Content-Type':'application/json','Accept':'application/json'}), body: JSON.stringify(body)
     });
     const data = await res.json();
     if (data.success) { const row = document.getElementById('pkg-row-'+id); if(row) row.style.background='rgba(74,222,128,0.08)'; setTimeout(()=>{if(row)row.style.background='';},1500); }
@@ -381,13 +386,13 @@
 
   async function togglePkg(id, newState) {
     await fetch(`/admin/dynamic-games/packages/${id}/update`, {
-      method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify({activo: newState})
+      method:'POST', headers: adminCsrfHeaders({'Content-Type':'application/json','Accept':'application/json'}), body: JSON.stringify({activo: newState})
     });
     location.reload();
   }
 
   async function deletePkg(id) {
-    await fetch(`/admin/dynamic-games/packages/${id}/delete`, {method:'POST',headers:{'Accept':'application/json'}});
+    await fetch(`/admin/dynamic-games/packages/${id}/delete`, {method:'POST',headers: adminCsrfHeaders({'Accept':'application/json'})});
     document.getElementById('pkg-row-'+id)?.remove();
   }
 
@@ -456,7 +461,7 @@
     try {
       const res = await fetch('/admin/dynamic-games/gp-rate', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+        headers: adminCsrfHeaders({'Content-Type': 'application/json', 'Accept': 'application/json'}),
         body: JSON.stringify({rate})
       });
       const data = await res.json();

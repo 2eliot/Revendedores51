@@ -5239,6 +5239,7 @@ def admin_game_bloodstrike_mappings():
 
 
 @app.route('/admin/game/bloodstrike/mapear', methods=['POST'])
+@csrf_protect('/admin')
 def admin_game_bloodstrike_mapear():
     if not session.get('is_admin'):
         return jsonify({'success': False, 'error': 'Acceso denegado'}), 403
@@ -5267,6 +5268,7 @@ def admin_game_bloodstrike_mapear():
 
 
 @app.route('/admin/game/bloodstrike/set_script_mapping', methods=['POST'])
+@csrf_protect('/admin')
 def admin_game_bloodstrike_set_script_mapping():
     if not session.get('is_admin'):
         return jsonify({'success': False, 'error': 'Acceso denegado'}), 403
@@ -7348,6 +7350,7 @@ def _bloodstrike_sync_prices_internal(deactivate_missing=False, deactivate_unmap
 
 
 @app.route('/admin/bloodstrike/sync_prices', methods=['POST'])
+@csrf_protect('/admin')
 def admin_bloodstrike_sync_prices():
     """Sincroniza precios de Blood Strike desde GamePoint Club (endpoint admin)."""
     if not session.get('is_admin'):
@@ -7364,6 +7367,7 @@ def admin_bloodstrike_sync_prices():
 
 
 @app.route('/admin/bloodstrike/set_gamepoint_id', methods=['POST'])
+@csrf_protect('/admin')
 def admin_bloodstrike_set_gamepoint_id():
     """Asigna un gamepoint_package_id a un paquete local de Blood Strike."""
     if not session.get('is_admin'):
@@ -8634,11 +8638,13 @@ AUDIT_TEMPLATE = r'''
     {% endif %}
     
     <script>
+        const auditCsrfToken = {{ csrf_token()|tojson }};
+
         function fixTransaction(transactionId) {
             if (confirm('¿Corregir esta transacción? Esto la marcará como aprobada y registrará la transacción general.')) {
                 fetch('/admin/fix_freefire_id_transaction', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers: {'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-Token': auditCsrfToken},
                     body: JSON.stringify({transaction_id: transactionId})
                 })
                 .then(response => response.json())
@@ -8949,6 +8955,7 @@ def approve_freefire_id_transaction(transaction_id):
     return redirect('/')
 
 @app.route('/admin/fix_freefire_id_transaction', methods=['POST'])
+@csrf_protect('/admin')
 def fix_freefire_id_transaction():
     """Corrige una transacción inconsistente de Free Fire ID"""
     if not session.get('is_admin'):
@@ -9123,6 +9130,7 @@ def api_freefire_id_reload_notifications():
 
 # Rutas de administración para API externa
 @app.route('/admin/test_external_api', methods=['POST'])
+@csrf_protect('/admin')
 def admin_test_external_api():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -9143,6 +9151,7 @@ def admin_test_external_api():
 
 
 @app.route('/admin/toggle_pin_source', methods=['POST'])
+@csrf_protect('/admin')
 def admin_toggle_pin_source():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')

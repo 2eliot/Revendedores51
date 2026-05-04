@@ -2213,7 +2213,7 @@
       try {
         const res = await fetch('/admin/game/bloodstrike/mapear', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          headers: adminCsrfHeaders({ 'Content-Type': 'application/json', 'Accept': 'application/json' }),
           body: JSON.stringify({ roleId })
         });
         const data = await parseJsonResponseSafe(res);
@@ -2244,7 +2244,7 @@
       try {
         const res = await fetch('/admin/game/bloodstrike/set_script_mapping', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          headers: adminCsrfHeaders({ 'Content-Type': 'application/json', 'Accept': 'application/json' }),
           body: JSON.stringify({
             local_id: localId,
             local_type: localType,
@@ -2341,7 +2341,7 @@
       const st = document.getElementById('bs-mapping-status');
       try {
         const res = await fetch('/admin/bloodstrike/set_gamepoint_id', {
-          method: 'POST', headers: {'Content-Type':'application/json','Accept':'application/json'},
+          method: 'POST', headers: adminCsrfHeaders({'Content-Type':'application/json','Accept':'application/json'}),
           body: JSON.stringify({local_id: localId, gamepoint_package_id: gpId || null})
         });
         const data = await res.json();
@@ -2360,7 +2360,7 @@
       st.textContent = 'Sincronizando precios...';
       if (rpt) { rpt.style.display = 'none'; rpt.innerHTML = ''; }
       try {
-        const res = await fetch('/admin/bloodstrike/sync_prices', {method:'POST',headers:{'Accept':'application/json'}});
+        const res = await fetch('/admin/bloodstrike/sync_prices', {method:'POST',headers: adminCsrfHeaders({'Accept':'application/json'})});
         const data = await res.json();
         if (!res.ok || data.error) { st.innerHTML = '<span style="color:#ff6b6b;">' + (data.error||'Error') + '</span>'; return; }
         const usdToMyr = Number(data.usd_to_myr_rate || (1 / Number(data.myr_to_usd_rate || 0.2538)));
