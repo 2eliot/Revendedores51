@@ -500,6 +500,7 @@
             <div class="card-header" style="background:rgba(74,222,128,0.06);"><h3>+ Crear Cuenta API</h3></div>
             <div class="card-body">
               <form method="POST" action="/admin/webservice-accounts/create" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div>
                   <label style="display:block;color:#8b949e;font-size:11px;margin-bottom:3px;">Nombre *</label>
                   <input type="text" name="ws_nombre" placeholder="Ej: Inefable Store" required style="padding:7px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#e0e0e0;font-size:13px;width:180px;">
@@ -965,6 +966,8 @@
     }, 2000);
 
     // Datos de usuarios para el dropdown de edición
+    window.adminCsrfToken = {{ csrf_token()|tojson }};
+
     var _wsUsers = [
       {% for user in users %}
       {id: {{ user.id }}, label: '{{ user.nombre }} {{ user.apellido }} — ${{ "%.2f"|format(user.saldo) }} (ID: {{ user.id }})'},
@@ -1032,6 +1035,7 @@
 
             // Toggle
             html += '<form method="POST" action="/admin/webservice-accounts/' + a.id + '/toggle" style="display:inline;">' +
+              '<input type="hidden" name="csrf_token" value="' + window.adminCsrfToken + '">' +
               '<button type="submit" class="btn ' + (a.activo ? 'btn-warning' : 'btn-success') + '" style="padding:4px 12px;font-size:11px;">' + (a.activo ? 'Desactivar' : 'Activar') + '</button></form>';
 
             // Editar usuario
@@ -1039,10 +1043,12 @@
 
             // Regenerar key
             html += '<form method="POST" action="/admin/webservice-accounts/' + a.id + '/regenerate-key" style="display:inline;" onsubmit="return confirm(\'¿Regenerar API Key? La key actual dejará de funcionar.\')">' +
+              '<input type="hidden" name="csrf_token" value="' + window.adminCsrfToken + '">' +
               '<button type="submit" class="btn btn-secondary" style="padding:4px 12px;font-size:11px;">🔑 Nueva Key</button></form>';
 
             // Eliminar
             html += '<form method="POST" action="/admin/webservice-accounts/' + a.id + '/delete" style="display:inline;" onsubmit="return confirm(\'¿Eliminar esta cuenta API?\')">' +
+              '<input type="hidden" name="csrf_token" value="' + window.adminCsrfToken + '">' +
               '<button type="submit" class="btn btn-danger" style="padding:4px 12px;font-size:11px;">Eliminar</button></form>';
 
             html += '</div>'; // close acciones
@@ -1056,6 +1062,7 @@
 
             html += '<div id="ws-edit-' + a.id + '" style="display:none;margin-top:10px;padding:10px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.08);">' +
               '<form method="POST" action="/admin/webservice-accounts/' + a.id + '/update" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">' +
+                '<input type="hidden" name="csrf_token" value="' + window.adminCsrfToken + '">' +
                 '<div><label style="display:block;color:#8b949e;font-size:11px;margin-bottom:3px;">Cambiar usuario vinculado</label>' +
                   '<select name="ws_usuario_id" style="padding:6px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#e0e0e0;font-size:12px;min-width:220px;">' + userOpts + '</select></div>' +
                 '<div><label style="display:block;color:#8b949e;font-size:11px;margin-bottom:3px;">Webhook URL</label>' +

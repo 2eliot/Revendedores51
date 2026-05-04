@@ -28,6 +28,7 @@ import time as time_module
 
 import requests as req_lib
 from flask import Blueprint, jsonify, request, session, flash, redirect
+from csrf_utils import csrf_protect
 
 logger = logging.getLogger(__name__)
 
@@ -1112,6 +1113,7 @@ def admin_list_ws_accounts():
 
 
 @bp.route('/admin/webservice-accounts/create', methods=['POST'])
+@csrf_protect('/admin')
 def admin_create_ws_account():
     """Crea una nueva cuenta de web service."""
     if not session.get('is_admin'):
@@ -1160,6 +1162,7 @@ def admin_create_ws_account():
 
 
 @bp.route('/admin/webservice-accounts/<int:account_id>/toggle', methods=['POST'])
+@csrf_protect('/admin')
 def admin_toggle_ws_account(account_id):
     """Activa o desactiva una cuenta de web service."""
     if not session.get('is_admin'):
@@ -1184,6 +1187,7 @@ def admin_toggle_ws_account(account_id):
 
 
 @bp.route('/admin/webservice-accounts/<int:account_id>/regenerate-key', methods=['POST'])
+@csrf_protect('/admin')
 def admin_regenerate_ws_key(account_id):
     """Regenera la API key de una cuenta."""
     if not session.get('is_admin'):
@@ -1207,6 +1211,7 @@ def admin_regenerate_ws_key(account_id):
 
 
 @bp.route('/admin/webservice-accounts/<int:account_id>/update', methods=['POST'])
+@csrf_protect('/admin')
 def admin_update_ws_account(account_id):
     """Actualiza usuario vinculado y/o webhook de una cuenta."""
     if not session.get('is_admin'):
@@ -1256,6 +1261,7 @@ def admin_update_ws_account(account_id):
 
 
 @bp.route('/admin/webservice-accounts/<int:account_id>/delete', methods=['POST'])
+@csrf_protect('/admin')
 def admin_delete_ws_account(account_id):
     """Elimina una cuenta de web service."""
     if not session.get('is_admin'):

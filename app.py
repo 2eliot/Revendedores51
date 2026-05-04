@@ -42,6 +42,7 @@ import requests
 from pin_manager import create_pin_manager
 from pin_redeemer import PinRedeemResult, get_redeemer_config_from_db
 from redeem_hype_vps import redeem_pin_vps
+from csrf_utils import get_csrf_token
 from contextlib import contextmanager
 from functools import lru_cache
 import random
@@ -489,6 +490,11 @@ def inject_dynamic_games_menu():
         }
     except Exception:
         return {'dynamic_games_menu': [], 'dynamic_games_id_menu': [], 'dynamic_games_pin_menu': []}
+
+
+@app.context_processor
+def inject_csrf_token():
+    return {'csrf_token': get_csrf_token}
 
 # PostgreSQL: la URL se lee de DATABASE_URL en .env
 # get_db_connection y get_db_connection_optimized vienen de pg_compat
