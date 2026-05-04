@@ -100,6 +100,38 @@ def _clear_idempotent_order(conn, usuario_id, endpoint, request_id):
                  (usuario_id, endpoint, request_id))
 
 
+def _finalize_idempotent_order(conn, usuario_id, endpoint, request_id, order_row):
+    if not request_id:
+        return
+
+    if not order_row:
+        _clear_idempotent_order(conn, usuario_id, endpoint, request_id)
+        return
+
+    order_status = str(order_row['estado'] or '').strip().lower()
+    if order_status == 'completada':
+        _complete_idempotent_order(
+            conn,
+            usuario_id,
+            endpoint,
+            request_id,
+            _order_payload(order_row),
+            str(order_row['id']),
+        )
+        return
+
+    _clear_idempotent_order(conn, usuario_id, endpoint, request_id)
+
+
+def _payload_allows_retry(payload):
+    if not isinstance(payload, dict):
+        return False
+
+    order_payload = payload.get('order') or {}
+    order_status = str(order_payload.get('status') or payload.get('status') or '').strip().lower()
+    return order_status == 'fallida'
+
+
 def _resolve_profit_game_key(game_type, package_id):
     game_type = str(game_type or '').strip().lower()
     if game_type == 'bloodstriker':
@@ -530,17 +562,29 @@ def api_v1_recharge():
 
         if idem_state['state'] in ('completed', 'processing'):
             conn_existing = _get_conn()
-            row_existing = conn_existing.execute(
-                'SELECT * FROM api_orders WHERE external_order_id = ? AND account_id = ? ORDER BY id DESC LIMIT 1',
-                (external_order_id, account['id'])
-            ).fetchone()
-            conn_existing.close()
-            if row_existing:
-                status_code = 200 if row_existing['estado'] != 'procesando' else 202
-                return jsonify(_order_payload(row_existing)), status_code
-            if idem_state['payload']:
-                return jsonify(idem_state['payload']), 200
-            return jsonify({'ok': False, 'error': 'La orden ya se está procesando'}), 202
+            try:
+                row_existing = conn_existing.execute(
+                    'SELECT * FROM api_orders WHERE external_order_id = ? AND account_id = ? ORDER BY id DESC LIMIT 1',
+                    (external_order_id, account['id'])
+                ).fetchone()
+
+                if row_existing and str(row_existing['estado'] or '').strip().lower() == 'fallida':
+                    _clear_idempotent_order(conn_existing, usuario_id, endpoint_key, external_order_id)
+                    conn_existing.commit()
+                    row_existing = None
+                elif row_existing:
+                    status_code = 200 if row_existing['estado'] != 'procesando' else 202
+                    return jsonify(_order_payload(row_existing)), status_code
+
+                if _payload_allows_retry(idem_state.get('payload')):
+                    _clear_idempotent_order(conn_existing, usuario_id, endpoint_key, external_order_id)
+                    conn_existing.commit()
+                elif idem_state['payload']:
+                    return jsonify(idem_state['payload']), 200
+                else:
+                    return jsonify({'ok': False, 'error': 'La orden ya se está procesando'}), 202
+            finally:
+                conn_existing.close()
 
     # --- Verificar y descontar saldo atómicamente ---
     conn = _get_conn()
@@ -604,12 +648,8 @@ def api_v1_recharge():
         try:
             conn_done = _get_conn()
             row_done = conn_done.execute('SELECT * FROM api_orders WHERE id = ?', (order_id,)).fetchone()
-            if row_done:
-                _complete_idempotent_order(conn_done, usuario_id, endpoint_key, external_order_id, _order_payload(row_done), str(order_id))
-                conn_done.commit()
-            else:
-                _clear_idempotent_order(conn_done, usuario_id, endpoint_key, external_order_id)
-                conn_done.commit()
+            _finalize_idempotent_order(conn_done, usuario_id, endpoint_key, external_order_id, row_done)
+            conn_done.commit()
             conn_done.close()
         except Exception:
             pass

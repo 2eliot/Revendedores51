@@ -5,6 +5,34 @@ import api_whitelabel
 
 
 class WhitelabelSoloGameTests(unittest.TestCase):
+    def test_payload_allows_retry_for_failed_order_payload(self):
+        self.assertTrue(api_whitelabel._payload_allows_retry({'order': {'status': 'fallida'}}))
+        self.assertTrue(api_whitelabel._payload_allows_retry({'status': 'fallida'}))
+        self.assertFalse(api_whitelabel._payload_allows_retry({'order': {'status': 'completada'}}))
+
+    def test_finalize_idempotent_order_completes_successful_orders(self):
+        conn = MagicMock()
+        order_row = {'id': 12, 'estado': 'completada'}
+
+        with patch.object(api_whitelabel, '_complete_idempotent_order') as complete_mock, \
+             patch.object(api_whitelabel, '_clear_idempotent_order') as clear_mock, \
+             patch.object(api_whitelabel, '_order_payload', return_value={'ok': True, 'status': 'completada'}):
+            api_whitelabel._finalize_idempotent_order(conn, 7, 'api_v1_recharge', 'EXT-1', order_row)
+
+        complete_mock.assert_called_once_with(conn, 7, 'api_v1_recharge', 'EXT-1', {'ok': True, 'status': 'completada'}, '12')
+        clear_mock.assert_not_called()
+
+    def test_finalize_idempotent_order_clears_failed_orders(self):
+        conn = MagicMock()
+        order_row = {'id': 13, 'estado': 'fallida'}
+
+        with patch.object(api_whitelabel, '_complete_idempotent_order') as complete_mock, \
+             patch.object(api_whitelabel, '_clear_idempotent_order') as clear_mock:
+            api_whitelabel._finalize_idempotent_order(conn, 7, 'api_v1_recharge', 'EXT-1', order_row)
+
+        complete_mock.assert_not_called()
+        clear_mock.assert_called_once_with(conn, 7, 'api_v1_recharge', 'EXT-1')
+
     def test_resolve_package_accepts_dynamic_solo_game(self):
         dyn_pkg = {
             'id': 44,
