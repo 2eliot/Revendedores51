@@ -68,6 +68,15 @@ def _get_sqlite_database_path() -> str:
 DATABASE: str = _get_sqlite_database_path()
 
 
+def _mask_log_token(value: str, *, visible_start: int = 4, visible_end: int = 4) -> str:
+    raw = str(value or '').strip()
+    if not raw:
+        return ''
+    if len(raw) <= visible_start + visible_end:
+        return '*' * len(raw)
+    return f"{raw[:visible_start]}...{raw[-visible_end:]}"
+
+
 def _b64url_encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode('utf-8').rstrip('=')
 
@@ -387,6 +396,9 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Protección CSRF
 
 # Configuración de duración de sesión (30 minutos)
 app.permanent_session_lifetime = timedelta(minutes=30)
+
+if is_production and not (os.environ.get('ADMIN_EMAIL', '').strip() and os.environ.get('ADMIN_PASSWORD', '').strip()):
+    logger.error('ADMIN_EMAIL/ADMIN_PASSWORD no configurados en producción; login admin por entorno deshabilitado.')
 
 @app.template_filter('format_date')
 def format_date_filter(value, fmt='%Y-%m-%d %H:%M:%S'):
@@ -2942,12 +2954,19 @@ def auth():
 
 @app.route('/control-aviso')
 def control_aviso():
+    if not session.get('is_admin'):
+        flash('Acceso denegado. Solo administradores.', 'error')
+        return redirect('/auth')
+
     aviso = _get_aviso_config()
     return render_template('redirect_panel.html', aviso=aviso)
 
 
 @app.route('/control-aviso/guardar', methods=['POST'])
 def control_aviso_guardar():
+    if not session.get('is_admin'):
+        return jsonify({'ok': False, 'error': 'Acceso denegado'}), 403
+
     activo = '1' if request.form.get('activo') == '1' else '0'
     url = request.form.get('url', '').strip()
     try:
@@ -2968,35 +2987,46 @@ def control_aviso_guardar():
 def login():
     correo = request.form['correo']
     contraseña = request.form['contraseña']
+    correo_normalizado = (correo or '').strip().lower()
     
     if not correo or not contraseña:
         flash('Por favor, complete todos los campos', 'error')
         return redirect('/auth')
     
-    # Verificar credenciales de administrador (desde variables de entorno)
-    admin_email = os.environ.get('ADMIN_EMAIL', 'admin@inefable.com')
-    admin_password = os.environ.get('ADMIN_PASSWORD', 'InefableAdmin2024!')
-    
+    # Verificar credenciales de administrador.
+    # En producción solo se aceptan variables de entorno explícitas.
+    admin_email = os.environ.get('ADMIN_EMAIL', '').strip()
+    admin_password = os.environ.get('ADMIN_PASSWORD', '').strip()
+    legacy_admin_email = 'admin@inefable.com'
+
     dev_login = not is_production and correo == 'admin' and contraseña == '123456'
-    if dev_login or (correo == admin_email and contraseña == admin_password):
+    env_admin_login = bool(admin_email and admin_password and correo == admin_email and contraseña == admin_password)
+    reserved_admin_emails = {legacy_admin_email}
+    if admin_email:
+        reserved_admin_emails.add(admin_email.strip().lower())
+
+    if dev_login or env_admin_login:
+        admin_identity_email = admin_email if env_admin_login and admin_email else 'admin@local.dev'
+        admin_identity_password = admin_password if env_admin_login and admin_password else contraseña
+
         # Buscar o crear usuario admin en la base de datos
         conn = get_db_connection()
-        admin_user = conn.execute('SELECT * FROM usuarios WHERE correo = ?', (admin_email,)).fetchone()
+        admin_user = conn.execute('SELECT * FROM usuarios WHERE correo = ?', (admin_identity_email,)).fetchone()
         
         if not admin_user:
             # Crear usuario admin si no existe
-            hashed_password = hash_password(admin_password)
+            hashed_password = hash_password(admin_identity_password)
             conn.execute('''
                 INSERT INTO usuarios (nombre, apellido, telefono, correo, contraseña, saldo)
                 VALUES (?, ?, ?, ?, ?, ?)
-            ''', ('Administrador', 'Sistema', '00000000000', admin_email, hashed_password, 0))
+            ''', ('Administrador', 'Sistema', '00000000000', admin_identity_email, hashed_password, 0))
             conn.commit()
-            admin_user = conn.execute('SELECT * FROM usuarios WHERE correo = ?', (admin_email,)).fetchone()
+            admin_user = conn.execute('SELECT * FROM usuarios WHERE correo = ?', (admin_identity_email,)).fetchone()
         
         conn.close()
         
         session.permanent = True  # Activar duración de sesión de 30 minutos
-        session['usuario'] = admin_email
+        session['usuario'] = admin_identity_email
         session['nombre'] = admin_user['nombre']
         session['apellido'] = admin_user['apellido']
         session['id'] = str(admin_user['id']).zfill(5)
@@ -3004,6 +3034,10 @@ def login():
         session['saldo'] = 0
         session['is_admin'] = True
         return redirect('/')
+
+    if correo_normalizado in reserved_admin_emails:
+        flash('Credenciales incorrectas', 'error')
+        return redirect('/auth')
     
     # Buscar usuario en la base de datos
     user = get_user_by_email(correo)
@@ -7969,7 +8003,7 @@ def validar_freefire_id():
             logger.error(
                 f"[FreeFire ID] Redencion fallida: {error_msg} | "
                 f"usuario_id={user_id} player_id={player_id} package_id={package_id} precio={precio} | "
-                f"pin={pin_codigo} numero_control={transaction_data.get('numero_control')} transaccion_id={transaction_data.get('transaccion_id')}"
+                f"pin={_mask_log_token(pin_codigo)} numero_control={transaction_data.get('numero_control')} transaccion_id={transaction_data.get('transaccion_id')}"
             )
             
             # Devolver PIN al inventario
@@ -11272,7 +11306,10 @@ def api_v1_ejecutar_recarga():
         # No bloquear la respuesta si falla el registro
         logger.error(f'[api/v1/ejecutar-recarga] Error registrando transacción: {e}')
 
-    logger.info(f'[api/v1/ejecutar-recarga] Recarga exitosa - order_id={order_id} player_id={player_id} package={package_id} pin={pin_code[:8]}...')
+    logger.info(
+        f"[api/v1/ejecutar-recarga] Recarga exitosa - order_id={order_id} "
+        f"player_id={player_id} package={package_id} pin={_mask_log_token(pin_code)}"
+    )
 
     return jsonify({
         'ok': True,

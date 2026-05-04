@@ -8,6 +8,24 @@ import json
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+def _redact_request_params(params):
+    sanitized = dict(params or {})
+    for key in ('usuario', 'clave'):
+        if key in sanitized and sanitized[key]:
+            sanitized[key] = '***'
+    return sanitized
+
+
+def _describe_response_for_log(response):
+    content_type = (response.headers.get('Content-Type') or '').split(';', 1)[0].strip()
+    body_len = len(response.text or '')
+    return {
+        'status_code': response.status_code,
+        'content_type': content_type or 'unknown',
+        'body_length': body_len,
+    }
+
 class InefableAPIClient:
     """Cliente para conectar con la API externa de Inefable Shop"""
     
@@ -36,7 +54,7 @@ class InefableAPIClient:
     def _make_request(self, params):
         """Realiza una petición a la API externa"""
         try:
-            logger.info(f"Realizando petición a API externa con parámetros: {params}")
+            logger.info(f"Realizando petición a API externa con parámetros: {_redact_request_params(params)}")
             
             response = requests.get(
                 self.base_url,
@@ -48,8 +66,7 @@ class InefableAPIClient:
                 }
             )
             
-            logger.info(f"Respuesta de API externa - Status: {response.status_code}")
-            logger.info(f"Respuesta de API externa - Content: {response.text[:500]}...")
+            logger.info(f"Respuesta de API externa: {_describe_response_for_log(response)}")
             
             response.raise_for_status()
             
