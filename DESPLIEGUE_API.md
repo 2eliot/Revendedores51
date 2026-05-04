@@ -132,6 +132,26 @@ Debería devolver error 401.
 - `GET` con `usuario` y `clave` en la URL se mantiene solo por compatibilidad legado
 - Para integraciones nuevas se recomienda `POST` o `Authorization: Basic`
 
+## 📈 **FASE DE OBSERVABILIDAD PARA MIGRACIÓN**
+
+Cada llamada a `api.php` ahora registra el transporte de autenticación usado sin exponer la clave:
+
+```text
+[API Simple] transport=query-string method=GET usuario=te**@example.com ip=203.0.113.5 ua=LegacyClient/1.0
+```
+
+En producción puedes revisar estos eventos con:
+
+```bash
+journalctl -u web-b-revendedores.service -n 200 --no-pager | grep "\[API Simple\]"
+```
+
+Valores esperados en `transport`:
+- `query-string`: cliente legado enviando `usuario` y `clave` en la URL
+- `form-body`: cliente nuevo usando `POST` con formulario
+- `json-body`: cliente nuevo usando `POST` JSON
+- `authorization-basic`: cliente nuevo usando `Authorization: Basic`
+
 ## 🎯 **PRÓXIMOS PASOS DESPUÉS DEL DESPLIEGUE**
 1. Probar la API con usuarios reales
 2. Monitorear logs de errores

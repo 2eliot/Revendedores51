@@ -77,6 +77,50 @@ def _mask_log_token(value: str, *, visible_start: int = 4, visible_end: int = 4)
     return f"{raw[:visible_start]}...{raw[-visible_end:]}"
 
 
+def _mask_log_email(value: str) -> str:
+    raw = str(value or '').strip()
+    if not raw:
+        return ''
+    if '@' not in raw:
+        return _mask_log_token(raw, visible_start=2, visible_end=2)
+
+    local_part, _, domain = raw.partition('@')
+    if len(local_part) <= 2:
+        masked_local = '*' * len(local_part)
+    else:
+        masked_local = f"{local_part[:2]}{'*' * max(len(local_part) - 2, 1)}"
+
+    return f"{masked_local}@{domain}"
+
+
+def _get_request_client_ip() -> str:
+    forwarded_for = (request.headers.get('X-Forwarded-For') or '').strip()
+    if forwarded_for:
+        return forwarded_for.split(',')[0].strip()
+
+    real_ip = (request.headers.get('X-Real-IP') or '').strip()
+    if real_ip:
+        return real_ip
+
+    return str(request.remote_addr or '').strip()
+
+
+def _log_api_simple_transport_usage(params: dict) -> None:
+    sources = params.get('sources') or {}
+    user_agent = (request.headers.get('User-Agent') or '').strip()
+    if len(user_agent) > 120:
+        user_agent = f"{user_agent[:117]}..."
+
+    app.logger.info(
+        '[API Simple] transport=%s method=%s usuario=%s ip=%s ua=%s',
+        sources.get('credentials') or 'unknown',
+        request.method,
+        _mask_log_email(params.get('usuario', '')),
+        _get_request_client_ip(),
+        user_agent or '-',
+    )
+
+
 def _b64url_encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode('utf-8').rstrip('=')
 
@@ -11020,6 +11064,8 @@ def api_simple_endpoint():
         tipo = params['tipo']
         monto = params['monto']
         numero = params['numero']
+
+        _log_api_simple_transport_usage(params)
 
         if params['sources']['credentials'] == 'query-string':
             app.logger.warning(
