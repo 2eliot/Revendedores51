@@ -1214,6 +1214,7 @@
           </div>
           <div class="package-forms">
             <form class="package-form collapse" id="ind-form-${pkg.id}" onsubmit="return submitPinAjax(event, this, '/admin/add_pin')">
+              ${adminCsrfHiddenInput()}
               <input type="hidden" name="game_type" value="${game}">
               <input type="hidden" name="monto_id" value="${pkg.id}">
               <label>Código individual</label>
@@ -1222,6 +1223,7 @@
               <span class="pin-ajax-status" style="font-size:11px;margin-left:6px;"></span>
             </form>
             <form class="package-form collapse" id="batch-form-${pkg.id}" onsubmit="return submitPinAjax(event, this, '/admin/add_pins_batch')">
+              ${adminCsrfHiddenInput()}
               <input type="hidden" name="game_type" value="${game}">
               <input type="hidden" name="batch_monto_id" value="${pkg.id}">
               <label>Lote (máx 10)</label>

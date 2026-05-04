@@ -5667,6 +5667,7 @@ def admin_pins_list():
 
 
 @app.route('/admin/delete_pins_batch', methods=['POST'])
+@csrf_protect('/admin/pins')
 def admin_delete_pins_batch():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -5683,6 +5684,7 @@ def admin_delete_pins_batch():
     return redirect(f'/admin/pins?game={game}&estado={"unused" if only_unused else "all"}')
 
 @app.route('/admin/delete_pins', methods=['POST'])
+@csrf_protect('/admin/pins')
 def admin_delete_pins():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -5786,6 +5788,7 @@ def admin_toggle_bono_activo():
     return redirect('/admin')
 
 @app.route('/admin/add_pin', methods=['POST'])
+@csrf_protect('/admin')
 def admin_add_pin():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -5824,6 +5827,7 @@ def admin_add_pin():
     return redirect('/admin')
 
 @app.route('/admin/add_pins_batch', methods=['POST'])
+@csrf_protect('/admin')
 def admin_add_pins_batch():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -5878,6 +5882,7 @@ def admin_add_pins_batch():
     return redirect('/admin')
 
 @app.route('/admin/remove_duplicates', methods=['POST'])
+@csrf_protect('/admin')
 def admin_remove_duplicates():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -5895,6 +5900,7 @@ def admin_remove_duplicates():
     return redirect('/admin')
 
 @app.route('/admin/update_price', methods=['POST'])
+@csrf_protect('/admin')
 def admin_update_price():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -5934,6 +5940,7 @@ def admin_update_price():
     return redirect('/admin')
 
 @app.route('/admin/update_name', methods=['POST'])
+@csrf_protect('/admin')
 def admin_update_name():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -7055,6 +7062,7 @@ def admin_bloodstriker_transactions():
     return render_template('admin_bloodstriker.html', transactions=pending_transactions)
 
 @app.route('/admin/bloodstriker_approve', methods=['POST'])
+@csrf_protect('/admin/bloodstriker_transactions')
 def admin_bloodstriker_approve():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -7072,6 +7080,7 @@ def admin_bloodstriker_approve():
     return redirect('/admin/bloodstriker_transactions')
 
 @app.route('/admin/bloodstriker_reject', methods=['POST'])
+@csrf_protect('/admin/bloodstriker_transactions')
 def admin_bloodstriker_reject():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -7104,6 +7113,7 @@ def admin_bloodstriker_reject():
     return redirect('/admin/bloodstriker_transactions')
 
 @app.route('/admin/update_bloodstriker_price', methods=['POST'])
+@csrf_protect('/admin')
 def admin_update_bloodstriker_price():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -7143,6 +7153,7 @@ def admin_update_bloodstriker_price():
     return redirect('/admin')
 
 @app.route('/admin/update_bloodstriker_name', methods=['POST'])
+@csrf_protect('/admin')
 def admin_update_bloodstriker_name():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -7550,6 +7561,7 @@ def admin_gameclub_price_health():
 
 
 @app.route('/admin/update_freefire_global_price', methods=['POST'])
+@csrf_protect('/admin')
 def admin_update_freefire_global_price():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -7589,6 +7601,7 @@ def admin_update_freefire_global_price():
     return redirect('/admin')
 
 @app.route('/admin/update_freefire_global_name', methods=['POST'])
+@csrf_protect('/admin')
 def admin_update_freefire_global_name():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -8227,6 +8240,7 @@ def admin_freefire_id_transactions():
     return render_template('admin_freefire_id.html', transactions=pending_transactions)
 
 @app.route('/admin/freefire_id_approve', methods=['POST'])
+@csrf_protect('/admin/freefire_id_transactions')
 def admin_freefire_id_approve():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -8253,6 +8267,7 @@ def admin_freefire_id_approve():
     return redirect('/admin/freefire_id_transactions')
 
 @app.route('/admin/freefire_id_reject', methods=['POST'])
+@csrf_protect('/admin/freefire_id_transactions')
 def admin_freefire_id_reject():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -8282,6 +8297,7 @@ def admin_freefire_id_reject():
     return redirect('/admin/freefire_id_transactions')
 
 @app.route('/admin/update_freefire_id_price', methods=['POST'])
+@csrf_protect('/admin')
 def admin_update_freefire_id_price():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -8319,6 +8335,7 @@ def admin_update_freefire_id_price():
     return redirect('/admin')
 
 @app.route('/admin/update_freefire_id_name', methods=['POST'])
+@csrf_protect('/admin')
 def admin_update_freefire_id_name():
     if not session.get('is_admin'):
         flash('Acceso denegado. Solo administradores.', 'error')
@@ -9297,6 +9314,7 @@ def admin_delete_news():
 # ============= RUTAS PARA GESTIÓN DE RENTABILIDAD =============
 
 @app.route('/admin/update_purchase_price', methods=['POST'])
+@csrf_protect('/admin')
 def admin_update_purchase_price():
     """Actualiza el precio de compra de un paquete - Compatible con Render"""
     if not session.get('is_admin'):
@@ -9404,6 +9422,7 @@ def admin_weekly_sales():
         return redirect('/admin')
 
 @app.route('/admin/clean_weekly_sales', methods=['POST'])
+@csrf_protect('/admin/weekly_sales')
 def admin_clean_weekly_sales():
     """Limpia manualmente las ventas semanales antiguas"""
     if not session.get('is_admin'):
@@ -9422,6 +9441,7 @@ def admin_clean_weekly_sales():
     return redirect('/admin')
 
 @app.route('/admin/reset_all_weekly_sales', methods=['POST'])
+@csrf_protect('/admin/weekly_sales')
 def admin_reset_all_weekly_sales():
     """Resetea TODAS las estadísticas de ventas semanales (elimina todos los registros)"""
     if not session.get('is_admin'):

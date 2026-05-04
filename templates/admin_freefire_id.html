@@ -197,7 +197,7 @@
                         
                         <div class="info-item">
                             <div class="info-label">Monto</div>
-                            <div class="info-value">${{ "%.2f"|format(abs(transaction.monto)) }}</div>
+                            <div class="info-value">${{ "%.2f"|format((transaction.monto or 0)|abs) }}</div>
                         </div>
                         
                         <div class="info-item">
@@ -214,6 +214,7 @@
                 
                 <div class="transaction-actions">
                     <form method="POST" action="/admin/freefire_id_approve" style="display: inline-block;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="transaction_id" value="{{ transaction.id }}">
                         <textarea name="notas" placeholder="Notas de aprobación (opcional)" class="notes-textarea" style="width: 300px; margin-right: 10px;"></textarea>
                         <button type="submit" class="btn-approve" onclick="return confirm('¿Confirmar aprobación de esta recarga?')">
@@ -222,6 +223,7 @@
                     </form>
                     
                     <form method="POST" action="/admin/freefire_id_reject" style="display: inline-block;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="transaction_id" value="{{ transaction.id }}">
                         <textarea name="notas" placeholder="Motivo del rechazo" class="notes-textarea" style="width: 300px; margin-right: 10px;" required></textarea>
                         <button type="submit" class="btn-reject" onclick="return confirm('¿Confirmar rechazo? Se devolverá el saldo al usuario.')">

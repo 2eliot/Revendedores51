@@ -324,6 +324,7 @@
             
             <form method="POST" action="{{ url_for('clean_weekly_sales') }}" class="cleanup-form" 
                   onsubmit="return confirm('¿Estás seguro de que deseas eliminar todos los datos de ventas semanales? Esta acción no se puede deshacer.')">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="cleanup-button">🗑️ Limpiar Datos Antiguos</button>
             </form>
         </div>

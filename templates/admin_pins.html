@@ -48,6 +48,7 @@
 
       <div style="display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap;">
         <form method="POST" action="/admin/delete_pins_batch" onsubmit="return confirm('¿Eliminar el lote seleccionado? Esta acción no se puede deshacer.');" style="display:flex; gap:8px; align-items:center;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="game" value="{{ game }}">
           <input type="hidden" name="estado" value="{% if only_unused %}unused{% else %}all{% endif %}">
           <select name="batch_id" required>
@@ -64,6 +65,7 @@
       </div>
 
       <form method="POST" action="/admin/delete_pins" onsubmit="return confirm('¿Eliminar los pines seleccionados? Esta acción no se puede deshacer.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="game" value="{{ game }}">
         <div class="users-table-container">
           <table class="users-table">
