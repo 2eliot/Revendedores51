@@ -230,6 +230,106 @@
     .recarga-history-right {
       text-align: right;
     }
+    .history-switch-wrap {
+      text-align: center;
+      margin-top: 28px;
+    }
+    .history-switch {
+      display: inline-flex;
+      gap: 8px;
+      padding: 6px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 999px;
+      margin: 8px auto 18px;
+    }
+    .history-switch-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 150px;
+      padding: 10px 16px;
+      border-radius: 999px;
+      color: #9fb0c4;
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 700;
+      transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+    }
+    .history-switch-btn:hover {
+      color: #ffffff;
+      transform: translateY(-1px);
+    }
+    .history-switch-btn.active {
+      background: linear-gradient(90deg, #f59e0b, #f97316);
+      color: #111827;
+      box-shadow: 0 8px 18px rgba(249,115,22,0.24);
+    }
+    .history-panel {
+      margin-top: 10px;
+    }
+    .history-summary {
+      color: #7f8ea3;
+      font-size: 0.84rem;
+      text-align: center;
+      margin: 0 0 14px;
+    }
+    .credit-badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 0.74rem;
+      font-weight: 700;
+      background: rgba(59,130,246,0.14);
+      color: #7cc8ff;
+      border: 1px solid rgba(124,200,255,0.22);
+    }
+    .history-pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 18px;
+      flex-wrap: wrap;
+    }
+    .history-pagination-link {
+      min-width: 110px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.04);
+      color: #e5edf6;
+      text-decoration: none;
+      text-align: center;
+      font-size: 0.86rem;
+      transition: background 0.2s ease, border-color 0.2s ease;
+    }
+    .history-pagination-link:hover {
+      background: rgba(255,255,255,0.08);
+      border-color: rgba(255,255,255,0.18);
+    }
+    .history-pagination-status {
+      color: #a9b6c7;
+      font-size: 0.84rem;
+      min-width: 120px;
+      text-align: center;
+    }
+    @media (max-width: 640px) {
+      .history-switch {
+        display: flex;
+        width: 100%;
+      }
+      .history-switch-btn {
+        min-width: 0;
+        flex: 1;
+        padding: 10px 12px;
+        font-size: 0.82rem;
+      }
+      .history-pagination-link {
+        min-width: 0;
+        flex: 1 1 140px;
+      }
+    }
     .rec-status {
       display: inline-block;
       padding: 3px 10px;
@@ -451,69 +551,109 @@
         </div>
       </div>
 
-      <!-- Historial de recargas -->
-      {% if recargas_historial %}
-        <h3 class="historial-title">Historial de recargas</h3>
-        {% for recarga in recargas_historial %}
-          <div class="recarga-history-card">
-            <div class="recarga-history-left">
-              <div class="rec-code">{{ recarga.codigo_referencia }}</div>
-              <div class="rec-meta">
-                Monto: {{ "%.2f"|format(recarga.monto_solicitado) }} USDT
-                <br>{{ recarga.fecha_creacion|format_date }}
+      <div class="history-switch-wrap">
+        <h3 class="historial-title">Historial de billetera</h3>
+        <div class="history-switch">
+          <a class="history-switch-btn {% if active_history_tab == 'binance' %}active{% endif %}" href="{{ url_for('billetera', tab='binance', binance_page=recargas_pagination.page, credit_page=wallet_credits_pagination.page) }}">Binance Pay</a>
+          <a class="history-switch-btn {% if active_history_tab == 'credito' %}active{% endif %}" href="{{ url_for('billetera', tab='credito', binance_page=recargas_pagination.page, credit_page=wallet_credits_pagination.page) }}">Credito anadido</a>
+        </div>
+      </div>
+
+      {% if active_history_tab == 'binance' %}
+        <section class="history-panel">
+          <p class="history-summary">Solo se muestran las recargas creadas por Binance Pay.</p>
+          {% if recargas_historial %}
+            {% for recarga in recargas_historial %}
+              <div class="recarga-history-card">
+                <div class="recarga-history-left">
+                  <div class="rec-code">{{ recarga.codigo_referencia }}</div>
+                  <div class="rec-meta">
+                    Monto: {{ "%.2f"|format(recarga.monto_solicitado) }} USDT
+                    {% if recarga.bonus and recarga.bonus > 0 %}<br>Credito total: {{ "%.2f"|format(recarga.monto_solicitado + recarga.bonus) }} USDT{% endif %}
+                    <br>{{ recarga.fecha_creacion|format_date }}
+                  </div>
+                </div>
+                <div class="recarga-history-right">
+                  {% if recarga.estado == 'completada' %}
+                    <span class="rec-status rec-status-completada">Completada</span>
+                  {% elif recarga.estado == 'pendiente' %}
+                    <span class="rec-status rec-status-pendiente">Pendiente</span>
+                  {% else %}
+                    <span class="rec-status rec-status-expirada">Expirada</span>
+                  {% endif %}
+                </div>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="no-transactions">
+              <div class="empty-state">
+                <svg class="empty-icon" viewBox="0 0 24 24">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                </svg>
+                <p>No hay recargas Binance Pay en tu historial</p>
               </div>
             </div>
-            <div class="recarga-history-right">
-              {% if recarga.estado == 'completada' %}
-                <span class="rec-status rec-status-completada">Completada</span>
-              {% elif recarga.estado == 'pendiente' %}
-                <span class="rec-status rec-status-pendiente">Pendiente</span>
-              {% else %}
-                <span class="rec-status rec-status-expirada">Expirada</span>
-              {% endif %}
-            </div>
+          {% endif %}
+
+          <div class="history-pagination">
+            {% if recargas_pagination.has_prev %}
+              <a class="history-pagination-link" href="{{ url_for('billetera', tab='binance', binance_page=recargas_pagination.prev_num, credit_page=wallet_credits_pagination.page) }}">Anterior</a>
+            {% endif %}
+            <span class="history-pagination-status">Pagina {{ recargas_pagination.page }} de {{ recargas_pagination.total_pages }}</span>
+            {% if recargas_pagination.has_next %}
+              <a class="history-pagination-link" href="{{ url_for('billetera', tab='binance', binance_page=recargas_pagination.next_num, credit_page=wallet_credits_pagination.page) }}">Siguiente</a>
+            {% endif %}
           </div>
-        {% endfor %}
+        </section>
+      {% else %}
+        <section class="transactions history-panel">
+          <p class="history-summary">Solo se muestran creditos agregados manualmente a tu billetera.</p>
+          <div class="transaction-container">
+            {% if wallet_credits %}
+              {% for credit in wallet_credits %}
+              <div class="transaction-card-simple">
+                <div class="transaction-row">
+                  <div class="transaction-main">
+                    <div class="control-status">
+                      <span class="control-num">Credito</span>
+                      <span class="credit-badge">Anadido</span>
+                    </div>
+                    <div class="package-cost">
+                      <span class="package">Saldo agregado</span>
+                      <span class="cost">${{ "%.2f"|format(credit.monto) }}</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="transaction-footer">
+                  <span class="date-simple">{{ credit.fecha|format_date }}</span>
+                  <span class="user-simple">{{ session.get('nombre', '') }} {{ session.get('apellido', '') }}</span>
+                </div>
+              </div>
+              {% endfor %}
+            {% else %}
+              <div class="no-transactions">
+                <div class="empty-state">
+                  <svg class="empty-icon" viewBox="0 0 24 24">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                  </svg>
+                  <p>No hay creditos agregados en tu billetera</p>
+                </div>
+              </div>
+            {% endif %}
+          </div>
+
+          <div class="history-pagination">
+            {% if wallet_credits_pagination.has_prev %}
+              <a class="history-pagination-link" href="{{ url_for('billetera', tab='credito', binance_page=recargas_pagination.page, credit_page=wallet_credits_pagination.prev_num) }}">Anterior</a>
+            {% endif %}
+            <span class="history-pagination-status">Pagina {{ wallet_credits_pagination.page }} de {{ wallet_credits_pagination.total_pages }}</span>
+            {% if wallet_credits_pagination.has_next %}
+              <a class="history-pagination-link" href="{{ url_for('billetera', tab='credito', binance_page=recargas_pagination.page, credit_page=wallet_credits_pagination.next_num) }}">Siguiente</a>
+            {% endif %}
+          </div>
+        </section>
       {% endif %}
     </div>
-
-    <!-- Créditos de billetera para usuario normal -->
-    <section class="transactions">
-      <h2 class="transaction-title">Creditos Recibidos</h2>
-      <div class="transaction-container">
-        {% if wallet_credits %}
-          {% for credit in wallet_credits %}
-          <div class="transaction-card-simple">
-            <div class="transaction-row">
-              <div class="transaction-main">
-                <div class="control-status">
-                  <span class="control-num">Credito</span>
-                  <span class="status-simple">OK</span>
-                </div>
-                <div class="package-cost">
-                  <span class="package">Saldo agregado</span>
-                  <span class="cost">${{ "%.2f"|format(credit.monto) }}</span>
-                </div>
-              </div>
-            </div>
-            <div class="transaction-footer">
-              <span class="date-simple">{{ credit.fecha|format_date }}</span>
-              <span class="user-simple">{{ session.get('nombre', '') }} {{ session.get('apellido', '') }}</span>
-            </div>
-          </div>
-          {% endfor %}
-        {% else %}
-          <div class="no-transactions">
-            <div class="empty-state">
-              <svg class="empty-icon" viewBox="0 0 24 24">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-              </svg>
-              <p>No hay creditos registrados en tu billetera</p>
-            </div>
-          </div>
-        {% endif %}
-      </div>
-    </section>
   {% endif %}
 
   <script>

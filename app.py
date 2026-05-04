@@ -1698,60 +1698,112 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
 def get_user_wallet_credits(user_id):
     """Obtiene los créditos de billetera de un usuario"""
     conn = get_db_connection()
-    # Crear tabla si no existe
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS creditos_billetera (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            usuario_id INTEGER,
-            monto REAL DEFAULT 0.0,
-            fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
-            visto BOOLEAN DEFAULT FALSE,
-            FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
-        )
-    ''')
+    _ensure_creditos_billetera_schema(conn)
     
     credits = conn.execute('''
         SELECT * FROM creditos_billetera 
-        WHERE usuario_id = ? 
+        WHERE usuario_id = ? AND COALESCE(origen, 'manual') = 'manual'
         ORDER BY fecha DESC
     ''', (user_id,)).fetchall()
     conn.close()
     return credits
 
-def get_all_wallet_credits():
-    """Obtiene todos los créditos de billetera del sistema para el admin"""
-    conn = get_db_connection()
-    # Crear tabla si no existe
+def _ensure_creditos_billetera_schema(conn):
+    """Garantiza columnas de compatibilidad y separa creditos manuales de Binance."""
     conn.execute('''
         CREATE TABLE IF NOT EXISTS creditos_billetera (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             usuario_id INTEGER,
             monto REAL DEFAULT 0.0,
+            saldo_anterior REAL DEFAULT 0.0,
             fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
             visto BOOLEAN DEFAULT FALSE,
+            origen TEXT DEFAULT 'manual',
             FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
         )
     ''')
-    
-    # Agregar columna 'visto' si no existe (para compatibilidad con datos existentes)
+
+    for statement in (
+        "ALTER TABLE creditos_billetera ADD COLUMN visto BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE creditos_billetera ADD COLUMN saldo_anterior REAL DEFAULT 0.0",
+        "ALTER TABLE creditos_billetera ADD COLUMN origen TEXT DEFAULT 'manual'"
+    ):
+        try:
+            conn.execute(statement)
+            conn.commit()
+        except Exception:
+            pass
+
     try:
-        conn.execute('ALTER TABLE creditos_billetera ADD COLUMN visto BOOLEAN DEFAULT FALSE')
+        conn.execute('''
+            UPDATE creditos_billetera
+            SET origen = 'binance'
+            WHERE COALESCE(origen, 'manual') != 'binance'
+              AND EXISTS (
+                  SELECT 1
+                  FROM recargas_binance rb
+                  WHERE rb.usuario_id = creditos_billetera.usuario_id
+                    AND rb.estado = 'completada'
+                    AND ABS((rb.monto_solicitado + COALESCE(rb.bonus, 0)) - creditos_billetera.monto) < 0.0001
+                    AND ABS(strftime('%s', COALESCE(rb.fecha_completada, rb.fecha_creacion)) - strftime('%s', creditos_billetera.fecha)) <= 120
+              )
+        ''')
         conn.commit()
-    except:
-        pass  # La columna ya existe
-    
-    # Agregar columna 'saldo_anterior' si no existe (para compatibilidad con datos existentes)
-    try:
-        conn.execute('ALTER TABLE creditos_billetera ADD COLUMN saldo_anterior REAL DEFAULT 0.0')
-        conn.commit()
-    except:
-        pass  # La columna ya existe
+    except Exception:
+        pass
+
+def _build_pagination(page, per_page, total):
+    total_pages = max(1, (total + per_page - 1) // per_page) if total else 1
+    current_page = min(max(page, 1), total_pages)
+    return {
+        'page': current_page,
+        'per_page': per_page,
+        'total': total,
+        'total_pages': total_pages,
+        'has_prev': current_page > 1,
+        'has_next': current_page < total_pages,
+        'prev_num': current_page - 1 if current_page > 1 else None,
+        'next_num': current_page + 1 if current_page < total_pages else None
+    }
+
+def get_user_wallet_credits_paginated(user_id, page=1, per_page=10):
+    """Obtiene créditos manuales de billetera de un usuario con paginación."""
+    conn = get_db_connection()
+    _ensure_creditos_billetera_schema(conn)
+
+    total = conn.execute('''
+        SELECT COUNT(*)
+        FROM creditos_billetera
+        WHERE usuario_id = ? AND COALESCE(origen, 'manual') = 'manual'
+    ''', (user_id,)).fetchone()[0]
+    pagination = _build_pagination(page, per_page, total)
+    offset = (pagination['page'] - 1) * per_page
+
+    credits = conn.execute('''
+        SELECT *
+        FROM creditos_billetera
+        WHERE usuario_id = ? AND COALESCE(origen, 'manual') = 'manual'
+        ORDER BY fecha DESC
+        LIMIT ? OFFSET ?
+    ''', (user_id, per_page, offset)).fetchall()
+    conn.close()
+
+    return {
+        'items': credits,
+        'pagination': pagination
+    }
+
+def get_all_wallet_credits():
+    """Obtiene todos los créditos de billetera del sistema para el admin"""
+    conn = get_db_connection()
+    _ensure_creditos_billetera_schema(conn)
     
     try:
         credits = conn.execute('''
             SELECT cb.*, u.nombre, u.apellido, u.correo 
             FROM creditos_billetera cb
             JOIN usuarios u ON cb.usuario_id = u.id
+            WHERE COALESCE(cb.origen, 'manual') = 'manual'
             ORDER BY cb.fecha DESC
             LIMIT 100
         ''').fetchall()
@@ -1765,34 +1817,29 @@ def get_all_wallet_credits():
 def get_wallet_credits_stats():
     """Obtiene estadísticas de créditos de billetera para el admin"""
     conn = get_db_connection()
-    # Crear tabla si no existe
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS creditos_billetera (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            usuario_id INTEGER,
-            monto REAL DEFAULT 0.0,
-            fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
-            visto BOOLEAN DEFAULT FALSE,
-            FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
-        )
-    ''')
+    _ensure_creditos_billetera_schema(conn)
     
     try:
         # Total de créditos agregados
         total_credits = conn.execute('''
-            SELECT COALESCE(SUM(monto), 0) as total FROM creditos_billetera
+            SELECT COALESCE(SUM(monto), 0) as total
+            FROM creditos_billetera
+            WHERE COALESCE(origen, 'manual') = 'manual'
         ''').fetchone()['total']
         
         # Créditos agregados hoy
         today_credits = conn.execute('''
             SELECT COALESCE(SUM(monto), 0) as today_total 
             FROM creditos_billetera 
-            WHERE DATE(fecha) = DATE('now')
+                        WHERE DATE(fecha) = DATE('now')
+                            AND COALESCE(origen, 'manual') = 'manual'
         ''').fetchone()['today_total']
         
         # Número de usuarios que han recibido créditos
         users_with_credits = conn.execute('''
-            SELECT COUNT(DISTINCT usuario_id) as count FROM creditos_billetera
+            SELECT COUNT(DISTINCT usuario_id) as count
+            FROM creditos_billetera
+            WHERE COALESCE(origen, 'manual') = 'manual'
         ''').fetchone()['count']
         
         conn.close()
@@ -1813,28 +1860,13 @@ def get_wallet_credits_stats():
 def get_unread_wallet_credits_count(user_id):
     """Obtiene si hay créditos de billetera no vistos (retorna 1 si hay, 0 si no hay)"""
     conn = get_db_connection()
-    # Crear tabla si no existe
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS creditos_billetera (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            usuario_id INTEGER,
-            monto REAL DEFAULT 0.0,
-            fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
-            visto BOOLEAN DEFAULT FALSE,
-            FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
-        )
-    ''')
-    
-    # Agregar columna 'visto' si no existe (para compatibilidad con datos existentes)
-    try:
-        conn.execute('ALTER TABLE creditos_billetera ADD COLUMN visto BOOLEAN DEFAULT FALSE')
-        conn.commit()
-    except:
-        pass  # La columna ya existe
+    _ensure_creditos_billetera_schema(conn)
     
     count = conn.execute('''
         SELECT COUNT(*) FROM creditos_billetera 
-        WHERE usuario_id = ? AND (visto = FALSE OR visto IS NULL)
+        WHERE usuario_id = ?
+          AND (visto = FALSE OR visto IS NULL)
+          AND COALESCE(origen, 'manual') = 'manual'
     ''', (user_id,)).fetchone()[0]
     conn.close()
     
@@ -1844,29 +1876,13 @@ def get_unread_wallet_credits_count(user_id):
 def mark_wallet_credits_as_read(user_id):
     """Marca todos los créditos de billetera como vistos"""
     conn = get_db_connection()
-    # Crear tabla si no existe
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS creditos_billetera (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            usuario_id INTEGER,
-            monto REAL DEFAULT 0.0,
-            fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
-            visto BOOLEAN DEFAULT FALSE,
-            FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
-        )
-    ''')
-    
-    # Agregar columna 'visto' si no existe
-    try:
-        conn.execute('ALTER TABLE creditos_billetera ADD COLUMN visto BOOLEAN DEFAULT FALSE')
-        conn.commit()
-    except:
-        pass  # La columna ya existe
+    _ensure_creditos_billetera_schema(conn)
     
     conn.execute('''
         UPDATE creditos_billetera 
         SET visto = TRUE 
         WHERE usuario_id = ?
+          AND COALESCE(origen, 'manual') = 'manual'
     ''', (user_id,))
     conn.commit()
     conn.close()
@@ -2209,11 +2225,12 @@ def verificar_recarga_binance(recarga_id, _binance_tx_kwargs=None):
                 # Acreditar saldo al usuario (atómico, misma transacción)
                 saldo_row = conn2.execute('SELECT saldo FROM usuarios WHERE id = ?', (usuario_id,)).fetchone()
                 saldo_anterior = saldo_row['saldo'] if saldo_row else 0.0
+                _ensure_creditos_billetera_schema(conn2)
                 conn2.execute('UPDATE usuarios SET saldo = saldo + ? WHERE id = ?', (monto_total, usuario_id))
                 conn2.execute('''
-                    INSERT INTO creditos_billetera (usuario_id, monto, saldo_anterior)
-                    VALUES (?, ?, ?)
-                ''', (usuario_id, monto_total, saldo_anterior))
+                    INSERT INTO creditos_billetera (usuario_id, monto, saldo_anterior, origen)
+                    VALUES (?, ?, ?, ?)
+                ''', (usuario_id, monto_total, saldo_anterior, 'binance'))
 
                 conn2.commit()
                 conn2.close()
@@ -2347,6 +2364,32 @@ def get_recargas_usuario(user_id, limit=20):
     ''', (user_id, limit)).fetchall()
     conn.close()
     return [_recarga_to_dict(r) for r in recargas]
+
+def get_recargas_usuario_paginated(user_id, page=1, per_page=10):
+    """Obtiene el historial de recargas Binance de un usuario con paginación."""
+    _ensure_recargas_table()
+    conn = get_db_connection()
+    total = conn.execute('''
+        SELECT COUNT(*)
+        FROM recargas_binance
+        WHERE usuario_id = ?
+    ''', (user_id,)).fetchone()[0]
+    pagination = _build_pagination(page, per_page, total)
+    offset = (pagination['page'] - 1) * per_page
+
+    recargas = conn.execute('''
+        SELECT *
+        FROM recargas_binance
+        WHERE usuario_id = ?
+        ORDER BY fecha_creacion DESC
+        LIMIT ? OFFSET ?
+    ''', (user_id, per_page, offset)).fetchall()
+    conn.close()
+
+    return {
+        'items': [_recarga_to_dict(r) for r in recargas],
+        'pagination': pagination
+    }
 
 def get_recarga_pendiente(user_id):
     """Obtiene la recarga pendiente activa de un usuario (si existe)"""
@@ -3227,6 +3270,8 @@ def add_credit_to_user(user_id, amount):
     except:
         pass  # La columna ya existe
     
+    _ensure_creditos_billetera_schema(conn)
+
     # Obtener saldo actual del usuario antes de agregar el crédito
     user_data = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
     saldo_anterior = user_data['saldo'] if user_data else 0.0
@@ -3236,9 +3281,9 @@ def add_credit_to_user(user_id, amount):
     
     # Registrar en créditos de billetera (monto, fecha y saldo anterior)
     conn.execute('''
-        INSERT INTO creditos_billetera (usuario_id, monto, saldo_anterior)
-        VALUES (?, ?, ?)
-    ''', (user_id, amount, saldo_anterior))
+        INSERT INTO creditos_billetera (usuario_id, monto, saldo_anterior, origen)
+        VALUES (?, ?, ?, ?)
+    ''', (user_id, amount, saldo_anterior, 'manual'))
     
     # Limitar créditos de billetera a 10 por usuario - eliminar los más antiguos si hay más de 10
     conn.execute('''
@@ -5833,16 +5878,30 @@ def billetera():
         if not user_id:
             flash('Error al acceder a la billetera', 'error')
             return redirect('/')
+
+        active_tab = request.args.get('tab', 'binance')
+        if active_tab not in ('binance', 'credito'):
+            active_tab = 'binance'
+
+        try:
+            binance_page = max(1, int(request.args.get('binance_page', 1)))
+        except (TypeError, ValueError):
+            binance_page = 1
+
+        try:
+            credit_page = max(1, int(request.args.get('credit_page', 1)))
+        except (TypeError, ValueError):
+            credit_page = 1
         
         # Marcar todas las notificaciones de cartera como vistas
         mark_wallet_credits_as_read(user_id)
         
         # Obtener créditos de billetera del usuario
-        wallet_credits = get_user_wallet_credits(user_id)
+        wallet_credits_data = get_user_wallet_credits_paginated(user_id, page=credit_page, per_page=10)
         
         # Obtener recarga pendiente y historial de recargas
         recarga_pendiente = get_recarga_pendiente(user_id)
-        recargas_historial = get_recargas_usuario(user_id)
+        recargas_historial_data = get_recargas_usuario_paginated(user_id, page=binance_page, per_page=10)
         
         # Actualizar saldo
         conn = get_db_connection()
@@ -5852,12 +5911,15 @@ def billetera():
         conn.close()
         
         return render_template('billetera.html', 
-                             wallet_credits=wallet_credits, 
+                             wallet_credits=wallet_credits_data['items'],
+                             wallet_credits_pagination=wallet_credits_data['pagination'],
                              user_id=session.get('id', '00000'),
                              balance=session.get('saldo', 0),
                              is_admin=False,
                              recarga_pendiente=recarga_pendiente,
-                             recargas_historial=recargas_historial,
+                             recargas_historial=recargas_historial_data['items'],
+                             recargas_pagination=recargas_historial_data['pagination'],
+                             active_history_tab=active_tab,
                              binance_pay_id=BINANCE_PAY_ID,
                              recarga_min=RECARGA_MIN_USDT,
                              recarga_max=RECARGA_MAX_USDT,

@@ -50,8 +50,10 @@ CREATE TABLE IF NOT EXISTS creditos_billetera (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     usuario_id INTEGER,
     monto REAL DEFAULT 0.0,
+    saldo_anterior REAL DEFAULT 0.0,
     fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
     visto BOOLEAN DEFAULT FALSE,
+    origen TEXT DEFAULT 'manual',
     FOREIGN KEY(usuario_id) REFERENCES usuarios(id)
 )
 ''')
