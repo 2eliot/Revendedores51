@@ -3699,17 +3699,37 @@ def _resolve_whitelabel_api_user_id():
     return None, 'Configura WEBB_API_USER_ID o WEBB_API_USER_EMAIL con el usuario de Revendedores que debe recibir estas órdenes'
 
 
-def _get_request_api_key():
+def _get_request_api_key_details():
+    auth_header = (request.headers.get('Authorization') or '').strip()
+    if auth_header.lower().startswith('bearer '):
+        bearer_key = auth_header[7:].strip()
+        if bearer_key:
+            return bearer_key, 'authorization-bearer'
+
+    header_key = (request.headers.get('X-API-Key') or '').strip()
+    if header_key:
+        return header_key, 'x-api-key-header'
+
     json_data = request.get_json(silent=True) or {}
     if not isinstance(json_data, dict):
         json_data = {}
-    return (
-        request.headers.get('X-API-Key')
-        or request.args.get('api_key')
-        or request.form.get('api_key')
-        or json_data.get('api_key')
-        or ''
-    ).strip()
+
+    legacy_candidates = (
+        ('query-parameter', request.args.get('api_key')),
+        ('form-field', request.form.get('api_key')),
+        ('json-body', json_data.get('api_key')),
+    )
+    for source, raw_value in legacy_candidates:
+        normalized = str(raw_value or '').strip()
+        if normalized:
+            return normalized, source
+
+    return '', ''
+
+
+def _get_request_api_key():
+    api_key, _auth_source = _get_request_api_key_details()
+    return api_key
 
 
 def _find_whitelabel_account_by_key(api_key: str):
@@ -3734,14 +3754,22 @@ def _find_whitelabel_account_by_key(api_key: str):
 
 
 def _resolve_whitelabel_api_context(*, require_user: bool = True):
-    req_key = _get_request_api_key()
+    req_key, auth_source = _get_request_api_key_details()
     if not req_key:
         return None, 'API key requerida', 401
+
+    if auth_source in {'query-parameter', 'form-field', 'json-body'}:
+        logger.warning(
+            '[Whitelabel API] API key recibida por canal legado (%s). '
+            'Se recomienda usar X-API-Key o Authorization: Bearer.',
+            auth_source,
+        )
 
     account = _find_whitelabel_account_by_key(req_key)
     if account:
         ctx = {
             'api_key': req_key,
+            'auth_source': auth_source,
             'account_id': int(account['id']),
             'account_name': str(account.get('nombre') or ''),
             'user_id': int(account['usuario_id']),
@@ -3752,7 +3780,14 @@ def _resolve_whitelabel_api_context(*, require_user: bool = True):
     env_key = os.environ.get('WEBB_API_KEY', '').strip()
     if env_key and req_key == env_key:
         if not require_user:
-            return {'api_key': req_key, 'account_id': None, 'account_name': 'legacy-env', 'user_id': None, 'legacy': True}, '', 200
+            return {
+                'api_key': req_key,
+                'auth_source': auth_source,
+                'account_id': None,
+                'account_name': 'legacy-env',
+                'user_id': None,
+                'legacy': True,
+            }, '', 200
 
         api_user_id, api_user_error = _resolve_whitelabel_api_user_id()
         if not api_user_id:
@@ -3760,6 +3795,7 @@ def _resolve_whitelabel_api_context(*, require_user: bool = True):
 
         ctx = {
             'api_key': req_key,
+            'auth_source': auth_source,
             'account_id': None,
             'account_name': 'legacy-env',
             'user_id': int(api_user_id),
