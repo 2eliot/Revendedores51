@@ -428,13 +428,28 @@ def _extract_pin_codes_from_csv_bytes(content: bytes):
 
 app = Flask(__name__)
 
+
+def _is_truthy_env(value) -> bool:
+    return str(value or '').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def _request_is_https() -> bool:
+    if request.is_secure:
+        return True
+
+    forwarded_proto = (request.headers.get('X-Forwarded-Proto') or '').strip().lower()
+    if forwarded_proto:
+        return forwarded_proto.split(',')[0].strip() == 'https'
+
+    return False
+
 # Configuración de seguridad
 # En producción, usar variables de entorno
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 
 # Configuración de cookies seguras
 # En Render (producción) siempre hay HTTPS. En local (127.0.0.1) no hay HTTPS.
-is_production = os.environ.get('RENDER') == 'true' or os.environ.get('FLASK_ENV') == 'production'
+is_production = _is_truthy_env(os.environ.get('RENDER')) or os.environ.get('FLASK_ENV') == 'production'
 app.config['SESSION_COOKIE_SECURE'] = is_production  # True en Render, False en local
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # Prevenir XSS
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Protección CSRF
@@ -444,6 +459,19 @@ app.permanent_session_lifetime = timedelta(minutes=30)
 
 if is_production and not (os.environ.get('ADMIN_EMAIL', '').strip() and os.environ.get('ADMIN_PASSWORD', '').strip()):
     logger.error('ADMIN_EMAIL/ADMIN_PASSWORD no configurados en producción; login admin por entorno deshabilitado.')
+
+
+@app.after_request
+def apply_security_headers(response):
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    response.headers.setdefault('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
+
+    if is_production or _request_is_https():
+        response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+
+    return response
 
 @app.template_filter('format_date')
 def format_date_filter(value, fmt='%Y-%m-%d %H:%M:%S'):
