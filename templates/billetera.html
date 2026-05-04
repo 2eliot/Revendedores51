@@ -387,97 +387,105 @@
       </p>
     </section>
 
-    <!-- Recargas Binance Pay de todos los usuarios -->
-    <section class="transactions">
-      <h2 class="transaction-title">Recargas Binance Pay</h2>
-      <div class="transaction-container">
-        {% if recargas_admin %}
-          {% for rec in recargas_admin %}
-          <div class="transaction-card-simple" style="border-left: 4px solid {% if rec.estado == 'completada' %}#28a745{% elif rec.estado == 'pendiente' %}#e67e22{% else %}#dc3545{% endif %};">
-            <div class="transaction-row">
-              <div class="transaction-main">
-                <div class="control-status">
-                  <span class="control-num" style="font-family:'Courier New',monospace;">{{ rec.codigo_referencia }}</span>
-                  {% if rec.estado == 'completada' %}
-                    <span class="rec-status rec-status-completada">Completada</span>
-                  {% elif rec.estado == 'pendiente' %}
-                    <span class="rec-status rec-status-pendiente">Pendiente</span>
-                  {% else %}
-                    <span class="rec-status rec-status-expirada">Expirada</span>
-                  {% endif %}
-                </div>
-                <div class="package-cost">
-                  <span class="package">{{ rec.nombre }} {{ rec.apellido }}</span>
-                  <span class="cost">${{ "%.2f"|format(rec.monto_solicitado) }} USDT</span>
-                </div>
-              </div>
-            </div>
-            <div class="transaction-footer">
-              <span class="date-simple">{{ rec.fecha_creacion|format_date }}</span>
-              <span class="user-simple">
-                {{ rec.correo }}
-                {% if rec.estado == 'completada' and rec.fecha_completada %}
-                  | Acreditado: {{ rec.fecha_completada|format_date }}
-                {% endif %}
-              </span>
-            </div>
-          </div>
-          {% endfor %}
-        {% else %}
-          <div class="no-transactions">
-            <div class="empty-state">
-              <svg class="empty-icon" viewBox="0 0 24 24">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-              </svg>
-              <p>No hay recargas Binance Pay registradas</p>
-            </div>
-          </div>
-        {% endif %}
+    <div class="history-switch-wrap">
+      <h2 class="transaction-title">Historial administrativo</h2>
+      <div class="history-switch">
+        <a class="history-switch-btn {% if active_admin_history_tab == 'binance' %}active{% endif %}" href="{{ url_for('billetera', admin_tab='binance') }}">Binance Pay</a>
+        <a class="history-switch-btn {% if active_admin_history_tab == 'credito' %}active{% endif %}" href="{{ url_for('billetera', admin_tab='credito') }}">Credito anadido</a>
       </div>
-    </section>
+    </div>
 
-    <!-- Créditos de billetera para admin -->
-    <section class="transactions">
-      <h2 class="transaction-title">Historial de Creditos Agregados</h2>
-      <div class="transaction-container">
-        {% if wallet_credits %}
-          {% for credit in wallet_credits %}
-          <div class="transaction-card-simple">
-            <div class="transaction-row">
-              <div class="transaction-main">
-                <div class="control-status">
-                  <span class="control-num">Credito</span>
-                  <span class="status-simple">OK</span>
-                </div>
-                <div class="package-cost">
-                  <span class="package">{{ credit.nombre }} {{ credit.apellido }}</span>
-                  <span class="cost">${{ "%.2f"|format(credit.monto) }}</span>
+    {% if active_admin_history_tab == 'binance' %}
+      <section class="transactions history-panel">
+        <p class="history-summary">Solo se muestran las recargas Binance Pay de los usuarios.</p>
+        <div class="transaction-container">
+          {% if recargas_admin %}
+            {% for rec in recargas_admin %}
+            <div class="transaction-card-simple" style="border-left: 4px solid {% if rec.estado == 'completada' %}#28a745{% elif rec.estado == 'pendiente' %}#e67e22{% else %}#dc3545{% endif %};">
+              <div class="transaction-row">
+                <div class="transaction-main">
+                  <div class="control-status">
+                    <span class="control-num" style="font-family:'Courier New',monospace;">{{ rec.codigo_referencia }}</span>
+                    {% if rec.estado == 'completada' %}
+                      <span class="rec-status rec-status-completada">Completada</span>
+                    {% elif rec.estado == 'pendiente' %}
+                      <span class="rec-status rec-status-pendiente">Pendiente</span>
+                    {% else %}
+                      <span class="rec-status rec-status-expirada">Expirada</span>
+                    {% endif %}
+                  </div>
+                  <div class="package-cost">
+                    <span class="package">{{ rec.nombre }} {{ rec.apellido }}</span>
+                    <span class="cost">${{ "%.2f"|format(rec.monto_solicitado) }} USDT</span>
+                  </div>
                 </div>
               </div>
+              <div class="transaction-footer">
+                <span class="date-simple">{{ rec.fecha_creacion|format_date }}</span>
+                <span class="user-simple">
+                  {{ rec.correo }}
+                  {% if rec.estado == 'completada' and rec.fecha_completada %}
+                    | Acreditado: {{ rec.fecha_completada|format_date }}
+                  {% endif %}
+                </span>
+              </div>
             </div>
-            <div class="transaction-footer">
-              <span class="date-simple">{{ credit.fecha|format_date }}</span>
-              <span class="user-simple">
-                {{ credit.correo }}
-                {% if credit.saldo_anterior is defined and credit.saldo_anterior is not none %}
-                  | Saldo anterior: ${{ "%.2f"|format(credit.saldo_anterior) }}
-                {% endif %}
-              </span>
+            {% endfor %}
+          {% else %}
+            <div class="no-transactions">
+              <div class="empty-state">
+                <svg class="empty-icon" viewBox="0 0 24 24">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                </svg>
+                <p>No hay recargas Binance Pay registradas</p>
+              </div>
             </div>
-          </div>
-          {% endfor %}
-        {% else %}
-          <div class="no-transactions">
-            <div class="empty-state">
-              <svg class="empty-icon" viewBox="0 0 24 24">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-              </svg>
-              <p>No hay creditos registrados en el sistema</p>
+          {% endif %}
+        </div>
+      </section>
+    {% else %}
+      <section class="transactions history-panel">
+        <p class="history-summary">Solo se muestran creditos agregados manualmente por administracion.</p>
+        <div class="transaction-container">
+          {% if wallet_credits %}
+            {% for credit in wallet_credits %}
+            <div class="transaction-card-simple">
+              <div class="transaction-row">
+                <div class="transaction-main">
+                  <div class="control-status">
+                    <span class="control-num">Credito</span>
+                    <span class="credit-badge">Anadido</span>
+                  </div>
+                  <div class="package-cost">
+                    <span class="package">{{ credit.nombre }} {{ credit.apellido }}</span>
+                    <span class="cost">${{ "%.2f"|format(credit.monto) }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="transaction-footer">
+                <span class="date-simple">{{ credit.fecha|format_date }}</span>
+                <span class="user-simple">
+                  {{ credit.correo }}
+                  {% if credit.saldo_anterior is defined and credit.saldo_anterior is not none %}
+                    | Saldo anterior: ${{ "%.2f"|format(credit.saldo_anterior) }}
+                  {% endif %}
+                </span>
+              </div>
             </div>
-          </div>
-        {% endif %}
-      </div>
-    </section>
+            {% endfor %}
+          {% else %}
+            <div class="no-transactions">
+              <div class="empty-state">
+                <svg class="empty-icon" viewBox="0 0 24 24">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                </svg>
+                <p>No hay creditos registrados en el sistema</p>
+              </div>
+            </div>
+          {% endif %}
+        </div>
+      </section>
+    {% endif %}
   {% else %}
     <h1 class="billetera-title">Billetera</h1>
 

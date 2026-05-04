@@ -5856,6 +5856,10 @@ def billetera():
     is_admin = session.get('is_admin', False)
     
     if is_admin:
+        active_admin_tab = request.args.get('admin_tab', 'binance')
+        if active_admin_tab not in ('binance', 'credito'):
+            active_admin_tab = 'binance'
+
         # Admin ve todos los créditos agregados a usuarios
         wallet_credits = get_all_wallet_credits()
         recargas_admin = get_all_recargas_admin()
@@ -5863,6 +5867,7 @@ def billetera():
         return render_template('billetera.html', 
                              wallet_credits=wallet_credits,
                              recargas_admin=recargas_admin,
+                             active_admin_history_tab=active_admin_tab,
                              user_id=session.get('id', '00000'),
                              balance=0,
                              is_admin=True,
