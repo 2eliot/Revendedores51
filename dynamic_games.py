@@ -201,6 +201,18 @@ def _normalize_gamepoint_text(value):
     return re.sub(r'\s+', ' ', str(value or '').strip()).upper()
 
 
+def _is_gift_card_game(game_like):
+    modo = str((game_like or {}).get('modo') or 'id').strip().lower()
+    if modo and modo != 'id':
+        return True
+
+    slug = str((game_like or {}).get('slug') or '').strip().lower()
+    nombre = str((game_like or {}).get('nombre') or '').strip().lower()
+    combined = f"{slug} {nombre}".strip()
+    gift_card_markers = ('tarjeta', 'gift', 'voucher', 'pin')
+    return any(marker in combined for marker in gift_card_markers)
+
+
 def _classify_gamepoint_inquiry(inquiry_data, serial_key='', is_gift_card=True):
     """Map an order/inquiry payload to success, failed or pending."""
     if _is_real_serial(serial_key):
@@ -1457,7 +1469,7 @@ def validar_dinamico(slug):
 
         # 4.1 order/inquiry — extraer ingamename y serialkey (Gift Cards)
         # es_gift_card: True para vouchers/pins, False para recargas directas (ID)
-        es_gift_card = (game.get('modo', 'id') != 'id')
+        es_gift_card = _is_gift_card_game(game)
         inq_data = None
         item_name = ''
         serial_key = ''
@@ -1702,11 +1714,12 @@ def _should_recheck_dynamic_row(row):
     estado = str(row['estado'] or '').strip().lower()
     modo = str(row['modo'] or 'id').strip().lower()
     serial_key = str(row['pin_entregado'] or '').strip()
+    is_gift_card = _is_gift_card_game(row)
 
     if estado in ('pendiente', 'procesando'):
         return True
 
-    if estado == 'aprobado' and modo != 'id' and not _is_real_serial(serial_key):
+    if estado == 'aprobado' and is_gift_card and not _is_real_serial(serial_key):
         return True
 
     return False
@@ -1766,7 +1779,7 @@ def poll_pending_dynamic_transactions():
             inquiry_state, inquiry_note = _classify_gamepoint_inquiry(
                 inq_data,
                 serial_key,
-                is_gift_card=(str(row['modo'] or 'id').strip().lower() != 'id'),
+                is_gift_card=_is_gift_card_game(row),
             )
             logger.info(f"[DynGame Poll] tx={row['transaccion_id']} ref={row['gamepoint_referenceno']} state={inquiry_state} serial='{serial_key}' fields={list((inq_data or {}).keys())}")
 
@@ -1819,7 +1832,7 @@ def poll_pending_dynamic_transactions():
                 logger.info(f"[DynGame Poll] ✅ tx={row['transaccion_id']} APROBADO")
             else:
                 conn2 = _get_conn()
-                pending_state = 'pendiente' if str(row['modo'] or 'id').strip().lower() != 'id' else 'procesando'
+                pending_state = 'pendiente' if _is_gift_card_game(row) else 'procesando'
                 conn2.execute('''
                     UPDATE transacciones_dinamicas
                     SET estado = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP
