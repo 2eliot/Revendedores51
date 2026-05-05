@@ -1698,6 +1698,20 @@ def _extract_serial_from_inquiry(inq_data):
     return ''
 
 
+def _should_recheck_dynamic_row(row):
+    estado = str(row['estado'] or '').strip().lower()
+    modo = str(row['modo'] or 'id').strip().lower()
+    serial_key = str(row['pin_entregado'] or '').strip()
+
+    if estado in ('pendiente', 'procesando'):
+        return True
+
+    if estado == 'aprobado' and modo != 'id' and not _is_real_serial(serial_key):
+        return True
+
+    return False
+
+
 def poll_pending_dynamic_transactions():
     """
     Consulta GamePoint para transacciones de Gift Cards:
@@ -1709,7 +1723,6 @@ def poll_pending_dynamic_transactions():
     try:
         conn = _get_conn()
         cutoff_ts = datetime.utcnow() - timedelta(hours=48)
-        # Buscar pendientes y gift cards aprobadas sin serial definitivo (últimas 48 horas)
         rows = conn.execute('''
                     SELECT td.id, td.transaccion_id, td.gamepoint_referenceno, td.juego_id,
                        td.usuario_id, td.monto, td.estado, td.pin_entregado, td.numero_control,
@@ -1721,26 +1734,13 @@ def poll_pending_dynamic_transactions():
             WHERE td.gamepoint_referenceno IS NOT NULL
               AND td.gamepoint_referenceno != ''
                             AND td.fecha >= ?
-              AND (
-            td.estado IN ('pendiente', 'procesando')
-                OR (
-                  td.estado = 'aprobado'
-                                    AND LOWER(COALESCE(jd.modo, 'id')) != 'id'
-                                    AND (
-                                        td.pin_entregado IS NULL
-                                        OR td.pin_entregado = ''
-                                        OR (
-                                            LENGTH(td.pin_entregado) <= 6
-                                            AND td.pin_entregado ~ '^[0-9]+$'
-                                        )
-                                    )
-                )
-              )
             ''', (cutoff_ts,)).fetchall()
         conn.close()
     except Exception as e:
         logger.error(f"[DynGame Poll] Error consultando pendientes: {e}")
         return
+
+    rows = [row for row in rows if _should_recheck_dynamic_row(row)]
 
     if not rows:
         return
