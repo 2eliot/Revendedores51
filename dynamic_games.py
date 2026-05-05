@@ -215,6 +215,8 @@ def _classify_gamepoint_inquiry(inquiry_data, serial_key='', is_gift_card=True):
     pending_tokens = ('PENDING', 'PROCESS', 'QUEUE', 'WAIT')
 
     if any(token in status_text for token in success_tokens):
+        if is_gift_card:
+            return 'pending', str(data.get('message') or data.get('status') or '').strip()
         return 'success', str(data.get('message') or data.get('status') or '').strip()
 
     if any(token in combined for token in failure_tokens):
@@ -1705,7 +1707,7 @@ def poll_pending_dynamic_transactions():
     """
     try:
         conn = _get_conn()
-        # Buscar pendientes Y aprobados con serial sospechoso (últimas 48 horas)
+        # Buscar pendientes y gift cards aprobadas sin serial definitivo (últimas 48 horas)
         rows = conn.execute('''
                     SELECT td.id, td.transaccion_id, td.gamepoint_referenceno, td.juego_id,
                        td.usuario_id, td.monto, td.estado, td.pin_entregado, td.numero_control,
@@ -1721,9 +1723,15 @@ def poll_pending_dynamic_transactions():
             td.estado IN ('pendiente', 'procesando')
                 OR (
                   td.estado = 'aprobado'
-                  AND td.pin_entregado IS NOT NULL
-                  AND LENGTH(td.pin_entregado) <= 6
-                  AND td.pin_entregado ~ '^[0-9]+$'
+                                    AND LOWER(COALESCE(jd.modo, 'id')) != 'id'
+                                    AND (
+                                        td.pin_entregado IS NULL
+                                        OR td.pin_entregado = ''
+                                        OR (
+                                            LENGTH(td.pin_entregado) <= 6
+                                            AND td.pin_entregado ~ '^[0-9]+$'
+                                        )
+                                    )
                 )
               )
         ''').fetchall()
@@ -1809,14 +1817,16 @@ def poll_pending_dynamic_transactions():
                 logger.info(f"[DynGame Poll] ✅ tx={row['transaccion_id']} APROBADO")
             else:
                 conn2 = _get_conn()
+                pending_state = 'pendiente' if str(row['modo'] or 'id').strip().lower() != 'id' else 'procesando'
                 conn2.execute('''
                     UPDATE transacciones_dinamicas
-                    SET notas = ?, fecha_procesado = CURRENT_TIMESTAMP
+                    SET estado = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP
                     WHERE id = ?
-                ''', (inquiry_note or 'Esperando confirmacion de GamePoint', row['id']))
+                ''', (pending_state, inquiry_note or 'Esperando confirmacion de GamePoint', row['id']))
                 _upsert_dynamic_general_transaction(conn2, row['id'])
                 if str(row['request_id'] or '').strip():
                     pending_row = dict(row)
+                    pending_row['estado'] = pending_state
                     pending_row['notas'] = inquiry_note or 'Esperando confirmacion de GamePoint'
                     processing_payload = _build_existing_dynamic_payload(pending_row, pending_row.get('paquete_nombre') or '')
                     _app.save_processing_idempotent_purchase(
