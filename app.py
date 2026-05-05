@@ -1612,6 +1612,7 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
                     finally:
                         c_ffid.close()
                     if row_ffid:
+                        row_ffid = dict(row_ffid)
                         if row_ffid.get('pin_codigo'):
                             transaction_dict['pin_voucher_code'] = row_ffid['pin_codigo']
                         if row_ffid.get('estado'):
@@ -1637,6 +1638,9 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
                             ).fetchone()
                         finally:
                             c_api.close()
+
+                        if row_api:
+                            row_api = dict(row_api)
 
                         if row_api and row_api.get('game_type') == 'freefire_id':
                             transaction_dict['is_freefire_id'] = True
@@ -1688,6 +1692,7 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
                         c_dg.close()
 
                     if row_dg:
+                        row_dg = dict(row_dg)
                         if row_dg.get('estado'):
                             transaction_dict['estado'] = row_dg['estado']
                         if row_dg.get('pin_entregado'):
