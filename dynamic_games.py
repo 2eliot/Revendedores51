@@ -7,6 +7,7 @@ import json
 import os
 import re
 import secrets
+from datetime import datetime, timedelta
 from pg_compat import get_db_connection as _pg_get_conn, table_exists as _pg_table_exists
 import time as time_module
 import logging
@@ -1707,6 +1708,7 @@ def poll_pending_dynamic_transactions():
     """
     try:
         conn = _get_conn()
+        cutoff_ts = datetime.utcnow() - timedelta(hours=48)
         # Buscar pendientes y gift cards aprobadas sin serial definitivo (últimas 48 horas)
         rows = conn.execute('''
                     SELECT td.id, td.transaccion_id, td.gamepoint_referenceno, td.juego_id,
@@ -1718,7 +1720,7 @@ def poll_pending_dynamic_transactions():
                     JOIN paquetes_dinamicos pd ON pd.id = td.paquete_id
             WHERE td.gamepoint_referenceno IS NOT NULL
               AND td.gamepoint_referenceno != ''
-              AND td.fecha >= (NOW() - INTERVAL '48 hours')
+                            AND td.fecha >= ?
               AND (
             td.estado IN ('pendiente', 'procesando')
                 OR (
@@ -1734,7 +1736,7 @@ def poll_pending_dynamic_transactions():
                                     )
                 )
               )
-        ''').fetchall()
+            ''', (cutoff_ts,)).fetchall()
         conn.close()
     except Exception as e:
         logger.error(f"[DynGame Poll] Error consultando pendientes: {e}")

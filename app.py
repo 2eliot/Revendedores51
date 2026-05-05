@@ -4261,15 +4261,16 @@ def _classify_gamepoint_order_status(inquiry_data, *, is_gift_card=False):
 def poll_pending_bloodstriker_transactions():
     try:
         conn = get_db_connection()
+        cutoff_ts = datetime.utcnow() - timedelta(hours=48)
         rows = conn.execute('''
             SELECT id, usuario_id, numero_control, transaccion_id, monto,
                    gamepoint_referenceno, request_id
             FROM transacciones_bloodstriker
             WHERE gamepoint_referenceno IS NOT NULL
               AND gamepoint_referenceno != ''
-              AND fecha >= (NOW() - INTERVAL '48 hours')
+              AND fecha >= ?
               AND estado IN ('pendiente', 'procesando')
-        ''').fetchall()
+        ''', (cutoff_ts,)).fetchall()
         conn.close()
     except Exception as e:
         logger.error(f"[BloodStrike Poll] Error consultando pendientes: {e}")
