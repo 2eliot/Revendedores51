@@ -4242,6 +4242,12 @@ def _classify_gamepoint_order_status(inquiry_data, *, is_gift_card=False):
     success_tokens = ('SUCCESS', 'COMPLETED', 'COMPLETE', 'APPROVED', 'DELIVERED', 'DONE')
     failure_tokens = ('FAIL', 'FAILED', 'ERROR', 'REJECT', 'REJECTED', 'DENIED', 'CANCEL', 'EXPIRE', 'INVALID')
     pending_tokens = ('PENDING', 'PROCESS', 'QUEUE', 'WAIT')
+    pending_phrases = (
+        'CHECK TRANSACTION FOR STATUS',
+        'PLEASE CHECK TRANSACTION FOR STATUS',
+        'REQUEST HAS BEEN SUBMITED',
+        'REQUEST HAS BEEN SUBMITTED',
+    )
 
     if any(token in status_text for token in success_tokens):
         return 'success', str(data.get('message') or data.get('status') or '').strip()
@@ -4252,8 +4258,8 @@ def _classify_gamepoint_order_status(inquiry_data, *, is_gift_card=False):
     if any(token in combined for token in pending_tokens):
         return 'pending', str(data.get('message') or data.get('status') or '').strip()
 
-    if not is_gift_card and data.get('referenceno'):
-        return 'success', str(data.get('message') or data.get('status') or '').strip()
+    if any(phrase in combined for phrase in pending_phrases):
+        return 'pending', str(data.get('message') or data.get('status') or '').strip()
 
     return 'pending', str(data.get('message') or data.get('status') or '').strip()
 
