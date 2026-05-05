@@ -201,47 +201,6 @@ def _normalize_gamepoint_text(value):
     return re.sub(r'\s+', ' ', str(value or '').strip()).upper()
 
 
-def _gamepoint_id_completion_grace_minutes():
-    raw = str(os.environ.get('GAMEPOINT_ID_COMPLETION_GRACE_MINUTES') or '10').strip()
-    try:
-        return max(3, int(raw))
-    except Exception:
-        return 10
-
-
-def _is_ambiguous_gamepoint_id_success(inquiry_data):
-    data = inquiry_data or {}
-    if int(data.get('code') or 0) != 100:
-        return False
-
-    combined = _normalize_gamepoint_text(
-        ' '.join(
-            part for part in (data.get('status'), data.get('message'), data.get('error')) if part
-        )
-    )
-    return (
-        'CHECK TRANSACTION FOR STATUS' in combined
-        or 'REQUEST HAS BEEN SUBMITED' in combined
-        or 'REQUEST HAS BEEN SUBMITTED' in combined
-    )
-
-
-def _should_finalize_aged_gamepoint_id(row, inquiry_data):
-    if _is_gift_card_game(row) or not _is_ambiguous_gamepoint_id_success(inquiry_data):
-        return False
-
-    created_at = row['fecha'] if row else None
-    if isinstance(created_at, str):
-        try:
-            created_at = datetime.fromisoformat(created_at.strip())
-        except Exception:
-            return False
-    if not isinstance(created_at, datetime):
-        return False
-
-    return (datetime.utcnow() - created_at) >= timedelta(minutes=_gamepoint_id_completion_grace_minutes())
-
-
 def _is_gift_card_game(game_like):
     modo = str((game_like or {}).get('modo') or 'id').strip().lower()
     return bool(modo and modo != 'id')
@@ -253,6 +212,7 @@ def _classify_gamepoint_inquiry(inquiry_data, serial_key='', is_gift_card=True):
         return 'success', ''
 
     data = inquiry_data or {}
+    code = int(data.get('code') or 0)
     status_text = _normalize_gamepoint_text(data.get('status'))
     message_text = _normalize_gamepoint_text(data.get('message') or data.get('error'))
     combined = ' '.join(part for part in (status_text, message_text) if part)
@@ -266,6 +226,18 @@ def _classify_gamepoint_inquiry(inquiry_data, serial_key='', is_gift_card=True):
         'REQUEST HAS BEEN SUBMITED',
         'REQUEST HAS BEEN SUBMITTED',
     )
+
+    if code == 100:
+        if is_gift_card and not _is_real_serial(serial_key):
+            return 'pending', str(data.get('message') or data.get('status') or '').strip()
+        return 'success', str(data.get('message') or data.get('status') or '').strip()
+
+    if code == 101:
+        return 'pending', str(data.get('message') or data.get('status') or '').strip()
+
+    if code == 102:
+        provider_note = str(data.get('reason') or data.get('message') or data.get('error') or 'Error reportado por GamePoint').strip()
+        return 'failed', provider_note
 
     if any(token in status_text for token in success_tokens):
         if is_gift_card:
@@ -1778,8 +1750,7 @@ def poll_pending_dynamic_transactions():
         cutoff_ts = datetime.utcnow() - timedelta(hours=48)
         rows = conn.execute('''
                     SELECT td.id, td.transaccion_id, td.gamepoint_referenceno, td.juego_id,
-                              td.usuario_id, td.monto, td.estado, td.pin_entregado, td.numero_control,
-                              td.fecha,
+                               td.usuario_id, td.monto, td.estado, td.pin_entregado, td.numero_control,
                        td.request_id, td.player_id, td.player_id2, td.servidor, td.ingame_name, td.notas,
                         jd.nombre as juego_nombre, jd.slug, jd.modo, pd.nombre as paquete_nombre
             FROM transacciones_dinamicas td
@@ -1822,11 +1793,6 @@ def poll_pending_dynamic_transactions():
                 serial_key,
                 is_gift_card=_is_gift_card_game(row),
             )
-            if inquiry_state == 'pending' and _should_finalize_aged_gamepoint_id(row, inq_data):
-                inquiry_state = 'success'
-                logger.info(
-                    f"[DynGame Poll] tx={row['transaccion_id']} auto-completada tras {_gamepoint_id_completion_grace_minutes()} min con respuesta ambigua de GamePoint"
-                )
             logger.info(f"[DynGame Poll] tx={row['transaccion_id']} ref={row['gamepoint_referenceno']} state={inquiry_state} serial='{serial_key}' fields={list((inq_data or {}).keys())}")
 
             if inquiry_state == 'failed':

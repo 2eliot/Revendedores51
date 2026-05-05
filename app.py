@@ -4233,47 +4233,9 @@ def _normalize_gamepoint_status_text(value):
     return re.sub(r'\s+', ' ', str(value or '').strip()).upper()
 
 
-def _gamepoint_id_completion_grace_minutes():
-    raw = str(os.environ.get('GAMEPOINT_ID_COMPLETION_GRACE_MINUTES') or '10').strip()
-    try:
-        return max(3, int(raw))
-    except Exception:
-        return 10
-
-
-def _is_ambiguous_gamepoint_id_success(inquiry_data):
-    data = inquiry_data or {}
-    if int(data.get('code') or 0) != 100:
-        return False
-
-    combined = _normalize_gamepoint_status_text(
-        ' '.join(part for part in (data.get('status'), data.get('message'), data.get('error')) if part)
-    )
-    return (
-        'CHECK TRANSACTION FOR STATUS' in combined
-        or 'REQUEST HAS BEEN SUBMITED' in combined
-        or 'REQUEST HAS BEEN SUBMITTED' in combined
-    )
-
-
-def _should_finalize_aged_gamepoint_id(row, inquiry_data):
-    if _is_ambiguous_gamepoint_id_success(inquiry_data) is False:
-        return False
-
-    created_at = row['fecha'] if row else None
-    if isinstance(created_at, str):
-        try:
-            created_at = datetime.fromisoformat(created_at.strip())
-        except Exception:
-            return False
-    if not isinstance(created_at, datetime):
-        return False
-
-    return (datetime.utcnow() - created_at) >= timedelta(minutes=_gamepoint_id_completion_grace_minutes())
-
-
 def _classify_gamepoint_order_status(inquiry_data, *, is_gift_card=False):
     data = inquiry_data or {}
+    code = int(data.get('code') or 0)
     status_text = _normalize_gamepoint_status_text(data.get('status'))
     message_text = _normalize_gamepoint_status_text(data.get('message') or data.get('error'))
     combined = ' '.join(part for part in (status_text, message_text) if part)
@@ -4287,6 +4249,15 @@ def _classify_gamepoint_order_status(inquiry_data, *, is_gift_card=False):
         'REQUEST HAS BEEN SUBMITED',
         'REQUEST HAS BEEN SUBMITTED',
     )
+
+    if code == 100:
+        return 'success', str(data.get('message') or data.get('status') or '').strip()
+
+    if code == 101:
+        return 'pending', str(data.get('message') or data.get('status') or '').strip()
+
+    if code == 102:
+        return 'failed', str(data.get('reason') or data.get('message') or data.get('error') or 'Error reportado por GamePoint').strip()
 
     if any(token in status_text for token in success_tokens):
         return 'success', str(data.get('message') or data.get('status') or '').strip()
@@ -4308,7 +4279,7 @@ def poll_pending_bloodstriker_transactions():
         conn = get_db_connection()
         cutoff_ts = datetime.utcnow() - timedelta(hours=48)
         rows = conn.execute('''
-            SELECT id, usuario_id, numero_control, transaccion_id, monto, fecha,
+                 SELECT id, usuario_id, numero_control, transaccion_id, monto, fecha,
                    gamepoint_referenceno, request_id
             FROM transacciones_bloodstriker
             WHERE gamepoint_referenceno IS NOT NULL
@@ -4339,11 +4310,6 @@ def poll_pending_bloodstriker_transactions():
         try:
             inq_data = _gameclub_order_inquiry(gc_token, row['gamepoint_referenceno'])
             inquiry_state, inquiry_note = _classify_gamepoint_order_status(inq_data, is_gift_card=False)
-            if inquiry_state == 'pending' and _should_finalize_aged_gamepoint_id(row, inq_data):
-                inquiry_state = 'success'
-                logger.info(
-                    f"[BloodStrike Poll] tx={row['transaccion_id']} auto-completada tras {_gamepoint_id_completion_grace_minutes()} min con respuesta ambigua de GamePoint"
-                )
             ingame_name = str((inq_data or {}).get('ingamename') or '').strip()
 
             if inquiry_state == 'failed':
