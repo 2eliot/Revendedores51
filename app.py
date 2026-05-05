@@ -2590,13 +2590,14 @@ def _dyngame_serial_poll_loop():
         try:
             from dynamic_games import poll_pending_dynamic_transactions
             poll_pending_dynamic_transactions()
+            poll_pending_bloodstriker_transactions()
         except Exception as e:
             logger.error(f"[DynGame Poll Loop] Error: {e}")
         time_module.sleep(60)
 
 _dyngame_poll_thread = threading.Thread(target=_dyngame_serial_poll_loop, daemon=True)
 _dyngame_poll_thread.start()
-logger.info("[DynGame Poll] Thread iniciado — verificación de Gift Cards pendientes cada 60s")
+logger.info("[DynGame Poll] Thread iniciado — verificación GamePoint pendiente cada 60s")
 
 # Funciones para sistema de noticias
 def create_news_table():
@@ -3359,6 +3360,18 @@ def begin_idempotent_purchase(conn, user_id, endpoint, request_id):
             'numero_control': row['numero_control'],
         }
 
+def save_processing_idempotent_purchase(conn, user_id, endpoint, request_id, payload, transaccion_id='', numero_control=''):
+    """Guarda la respuesta reutilizable mientras la compra sigue en proceso."""
+    conn.execute('''
+        UPDATE purchase_request_idempotency
+        SET status = 'processing',
+            response_payload = ?,
+            transaccion_id = ?,
+            numero_control = ?,
+            fecha_actualizacion = CURRENT_TIMESTAMP
+        WHERE usuario_id = ? AND endpoint = ? AND request_id = ?
+    ''', (json.dumps(payload, ensure_ascii=False), transaccion_id, numero_control, user_id, endpoint, request_id))
+
 def complete_idempotent_purchase(conn, user_id, endpoint, request_id, payload, transaccion_id, numero_control):
     """Marca una compra idempotente como completada y guarda la respuesta a reutilizar."""
     conn.execute('''
@@ -3955,6 +3968,15 @@ def _complete_whitelabel_api_purchase(user_id, endpoint_key, request_id, payload
         conn.close()
 
 
+def _save_whitelabel_api_purchase_processing(user_id, endpoint_key, request_id, payload, transaccion_id='', numero_control=''):
+    conn = get_db_connection()
+    try:
+        save_processing_idempotent_purchase(conn, user_id, endpoint_key, request_id, payload, transaccion_id, numero_control)
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _is_admin_target_user(conn, user_id):
     try:
         admin_ids_env = os.environ.get('ADMIN_USER_IDS', '').strip()
@@ -4200,6 +4222,146 @@ def sync_bloodstriker_purchase_records(conn, transaction_id):
             pass
 
     return True
+
+
+def _normalize_gamepoint_status_text(value):
+    return re.sub(r'\s+', ' ', str(value or '').strip()).upper()
+
+
+def _classify_gamepoint_order_status(inquiry_data, *, is_gift_card=False):
+    data = inquiry_data or {}
+    status_text = _normalize_gamepoint_status_text(data.get('status'))
+    message_text = _normalize_gamepoint_status_text(data.get('message') or data.get('error'))
+    combined = ' '.join(part for part in (status_text, message_text) if part)
+
+    success_tokens = ('SUCCESS', 'COMPLETED', 'COMPLETE', 'APPROVED', 'DELIVERED', 'DONE')
+    failure_tokens = ('FAIL', 'FAILED', 'ERROR', 'REJECT', 'REJECTED', 'DENIED', 'CANCEL', 'EXPIRE', 'INVALID')
+    pending_tokens = ('PENDING', 'PROCESS', 'QUEUE', 'WAIT')
+
+    if any(token in status_text for token in success_tokens):
+        return 'success', str(data.get('message') or data.get('status') or '').strip()
+
+    if any(token in combined for token in failure_tokens):
+        return 'failed', str(data.get('message') or data.get('error') or data.get('status') or 'Error reportado por GamePoint').strip()
+
+    if any(token in combined for token in pending_tokens):
+        return 'pending', str(data.get('message') or data.get('status') or '').strip()
+
+    if not is_gift_card and data.get('referenceno'):
+        return 'success', str(data.get('message') or data.get('status') or '').strip()
+
+    return 'pending', str(data.get('message') or data.get('status') or '').strip()
+
+
+def poll_pending_bloodstriker_transactions():
+    try:
+        conn = get_db_connection()
+        rows = conn.execute('''
+            SELECT id, usuario_id, numero_control, transaccion_id, monto,
+                   gamepoint_referenceno, request_id
+            FROM transacciones_bloodstriker
+            WHERE gamepoint_referenceno IS NOT NULL
+              AND gamepoint_referenceno != ''
+              AND fecha >= (NOW() - INTERVAL '48 hours')
+              AND estado IN ('pendiente', 'procesando')
+        ''').fetchall()
+        conn.close()
+    except Exception as e:
+        logger.error(f"[BloodStrike Poll] Error consultando pendientes: {e}")
+        return
+
+    if not rows:
+        return
+
+    try:
+        gc_token, gc_err = _gameclub_get_token()
+        if not gc_token:
+            logger.warning(f"[BloodStrike Poll] No se pudo obtener token GP: {gc_err}")
+            return
+    except Exception as e:
+        logger.error(f"[BloodStrike Poll] Error obteniendo token: {e}")
+        return
+
+    logger.info(f"[BloodStrike Poll] {len(rows)} transacciones pendientes a verificar")
+
+    for row in rows:
+        try:
+            inq_data = _gameclub_order_inquiry(gc_token, row['gamepoint_referenceno'])
+            inquiry_state, inquiry_note = _classify_gamepoint_order_status(inq_data, is_gift_card=False)
+            ingame_name = str((inq_data or {}).get('ingamename') or '').strip()
+
+            if inquiry_state == 'failed':
+                conn2 = get_db_connection()
+                conn2.execute('''
+                    UPDATE transacciones_bloodstriker
+                    SET estado = 'rechazado', notas = ?, fecha_procesado = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (inquiry_note or 'Error reportado por GamePoint', row['id']))
+                if not _is_admin_target_user(conn2, row['usuario_id']):
+                    conn2.execute('UPDATE usuarios SET saldo = saldo + ? WHERE id = ?', (abs(float(row['monto'] or 0.0)), row['usuario_id']))
+                if str(row['request_id'] or '').strip():
+                    clear_idempotent_purchase(conn2, row['usuario_id'], 'api_bloodstrike_gamepoint', str(row['request_id']).strip())
+                conn2.commit()
+                conn2.close()
+                logger.info(f"[BloodStrike Poll] tx={row['transaccion_id']} RECHAZADO")
+            elif inquiry_state == 'success':
+                conn2 = get_db_connection()
+                conn2.execute('''
+                    UPDATE transacciones_bloodstriker
+                    SET estado = 'aprobado', notas = ?, fecha_procesado = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (inquiry_note or None, row['id']))
+                sync_bloodstriker_purchase_records(conn2, row['id'])
+                if str(row['request_id'] or '').strip():
+                    success_payload = {
+                        'ok': True,
+                        'purchase_status': 'completed',
+                        'player_name': ingame_name,
+                        'reference_no': row['gamepoint_referenceno'],
+                        'game': 'Blood Strike',
+                    }
+                    complete_idempotent_purchase(
+                        conn2,
+                        row['usuario_id'],
+                        'api_bloodstrike_gamepoint',
+                        str(row['request_id']).strip(),
+                        success_payload,
+                        row['transaccion_id'],
+                        row['numero_control'],
+                    )
+                conn2.commit()
+                conn2.close()
+                logger.info(f"[BloodStrike Poll] tx={row['transaccion_id']} APROBADO")
+            else:
+                conn2 = get_db_connection()
+                conn2.execute('''
+                    UPDATE transacciones_bloodstriker
+                    SET notas = ?, fecha_procesado = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (inquiry_note or 'Esperando confirmacion de GamePoint', row['id']))
+                if str(row['request_id'] or '').strip():
+                    processing_payload = {
+                        'ok': True,
+                        'purchase_status': 'processing',
+                        'player_name': ingame_name,
+                        'reference_no': row['gamepoint_referenceno'],
+                        'game': 'Blood Strike',
+                    }
+                    save_processing_idempotent_purchase(
+                        conn2,
+                        row['usuario_id'],
+                        'api_bloodstrike_gamepoint',
+                        str(row['request_id']).strip(),
+                        processing_payload,
+                        row['transaccion_id'],
+                        row['numero_control'],
+                    )
+                conn2.commit()
+                conn2.close()
+
+            time_module.sleep(0.5)
+        except Exception as e:
+            logger.error(f"[BloodStrike Poll] Error procesando tx {row['transaccion_id']}: {e}")
 
 def get_pending_bloodstriker_transactions():
     """Obtiene todas las transacciones pendientes de Blood Striker para el admin"""
@@ -6962,6 +7124,7 @@ def validar_bloodstriker():
 
         # 4.1 order/inquiry — extraer ingamename (docs: campo opcional, aparece cuando el pedido está procesado)
         item_name = ''
+        inquiry_data = None
         try:
             if reference_no:
                 # Retry inquiry con delay para dar tiempo a que el pedido se procese
@@ -6985,85 +7148,129 @@ def validar_bloodstriker():
         _bs_duration = round(_time.time() - _bs_start, 1)
         
         if create_code in (100, 101):
-            # === ÉXITO: Recarga completada o enviada ===
-            # Update the 'procesando' record with final results
+            inquiry_state, inquiry_note = _classify_gamepoint_order_status(inquiry_data, is_gift_card=False)
+
+            if inquiry_state == 'failed':
+                err_msg = inquiry_note or (create_data or {}).get('message') or 'GamePoint rechazo la recarga'
+                logger.error(
+                    f"[BloodStrike] inquiry reported failure: {err_msg} | "
+                    f"user={user_id} player={player_id} pkg={package_id} ref={reference_no}"
+                )
+
+                conn_rej = get_db_connection()
+                conn_rej.execute('''
+                    UPDATE transacciones_bloodstriker
+                    SET estado = 'rechazado', gamepoint_referenceno = ?, notas = ?,
+                        fecha_procesado = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (reference_no, err_msg, _bs_tx_id))
+                conn_rej.commit()
+                conn_rej.close()
+
+                if not is_admin:
+                    conn = get_db_connection()
+                    conn.execute('UPDATE usuarios SET saldo = saldo + ? WHERE id = ?', (precio, user_id))
+                    conn.commit()
+                    conn.close()
+                    session['saldo'] = session.get('saldo', 0) + precio
+
+                flash(f'La recarga fallo: {err_msg}. Tu saldo ha sido devuelto.', 'error')
+                return redirect('/juego/bloodstriker')
+
+            if create_code == 100 or inquiry_state == 'success':
+                conn_upd = get_db_connection()
+                conn_upd.execute('''
+                    UPDATE transacciones_bloodstriker
+                    SET estado = 'aprobado', gamepoint_referenceno = ?, notas = ?,
+                        fecha_procesado = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (reference_no, inquiry_note or None, _bs_tx_id))
+                conn_upd.commit()
+                conn_upd.close()
+
+                transaction_data = {
+                    'id': _bs_tx_id,
+                    'numero_control': _bs_numero_control,
+                    'transaccion_id': _bs_transaccion_id
+                }
+
+                conn = get_db_connection()
+                if ingame_name:
+                    pin_info = f"ID: {player_id} - Jugador: {ingame_name} - Ref: {reference_no}"
+                else:
+                    pin_info = f"ID: {player_id} - Ref: {reference_no}"
+
+                display_package_name = pkg_row['nombre']
+                if item_name:
+                    display_package_name = f"{pkg_row['nombre']} ({item_name})"
+                conn.execute('''
+                    INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto, duracion_segundos)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (user_id, transaction_data['numero_control'], pin_info,
+                      transaction_data['transaccion_id'], display_package_name, -precio, _bs_duration))
+
+                _bs_saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+                _bs_saldo = _bs_saldo_row['saldo'] if _bs_saldo_row else 0
+                registrar_historial_compra(conn, user_id, precio, display_package_name, pin_info, 'compra', _bs_duration, _bs_saldo + precio, _bs_saldo)
+
+                try:
+                    admin_ids_env = os.environ.get('ADMIN_USER_IDS', '').strip()
+                    admin_ids = [int(x.strip()) for x in admin_ids_env.split(',') if x.strip().isdigit()]
+                    is_admin_target = user_id in admin_ids
+                    record_profit_for_transaction(conn, user_id, is_admin_target, 'bloodstriker', package_id, 1, precio, transaction_data['transaccion_id'])
+                except Exception:
+                    pass
+
+                conn.commit()
+                conn.close()
+
+                if not is_admin:
+                    try:
+                        conn = get_db_connection()
+                        update_monthly_spending(conn, user_id, precio)
+                        conn.commit()
+                        conn.close()
+                    except Exception:
+                        pass
+
+                if not is_admin:
+                    register_weekly_sale('bloodstriker', package_id, pkg_row['nombre'], precio, 1)
+
+                logger.info(f"[BloodStrike] storing completed session: player_name='{ingame_name}' | player_id={player_id} | ref={reference_no}")
+                session['compra_bloodstriker_exitosa'] = {
+                    'paquete_nombre': paquete_nombre,
+                    'monto_compra': precio,
+                    'numero_control': transaction_data['numero_control'],
+                    'transaccion_id': transaction_data['transaccion_id'],
+                    'player_id': player_id,
+                    'player_name': ingame_name,
+                    'estado': 'completado',
+                    'gamepoint_ref': reference_no,
+                }
+                return redirect('/juego/bloodstriker?compra=exitosa')
+
             conn_upd = get_db_connection()
             conn_upd.execute('''
                 UPDATE transacciones_bloodstriker
-                SET estado = 'aprobado', gamepoint_referenceno = ?,
+                SET estado = 'pendiente', gamepoint_referenceno = ?, notas = ?,
                     fecha_procesado = CURRENT_TIMESTAMP
                 WHERE id = ?
-            ''', (reference_no, _bs_tx_id))
+            ''', (reference_no, inquiry_note or 'Esperando confirmacion de GamePoint', _bs_tx_id))
             conn_upd.commit()
             conn_upd.close()
-            transaction_data = {
-                'id': _bs_tx_id,
-                'numero_control': _bs_numero_control,
-                'transaccion_id': _bs_transaccion_id
-            }
-            
-            # Registrar en transacciones generales
-            conn = get_db_connection()
-            # Mantener estilo similar a Free Fire ID: incluir ID y nombre si existe
-            if ingame_name:
-                pin_info = f"ID: {player_id} - Jugador: {ingame_name} - Ref: {reference_no}"
-            else:
-                pin_info = f"ID: {player_id} - Ref: {reference_no}"
 
-            # Si inquiry devolvió item, úsalo como nombre mostrado del paquete (no reemplaza tu nombre local)
-            display_package_name = pkg_row['nombre']
-            if item_name:
-                display_package_name = f"{pkg_row['nombre']} ({item_name})"
-            conn.execute('''
-                INSERT INTO transacciones (usuario_id, numero_control, pin, transaccion_id, paquete_nombre, monto, duracion_segundos)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (user_id, transaction_data['numero_control'], pin_info,
-                  transaction_data['transaccion_id'], display_package_name, -precio, _bs_duration))
-            
-            # Registrar en historial permanente
-            _bs_saldo_row = conn.execute('SELECT saldo FROM usuarios WHERE id = ?', (user_id,)).fetchone()
-            _bs_saldo = _bs_saldo_row['saldo'] if _bs_saldo_row else 0
-            registrar_historial_compra(conn, user_id, precio, display_package_name, pin_info, 'compra', _bs_duration, _bs_saldo + precio, _bs_saldo)
-            
-            # Registrar profit
-            try:
-                admin_ids_env = os.environ.get('ADMIN_USER_IDS', '').strip()
-                admin_ids = [int(x.strip()) for x in admin_ids_env.split(',') if x.strip().isdigit()]
-                is_admin_target = user_id in admin_ids
-                record_profit_for_transaction(conn, user_id, is_admin_target, 'bloodstriker', package_id, 1, precio, transaction_data['transaccion_id'])
-            except Exception:
-                pass
-            
-            conn.commit()
-            conn.close()
-            
-            # Actualizar gastos mensuales
-            if not is_admin:
-                try:
-                    conn = get_db_connection()
-                    update_monthly_spending(conn, user_id, precio)
-                    conn.commit()
-                    conn.close()
-                except Exception:
-                    pass
-            
-            # Registrar venta semanal
-            if not is_admin:
-                register_weekly_sale('bloodstriker', package_id, pkg_row['nombre'], precio, 1)
-            
-            estado_txt = 'completado' if create_code == 100 else 'procesando'
-            logger.info(f"[BloodStrike] storing in session: player_name='{ingame_name}' | player_id={player_id} | ref={reference_no}")
+            logger.info(f"[BloodStrike] storing processing session: player_name='{ingame_name}' | player_id={player_id} | ref={reference_no}")
             session['compra_bloodstriker_exitosa'] = {
                 'paquete_nombre': paquete_nombre,
                 'monto_compra': precio,
-                'numero_control': transaction_data['numero_control'],
-                'transaccion_id': transaction_data['transaccion_id'],
+                'numero_control': _bs_numero_control,
+                'transaccion_id': _bs_transaccion_id,
                 'player_id': player_id,
                 'player_name': ingame_name,
-                'estado': estado_txt,
+                'estado': 'procesando',
                 'gamepoint_ref': reference_no,
             }
-            
+
             return redirect('/juego/bloodstriker?compra=exitosa')
         
         else:
@@ -12307,6 +12514,7 @@ def api_recharge_dynamic():
             if create_code in (100, 101):
                 # 4. Inquiry para obtener ingamename
                 ingame_name = ''
+                inq_data = None
                 try:
                     if reference_no:
                         for _attempt in range(3):
@@ -12319,43 +12527,88 @@ def api_recharge_dynamic():
                 except Exception as e:
                     logger.warning(f'[API DynRecharge] Inquiry error: {e}')
 
+                is_gift_card = (str(game.get('modo') or 'id').strip().lower() != 'id')
+                inquiry_state, inquiry_note = _classify_gamepoint_order_status(inq_data, is_gift_card=is_gift_card)
+
+                if inquiry_state == 'failed':
+                    err_msg = inquiry_note or (create_data or {}).get('message') or 'GamePoint rechazo la recarga'
+                    update_dynamic_transaction_status(tx_dynamic['id'], 'rechazado', notas=err_msg, gamepoint_referenceno=reference_no)
+                    _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
+                    logger.error(f'[API DynRecharge] Inquiry failed: {err_msg}')
+                    return jsonify({'ok': False, 'purchase_status': 'failed', 'error': err_msg}), 422
+
+                if create_code == 100 or inquiry_state == 'success':
+                    update_dynamic_transaction_status(
+                        tx_dynamic['id'],
+                        'aprobado',
+                        notas=inquiry_note or 'API externa exitosa',
+                        gamepoint_referenceno=reference_no,
+                        ingame_name=ingame_name,
+                    )
+                    conn_sync = get_db_connection()
+                    try:
+                        sync_dynamic_purchase_records(conn_sync, tx_dynamic['id'])
+                        conn_sync.commit()
+                    finally:
+                        conn_sync.close()
+
+                    success_payload = {
+                        'ok': True,
+                        'purchase_status': 'completed',
+                        'player_name': ingame_name,
+                        'duration': _dur,
+                        'reference_no': reference_no,
+                        'game': game['nombre'],
+                    }
+                    _complete_whitelabel_api_purchase(api_user_id, endpoint_key, request_id, success_payload, tx_dynamic['transaccion_id'], tx_dynamic['numero_control'])
+
+                    # Log
+                    try:
+                        _lc = get_db_connection()
+                        _lc.execute(
+                            'INSERT INTO api_recharges_log (player_id, package_id, success, player_name, error_msg, duration_seconds, game_name, package_name) VALUES (?,?,?,?,?,?,?,?)',
+                            (player_id, package_id, 1, ingame_name, '', _dur, game['nombre'], dyn_pkg['nombre'])
+                        )
+                        _lc.commit()
+                        _lc.close()
+                    except Exception:
+                        pass
+
+                    logger.info(f'[API DynRecharge] OK game={game["nombre"]} player={player_id} pkg={package_id} gp_pkg={gp_package_id} dur={_dur}s')
+                    return jsonify(success_payload)
+
+                processing_status = 'pendiente' if is_gift_card else 'procesando'
                 update_dynamic_transaction_status(
                     tx_dynamic['id'],
-                    'aprobado',
-                    notas='API externa exitosa',
+                    processing_status,
+                    notas=inquiry_note or 'Esperando confirmacion de GamePoint',
                     gamepoint_referenceno=reference_no,
                     ingame_name=ingame_name,
                 )
-                conn_sync = get_db_connection()
-                try:
-                    sync_dynamic_purchase_records(conn_sync, tx_dynamic['id'])
-                    conn_sync.commit()
-                finally:
-                    conn_sync.close()
-
-                success_payload = {
+                processing_payload = {
                     'ok': True,
+                    'purchase_status': 'processing',
                     'player_name': ingame_name,
                     'duration': _dur,
                     'reference_no': reference_no,
                     'game': game['nombre'],
                 }
-                _complete_whitelabel_api_purchase(api_user_id, endpoint_key, request_id, success_payload, tx_dynamic['transaccion_id'], tx_dynamic['numero_control'])
+                _save_whitelabel_api_purchase_processing(api_user_id, endpoint_key, request_id, processing_payload, tx_dynamic['transaccion_id'], tx_dynamic['numero_control'])
 
                 # Log
                 try:
                     _lc = get_db_connection()
                     _lc.execute(
                         'INSERT INTO api_recharges_log (player_id, package_id, success, player_name, error_msg, duration_seconds, game_name, package_name) VALUES (?,?,?,?,?,?,?,?)',
-                        (player_id, package_id, 1, ingame_name, '', _dur, game['nombre'], dyn_pkg['nombre'])
+                        (player_id, package_id, 0, ingame_name, processing_payload['purchase_status'], _dur, game['nombre'], dyn_pkg['nombre'])
                     )
                     _lc.commit()
                     _lc.close()
                 except Exception:
                     pass
 
-                logger.info(f'[API DynRecharge] OK game={game["nombre"]} player={player_id} pkg={package_id} gp_pkg={gp_package_id} dur={_dur}s')
-                return jsonify(success_payload)
+                logger.info(f'[API DynRecharge] PROCESSING game={game["nombre"]} player={player_id} pkg={package_id} gp_pkg={gp_package_id} dur={_dur}s')
+                return jsonify(processing_payload)
             else:
                 err_msg = (create_data or {}).get('message', 'Error creando orden en GamePoint')
                 update_dynamic_transaction_status(tx_dynamic['id'], 'rechazado', notas=err_msg, gamepoint_referenceno=reference_no)
@@ -12544,6 +12797,7 @@ def api_recharge_dynamic():
 
             if create_code in (100, 101):
                 ingame_name = ''
+                inq_data = None
                 try:
                     if reference_no:
                         for _attempt in range(3):
@@ -12556,36 +12810,82 @@ def api_recharge_dynamic():
                 except Exception as e:
                     logger.warning(f'[API BSRecharge] Inquiry error: {e}')
 
+                inquiry_state, inquiry_note = _classify_gamepoint_order_status(inq_data, is_gift_card=False)
+
+                if inquiry_state == 'failed':
+                    err_msg = inquiry_note or (create_data or {}).get('message') or 'GamePoint rechazo la recarga'
+                    conn_sync = get_db_connection()
+                    try:
+                        conn_sync.execute('UPDATE transacciones_bloodstriker SET estado = ?, gamepoint_referenceno = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP WHERE id = ?', ('rechazado', reference_no, err_msg, tx_bs['id']))
+                        conn_sync.commit()
+                    finally:
+                        conn_sync.close()
+                    _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
+                    return jsonify({'ok': False, 'purchase_status': 'failed', 'error': err_msg}), 422
+
+                if create_code == 100 or inquiry_state == 'success':
+                    conn_sync = get_db_connection()
+                    try:
+                        conn_sync.execute('UPDATE transacciones_bloodstriker SET estado = ?, gamepoint_referenceno = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP WHERE id = ?', ('aprobado', reference_no, inquiry_note or 'API externa exitosa', tx_bs['id']))
+                        sync_bloodstriker_purchase_records(conn_sync, tx_bs['id'])
+                        conn_sync.commit()
+                    finally:
+                        conn_sync.close()
+
+                    success_payload = {
+                        'ok': True,
+                        'purchase_status': 'completed',
+                        'player_name': ingame_name,
+                        'duration': _dur,
+                        'reference_no': reference_no,
+                        'game': 'Blood Strike',
+                    }
+                    _complete_whitelabel_api_purchase(api_user_id, endpoint_key, request_id, success_payload, tx_bs['transaccion_id'], tx_bs['numero_control'])
+
+                    try:
+                        _lc = get_db_connection()
+                        _lc.execute(
+                            'INSERT INTO api_recharges_log (player_id, package_id, success, player_name, error_msg, duration_seconds, game_name, package_name) VALUES (?,?,?,?,?,?,?,?)',
+                            (player_id, package_id, 1, ingame_name, '', _dur, 'Blood Strike', bs_pkg['nombre'])
+                        )
+                        _lc.commit()
+                        _lc.close()
+                    except Exception:
+                        pass
+
+                    logger.info(f'[API BSRecharge] OK player={player_id} pkg={package_id} gp_pkg={gp_package_id} dur={_dur}s')
+                    return jsonify(success_payload)
+
                 conn_sync = get_db_connection()
                 try:
-                    conn_sync.execute('UPDATE transacciones_bloodstriker SET estado = ?, gamepoint_referenceno = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP WHERE id = ?', ('aprobado', reference_no, 'API externa exitosa', tx_bs['id']))
-                    sync_bloodstriker_purchase_records(conn_sync, tx_bs['id'])
+                    conn_sync.execute('UPDATE transacciones_bloodstriker SET estado = ?, gamepoint_referenceno = ?, notas = ?, fecha_procesado = CURRENT_TIMESTAMP WHERE id = ?', ('pendiente', reference_no, inquiry_note or 'Esperando confirmacion de GamePoint', tx_bs['id']))
                     conn_sync.commit()
                 finally:
                     conn_sync.close()
 
-                success_payload = {
+                processing_payload = {
                     'ok': True,
+                    'purchase_status': 'processing',
                     'player_name': ingame_name,
                     'duration': _dur,
                     'reference_no': reference_no,
                     'game': 'Blood Strike',
                 }
-                _complete_whitelabel_api_purchase(api_user_id, endpoint_key, request_id, success_payload, tx_bs['transaccion_id'], tx_bs['numero_control'])
+                _save_whitelabel_api_purchase_processing(api_user_id, endpoint_key, request_id, processing_payload, tx_bs['transaccion_id'], tx_bs['numero_control'])
 
                 try:
                     _lc = get_db_connection()
                     _lc.execute(
                         'INSERT INTO api_recharges_log (player_id, package_id, success, player_name, error_msg, duration_seconds, game_name, package_name) VALUES (?,?,?,?,?,?,?,?)',
-                        (player_id, package_id, 1, ingame_name, '', _dur, 'Blood Strike', bs_pkg['nombre'])
+                        (player_id, package_id, 0, ingame_name, processing_payload['purchase_status'], _dur, 'Blood Strike', bs_pkg['nombre'])
                     )
                     _lc.commit()
                     _lc.close()
                 except Exception:
                     pass
 
-                logger.info(f'[API BSRecharge] OK player={player_id} pkg={package_id} gp_pkg={gp_package_id} dur={_dur}s')
-                return jsonify(success_payload)
+                logger.info(f'[API BSRecharge] PROCESSING player={player_id} pkg={package_id} gp_pkg={gp_package_id} dur={_dur}s')
+                return jsonify(processing_payload)
             else:
                 err_msg = (create_data or {}).get('message', 'Error creando orden en GamePoint')
                 conn_sync = get_db_connection()

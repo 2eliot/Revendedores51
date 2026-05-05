@@ -1218,7 +1218,7 @@ def validar_dinamico(slug):
         return redirect_dynamic_error('Solicitud invalida. Recarga la pagina e intenta nuevamente.', pkg['nombre'], precio)
 
     import app as _app
-    from app import begin_idempotent_purchase, complete_idempotent_purchase, clear_idempotent_purchase
+    from app import begin_idempotent_purchase, save_processing_idempotent_purchase, complete_idempotent_purchase, clear_idempotent_purchase
     endpoint_key = f'dynamic_game:{game["slug"]}'
     conn_idempotency = _get_conn()
     try:
@@ -1530,6 +1530,15 @@ def validar_dinamico(slug):
                     (reference_no, _tx_procesando_id)
                 ).fetchone()
                 if dup_td:
+                    if serial_key:
+                        estado_txt = 'completado'
+                    elif estado_db == 'pendiente':
+                        estado_txt = 'pendiente_serial'
+                    elif estado_db == 'procesando':
+                        estado_txt = 'procesando'
+                    else:
+                        estado_txt = 'completado'
+
                     success_payload = {
                         'paquete_nombre': pkg['nombre'],
                         'monto_compra': precio,
@@ -1539,12 +1548,15 @@ def validar_dinamico(slug):
                         'player_id2': player_id2,
                         'servidor': servidor,
                         'player_name': ingame_name,
-                        'estado': 'completado',
+                        'estado': estado_txt,
                         'gamepoint_ref': reference_no,
                         'serial_key': serial_key,
                     }
                     conn.execute('DELETE FROM transacciones_dinamicas WHERE id = ?', (_tx_procesando_id,))
-                    complete_idempotent_purchase(conn, user_id, endpoint_key, request_id, success_payload, transaccion_id, numero_control)
+                    if estado_txt == 'completado':
+                        complete_idempotent_purchase(conn, user_id, endpoint_key, request_id, success_payload, transaccion_id, numero_control)
+                    else:
+                        save_processing_idempotent_purchase(conn, user_id, endpoint_key, request_id, success_payload, transaccion_id, numero_control)
                     conn.commit()
                     conn.close()
                     session[f'compra_dyn_{slug}_exitosa'] = success_payload
@@ -1585,7 +1597,10 @@ def validar_dinamico(slug):
                 'gamepoint_ref': reference_no,
                 'serial_key': serial_key,
             }
-            complete_idempotent_purchase(conn, user_id, endpoint_key, request_id, success_payload, transaccion_id, numero_control)
+            if estado_db == 'aprobado':
+                complete_idempotent_purchase(conn, user_id, endpoint_key, request_id, success_payload, transaccion_id, numero_control)
+            else:
+                save_processing_idempotent_purchase(conn, user_id, endpoint_key, request_id, success_payload, transaccion_id, numero_control)
             conn.commit()
             conn.close()
             session[f'compra_dyn_{slug}_exitosa'] = success_payload
@@ -1692,11 +1707,13 @@ def poll_pending_dynamic_transactions():
         conn = _get_conn()
         # Buscar pendientes Y aprobados con serial sospechoso (últimas 48 horas)
         rows = conn.execute('''
-                SELECT td.id, td.transaccion_id, td.gamepoint_referenceno, td.juego_id,
-               td.usuario_id, td.monto, td.estado, td.pin_entregado,
-                    jd.nombre as juego_nombre, jd.slug, jd.modo
+                    SELECT td.id, td.transaccion_id, td.gamepoint_referenceno, td.juego_id,
+                       td.usuario_id, td.monto, td.estado, td.pin_entregado, td.numero_control,
+                       td.request_id, td.player_id, td.player_id2, td.servidor, td.ingame_name, td.notas,
+                        jd.nombre as juego_nombre, jd.slug, jd.modo, pd.nombre as paquete_nombre
             FROM transacciones_dinamicas td
             JOIN juegos_dinamicos jd ON td.juego_id = jd.id
+                    JOIN paquetes_dinamicos pd ON pd.id = td.paquete_id
             WHERE td.gamepoint_referenceno IS NOT NULL
               AND td.gamepoint_referenceno != ''
               AND td.fecha >= (NOW() - INTERVAL '48 hours')
@@ -1739,7 +1756,7 @@ def poll_pending_dynamic_transactions():
             inquiry_state, inquiry_note = _classify_gamepoint_inquiry(
                 inq_data,
                 serial_key,
-                is_gift_card=(str(row.get('modo') or 'id').strip().lower() != 'id'),
+                is_gift_card=(str(row['modo'] or 'id').strip().lower() != 'id'),
             )
             logger.info(f"[DynGame Poll] tx={row['transaccion_id']} ref={row['gamepoint_referenceno']} state={inquiry_state} serial='{serial_key}' fields={list((inq_data or {}).keys())}")
 
@@ -1753,6 +1770,8 @@ def poll_pending_dynamic_transactions():
                 _upsert_dynamic_general_transaction(conn2, row['id'])
                 if not _app._is_admin_target_user(conn2, row['usuario_id']):
                     _refund_without_session(conn2, row['usuario_id'], abs(float(row['monto'] or 0.0)))
+                if str(row['request_id'] or '').strip():
+                    _app.clear_idempotent_purchase(conn2, row['usuario_id'], f"dynamic_game:{row['slug']}", str(row['request_id']).strip())
                 conn2.commit()
                 conn2.close()
                 logger.info(f"[DynGame Poll] ❌ tx={row['transaccion_id']} RECHAZADO por inquiry")
@@ -1769,6 +1788,22 @@ def poll_pending_dynamic_transactions():
                     row['id'],
                 ))
                 _app.sync_dynamic_purchase_records(conn2, row['id'])
+                if str(row['request_id'] or '').strip():
+                    success_row = dict(row)
+                    success_row['estado'] = 'aprobado'
+                    success_row['pin_entregado'] = serial_key if _is_real_serial(serial_key) else ''
+                    success_row['ingame_name'] = str((inq_data or {}).get('ingamename') or '').strip() or str(row['ingame_name'] or '').strip()
+                    success_row['notas'] = inquiry_note or ''
+                    success_payload = _build_existing_dynamic_payload(success_row, success_row.get('paquete_nombre') or '')
+                    _app.complete_idempotent_purchase(
+                        conn2,
+                        row['usuario_id'],
+                        f"dynamic_game:{row['slug']}",
+                        str(row['request_id']).strip(),
+                        success_payload,
+                        row['transaccion_id'],
+                        row['numero_control'],
+                    )
                 conn2.commit()
                 conn2.close()
                 logger.info(f"[DynGame Poll] ✅ tx={row['transaccion_id']} APROBADO")
@@ -1780,6 +1815,19 @@ def poll_pending_dynamic_transactions():
                     WHERE id = ?
                 ''', (inquiry_note or 'Esperando confirmacion de GamePoint', row['id']))
                 _upsert_dynamic_general_transaction(conn2, row['id'])
+                if str(row['request_id'] or '').strip():
+                    pending_row = dict(row)
+                    pending_row['notas'] = inquiry_note or 'Esperando confirmacion de GamePoint'
+                    processing_payload = _build_existing_dynamic_payload(pending_row, pending_row.get('paquete_nombre') or '')
+                    _app.save_processing_idempotent_purchase(
+                        conn2,
+                        row['usuario_id'],
+                        f"dynamic_game:{row['slug']}",
+                        str(row['request_id']).strip(),
+                        processing_payload,
+                        row['transaccion_id'],
+                        row['numero_control'],
+                    )
                 conn2.commit()
                 conn2.close()
                 logger.debug(f"[DynGame Poll] tx={row['transaccion_id']} sigue pendiente")
