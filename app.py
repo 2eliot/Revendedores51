@@ -2596,9 +2596,13 @@ logger.info(f"[DynPrice AutoSync] Thread iniciado — sincronización cada {_DYN
 
 
 # === Gift Cards: Polling de seriales pendientes cada 60s ===
+_DYN_GAME_POLL_INTERVAL_SECONDS = max(5, int(os.environ.get('DYN_GAME_POLL_INTERVAL_SECONDS', '12') or '12'))
+_DYN_GAME_POLL_START_DELAY_SECONDS = max(2, int(os.environ.get('DYN_GAME_POLL_START_DELAY_SECONDS', '8') or '8'))
+
+
 def _dyngame_serial_poll_loop():
     """Hilo que verifica transacciones de Gift Cards pendientes y actualiza el serial."""
-    time_module.sleep(45)  # Esperar al inicio
+    time_module.sleep(_DYN_GAME_POLL_START_DELAY_SECONDS)
     while True:
         try:
             from dynamic_games import poll_pending_dynamic_transactions
@@ -2606,11 +2610,11 @@ def _dyngame_serial_poll_loop():
             poll_pending_bloodstriker_transactions()
         except Exception as e:
             logger.error(f"[DynGame Poll Loop] Error: {e}")
-        time_module.sleep(60)
+        time_module.sleep(_DYN_GAME_POLL_INTERVAL_SECONDS)
 
 _dyngame_poll_thread = threading.Thread(target=_dyngame_serial_poll_loop, daemon=True)
 _dyngame_poll_thread.start()
-logger.info("[DynGame Poll] Thread iniciado — verificación GamePoint pendiente cada 60s")
+logger.info(f"[DynGame Poll] Thread iniciado — verificación GamePoint pendiente cada {_DYN_GAME_POLL_INTERVAL_SECONDS}s")
 
 # Funciones para sistema de noticias
 def create_news_table():
@@ -3007,6 +3011,12 @@ def index():
         else:
             balance = 0
             transactions_data = {'transactions': [], 'pagination': {'page': 1, 'total_pages': 0, 'has_prev': False, 'has_next': False}}
+
+    for transaction in transactions_data.get('transactions', []):
+        try:
+            transaction['_fecha_sort'] = _transaction_fecha_sort_value(transaction)
+        except Exception:
+            transaction['_fecha_sort'] = 0
     
     # Obtener contador de notificaciones de cartera para usuarios normales
     wallet_notification_count = 0
@@ -3036,6 +3046,139 @@ def index():
                          personal_notification_count=personal_notification_count,
                          total_notification_count=total_notification_count,
                          games_active=get_games_active())
+
+
+def _load_live_transaction_snapshot(transaction_id, *, user_db_id=None, is_admin=False):
+    transaction_id = str(transaction_id or '').strip()
+    if not transaction_id:
+        return None
+
+    conn = get_db_connection()
+    try:
+        params = [transaction_id]
+        user_filter = '' if is_admin else ' AND usuario_id = ?'
+        if not is_admin:
+            params.append(user_db_id)
+
+        if transaction_id.startswith('DG'):
+            row = conn.execute(
+                f'''
+                SELECT id, usuario_id, estado, gamepoint_referenceno, ingame_name, pin_entregado, notas
+                FROM transacciones_dinamicas
+                WHERE transaccion_id = ?{user_filter}
+                LIMIT 1
+                ''',
+                tuple(params),
+            ).fetchone()
+            if not row:
+                return None
+            row = dict(row)
+            return {
+                'estado': row.get('estado') or '',
+                'player_name': row.get('ingame_name') or '',
+                'gamepoint_ref': row.get('gamepoint_referenceno') or '',
+                'serial_key': row.get('pin_entregado') or '',
+                'notas': row.get('notas') or '',
+            }
+
+        if transaction_id.startswith('FFID-'):
+            row = conn.execute(
+                f'''
+                SELECT id, usuario_id, estado, notas, pin_codigo
+                FROM transacciones_freefire_id
+                WHERE transaccion_id = ?{user_filter}
+                LIMIT 1
+                ''',
+                tuple(params),
+            ).fetchone()
+            if not row:
+                return None
+            row = dict(row)
+            return {
+                'estado': row.get('estado') or '',
+                'notas': row.get('notas') or '',
+                'pin_voucher_code': row.get('pin_codigo') or '',
+            }
+
+        if transaction_id.startswith('BS-'):
+            row = conn.execute(
+                f'''
+                SELECT id, usuario_id, estado, gamepoint_referenceno, notas
+                FROM transacciones_bloodstriker
+                WHERE transaccion_id = ?{user_filter}
+                LIMIT 1
+                ''',
+                tuple(params),
+            ).fetchone()
+            if not row:
+                return None
+            row = dict(row)
+            return {
+                'estado': row.get('estado') or '',
+                'gamepoint_ref': row.get('gamepoint_referenceno') or '',
+                'notas': row.get('notas') or '',
+            }
+
+        if transaction_id.startswith('WL-API-'):
+            api_order_id = transaction_id.replace('WL-API-', '', 1)
+            if not api_order_id.isdigit():
+                return None
+            params = [int(api_order_id)]
+            user_filter = '' if is_admin else ' AND usuario_id = ?'
+            if not is_admin:
+                params.append(user_db_id)
+            row = conn.execute(
+                f'''
+                SELECT id, usuario_id, estado, reference_no, player_name, redeemed_pin, error_msg
+                FROM api_orders
+                WHERE id = ?{user_filter}
+                LIMIT 1
+                ''',
+                tuple(params),
+            ).fetchone()
+            if not row:
+                return None
+            row = dict(row)
+            return {
+                'estado': row.get('estado') or '',
+                'player_name': row.get('player_name') or '',
+                'gamepoint_ref': row.get('reference_no') or '',
+                'serial_key': row.get('redeemed_pin') or '',
+                'notas': row.get('error_msg') or '',
+            }
+    finally:
+        conn.close()
+
+    return None
+
+
+@app.route('/transactions/live-status')
+def transactions_live_status():
+    if 'usuario' not in session:
+        return jsonify({'ok': False, 'error': 'unauthorized'}), 401
+
+    raw_ids = [str(value or '').strip() for value in request.args.getlist('ids')]
+    transaction_ids = []
+    for value in raw_ids:
+        if value and value not in transaction_ids:
+            transaction_ids.append(value)
+        if len(transaction_ids) >= 30:
+            break
+
+    snapshots = {}
+    user_db_id = session.get('user_db_id')
+    is_admin = bool(session.get('is_admin'))
+
+    for transaction_id in transaction_ids:
+        snapshot = _load_live_transaction_snapshot(
+            transaction_id,
+            user_db_id=user_db_id,
+            is_admin=is_admin,
+        )
+        if snapshot:
+            snapshots[transaction_id] = snapshot
+
+    return jsonify({'ok': True, 'transactions': snapshots})
 
 def _get_aviso_config():
     """Lee config del banner de redirección desde la BD."""

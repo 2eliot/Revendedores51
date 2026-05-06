@@ -141,7 +141,10 @@
     <div class="transaction-container">
       {% if transactions %}
         {% for transaction in transactions %}
-        <div class="transaction-card-simple {% if transaction.get('is_bloodstriker') %}bloodstriker-transaction{% endif %}{% if transaction.get('is_freefire_id') %} freefire-id-transaction{% endif %}{% if transaction.get('is_dynamic_game') %} bloodstriker-transaction{% endif %}">
+           <div class="transaction-card-simple {% if transaction.get('is_bloodstriker') %}bloodstriker-transaction{% endif %}{% if transaction.get('is_freefire_id') %} freefire-id-transaction{% endif %}{% if transaction.get('is_dynamic_game') %} bloodstriker-transaction{% endif %}"
+             data-tx-id="{{ transaction.transaccion_id }}"
+             data-fecha-sort="{{ transaction.get('_fecha_sort', 0) }}"
+             data-live-active="{{ 1 if (transaction.get('estado') or '')|lower in ['procesando', 'pendiente'] and (transaction.get('is_freefire_id') or transaction.get('is_bloodstriker') or transaction.get('is_dynamic_game')) else 0 }}">
           {% set juego = 'Otros' %}
           {% if transaction.get('is_dynamic_game') %}
             {% set juego = transaction.juego_nombre if transaction.get('juego_nombre') else transaction.paquete %}
@@ -229,33 +232,37 @@
               <div class="ffid-voucher-status">
                 <span class="ffid-voucher-status-label">Estado:</span>
                 {% if (transaction.get('estado') or '')|lower == 'procesando' %}
-                <span class="ffid-voucher-status-value" style="color:#f59e0b;background:rgba(245,158,11,0.12);border-color:rgba(245,158,11,0.35);">⏳ PROCESANDO</span>
+                <span class="ffid-voucher-status-value js-live-status" data-estado="procesando" style="color:#f59e0b;background:rgba(245,158,11,0.12);border-color:rgba(245,158,11,0.35);">⏳ PROCESANDO</span>
                 {% elif (transaction.get('estado') or '')|lower == 'pendiente' %}
-                <span class="ffid-voucher-status-value" style="color:#f59e0b;background:rgba(245,158,11,0.12);border-color:rgba(245,158,11,0.35);">⏳ PENDIENTE</span>
+                <span class="ffid-voucher-status-value js-live-status" data-estado="pendiente" style="color:#f59e0b;background:rgba(245,158,11,0.12);border-color:rgba(245,158,11,0.35);">⏳ PENDIENTE</span>
                 {% elif (transaction.get('estado') or '')|lower in ['rechazado', 'error', 'fallida'] %}
-                <span class="ffid-voucher-status-value" style="color:#ff6b6b;">❌ FALLIDA</span>
+                <span class="ffid-voucher-status-value js-live-status" data-estado="{{ (transaction.get('estado') or '')|lower }}" style="color:#ff6b6b;">❌ FALLIDA</span>
                 {% else %}
-                <span class="ffid-voucher-status-value">✅ COMPLETADO</span>
+                <span class="ffid-voucher-status-value js-live-status" data-estado="{{ (transaction.get('estado') or 'completado')|lower }}">✅ COMPLETADO</span>
                 {% endif %}
               </div>
               <div class="ffid-voucher-details">
                 <div class="ffid-voucher-line"><strong>Paquete:</strong> {{ transaction.paquete }}</div>
-                {% if transaction.get('is_dynamic_game') and transaction.get('serial_key') %}
-                <div style="margin:8px 0;padding:10px 14px;background:rgba(40,167,69,0.15);border:1px solid #28a745;border-radius:10px;">
+                {% if transaction.get('is_dynamic_game') %}
+                <div class="js-live-serial-block" style="margin:8px 0;padding:10px 14px;background:rgba(40,167,69,0.15);border:1px solid #28a745;border-radius:10px;{% if not transaction.get('serial_key') %}display:none;{% endif %}">
                   <div style="color:#8896a6;font-size:0.8em;margin-bottom:4px;">Tu código / serial:</div>
-                  <div style="font-weight:700;letter-spacing:2px;color:#fff;font-size:1.05em;word-break:break-all;">{{ transaction.serial_key }}</div>
-                  <button class="copy-btn-simple" style="margin-top:6px;" data-pin="{{ transaction.serial_key }}" onclick="copyTransactionPin(this.getAttribute('data-pin'))">📋 Copiar código</button>
+                  <div class="js-live-serial-value" style="font-weight:700;letter-spacing:2px;color:#fff;font-size:1.05em;word-break:break-all;">{{ transaction.serial_key or '' }}</div>
+                  <button class="copy-btn-simple js-live-serial-copy" style="margin-top:6px;{% if not transaction.get('serial_key') %}display:none;{% endif %}" data-pin="{{ transaction.serial_key or '' }}" onclick="copyTransactionPin(this.getAttribute('data-pin'))">📋 Copiar código</button>
                 </div>
                 {% endif %}
                 {% if transaction.get('player_name') %}
-                <div class="ffid-voucher-line"><strong>Jugador:</strong> <span class="ffid-player-name">{{ transaction.player_name }}</span></div>
+                <div class="ffid-voucher-line js-live-player-row"><strong>Jugador:</strong> <span class="ffid-player-name js-live-player-name">{{ transaction.player_name }}</span></div>
+                {% elif transaction.get('is_dynamic_game') or transaction.get('is_bloodstriker') or transaction.get('is_freefire_id') %}
+                <div class="ffid-voucher-line js-live-player-row" style="display:none"><strong>Jugador:</strong> <span class="ffid-player-name js-live-player-name"></span></div>
                 {% endif %}
                 {% if transaction.get('player_id') %}
                 <div class="ffid-voucher-line"><strong>ID de Jugador:</strong> {{ transaction.player_id }}</div>
                 {% endif %}
                 <div class="ffid-voucher-line"><strong>Número de Control:</strong> {{ transaction.numero_control }}</div>
                 {% if transaction.get('gamepoint_ref') %}
-                <div class="ffid-voucher-line"><strong>Ref:</strong> {{ transaction.gamepoint_ref }}</div>
+                <div class="ffid-voucher-line js-live-ref-row"><strong>Ref:</strong> <span class="js-live-ref-value">{{ transaction.gamepoint_ref }}</span></div>
+                {% elif transaction.get('is_dynamic_game') or transaction.get('is_bloodstriker') or transaction.get('is_freefire_id') %}
+                <div class="ffid-voucher-line js-live-ref-row" style="display:none"><strong>Ref:</strong> <span class="js-live-ref-value"></span></div>
                 {% endif %}
                 <div class="ffid-voucher-amount"><strong>Monto:</strong> ${{ "%.2f"|format(transaction.monto|abs) }}</div>
                 {% if session.get('is_admin') %}
@@ -267,9 +274,11 @@
                 <div class="ffid-voucher-line"><strong>{{ 'PIN no usado' if (transaction.get('estado') or '')|lower in ['rechazado', 'error', 'fallida'] else 'PIN redimido' }}:</strong> {{ transaction.pin_voucher_code }}</div>
                 {% endif %}
                 {% if transaction.get('is_dynamic_game') and (transaction.get('estado') or '')|lower in ['rechazado', 'error', 'fallida'] and transaction.get('notas') %}
-                <div class="ffid-voucher-line"><strong>Motivo:</strong> {{ transaction.notas }}</div>
+                <div class="ffid-voucher-line js-live-notes"><strong>Motivo:</strong> <span class="js-live-notes-value">{{ transaction.notas }}</span></div>
                 {% elif session.get('is_admin') and (transaction.get('estado') or '')|lower in ['rechazado', 'error', 'fallida'] and transaction.get('notas') %}
-                <div class="ffid-voucher-line"><strong>Motivo:</strong> {{ transaction.notas }}</div>
+                <div class="ffid-voucher-line js-live-notes"><strong>Motivo:</strong> <span class="js-live-notes-value">{{ transaction.notas }}</span></div>
+                {% elif transaction.get('is_dynamic_game') or transaction.get('is_bloodstriker') or transaction.get('is_freefire_id') %}
+                <div class="ffid-voucher-line js-live-notes" style="display:none"><strong>Motivo:</strong> <span class="js-live-notes-value"></span></div>
                 {% endif %}
               </div>
             </div>
@@ -496,6 +505,147 @@
         setTimeout(() => flashMessages.remove(), 300);
       }
     }, 2000);
+
+    function getLiveStatusPresentation(estado) {
+      const normalized = String(estado || '').trim().toLowerCase();
+      if (normalized === 'procesando') {
+        return { text: '⏳ PROCESANDO', color: '#f59e0b', background: 'rgba(245,158,11,0.12)', borderColor: 'rgba(245,158,11,0.35)', active: true };
+      }
+      if (normalized === 'pendiente') {
+        return { text: '⏳ PENDIENTE', color: '#f59e0b', background: 'rgba(245,158,11,0.12)', borderColor: 'rgba(245,158,11,0.35)', active: true };
+      }
+      if (['rechazado', 'error', 'fallida'].includes(normalized)) {
+        return { text: '❌ FALLIDA', color: '#ff6b6b', background: '', borderColor: '', active: false };
+      }
+      return { text: '✅ COMPLETADO', color: '', background: '', borderColor: '', active: false };
+    }
+
+    function reorderLiveTransactionCards() {
+      const container = document.querySelector('.transaction-container');
+      if (!container) return;
+
+      const cards = Array.from(container.querySelectorAll('.transaction-card-simple[data-tx-id]'));
+      cards.sort(function(a, b) {
+        const aActive = parseInt(a.getAttribute('data-live-active') || '0', 10);
+        const bActive = parseInt(b.getAttribute('data-live-active') || '0', 10);
+        if (aActive !== bActive) return bActive - aActive;
+
+        const aTs = parseFloat(a.getAttribute('data-fecha-sort') || '0');
+        const bTs = parseFloat(b.getAttribute('data-fecha-sort') || '0');
+        return bTs - aTs;
+      });
+
+      cards.forEach(function(card) {
+        container.appendChild(card);
+      });
+    }
+
+    function applyLiveTransactionSnapshot(card, snapshot) {
+      if (!card || !snapshot) return;
+
+      const presentation = getLiveStatusPresentation(snapshot.estado);
+      const statusEl = card.querySelector('.js-live-status');
+      if (statusEl) {
+        statusEl.textContent = presentation.text;
+        statusEl.dataset.estado = String(snapshot.estado || '').trim().toLowerCase();
+        statusEl.style.color = presentation.color;
+        statusEl.style.background = presentation.background;
+        statusEl.style.borderColor = presentation.borderColor;
+      }
+
+      card.setAttribute('data-live-active', presentation.active ? '1' : '0');
+
+      const playerRow = card.querySelector('.js-live-player-row');
+      const playerValue = card.querySelector('.js-live-player-name');
+      if (playerRow && playerValue && snapshot.player_name) {
+        playerValue.textContent = snapshot.player_name;
+        playerRow.style.display = '';
+      }
+
+      const refRow = card.querySelector('.js-live-ref-row');
+      const refValue = card.querySelector('.js-live-ref-value');
+      if (refRow && refValue) {
+        if (snapshot.gamepoint_ref) {
+          refValue.textContent = snapshot.gamepoint_ref;
+          refRow.style.display = '';
+        } else if (!presentation.active) {
+          refRow.style.display = 'none';
+        }
+      }
+
+      const serialBlock = card.querySelector('.js-live-serial-block');
+      const serialValue = card.querySelector('.js-live-serial-value');
+      const serialCopy = card.querySelector('.js-live-serial-copy');
+      if (serialBlock && serialValue && serialCopy) {
+        if (snapshot.serial_key) {
+          serialValue.textContent = snapshot.serial_key;
+          serialCopy.setAttribute('data-pin', snapshot.serial_key);
+          serialBlock.style.display = '';
+          serialCopy.style.display = '';
+        } else if (!presentation.active) {
+          serialBlock.style.display = 'none';
+        }
+      }
+
+      const notesRow = card.querySelector('.js-live-notes');
+      const notesValue = card.querySelector('.js-live-notes-value');
+      const normalizedEstado = String(snapshot.estado || '').trim().toLowerCase();
+      if (notesRow && notesValue) {
+        if (snapshot.notas && ['rechazado', 'error', 'fallida'].includes(normalizedEstado)) {
+          notesValue.textContent = snapshot.notas;
+          notesRow.style.display = '';
+        } else {
+          notesRow.style.display = 'none';
+        }
+      }
+
+      const actions = card.querySelector('.transaction-actions');
+      if (actions && !presentation.active) {
+        actions.style.display = 'none';
+      }
+    }
+
+    (function initLiveTransactionStatusPolling() {
+      const initialCards = Array.from(document.querySelectorAll('.transaction-card-simple[data-live-active="1"][data-tx-id]'));
+      if (!initialCards.length) return;
+
+      async function pollLiveStatuses() {
+        const activeCards = Array.from(document.querySelectorAll('.transaction-card-simple[data-live-active="1"][data-tx-id]'));
+        if (!activeCards.length) {
+          window.clearInterval(timerId);
+          return;
+        }
+
+        const params = new URLSearchParams();
+        activeCards.forEach(function(card) {
+          const txId = card.getAttribute('data-tx-id');
+          if (txId) params.append('ids', txId);
+        });
+
+        try {
+          const response = await fetch('/transactions/live-status?' + params.toString(), {
+            headers: { 'Accept': 'application/json' },
+            cache: 'no-store'
+          });
+          if (!response.ok) return;
+
+          const data = await response.json();
+          const snapshots = (data && data.transactions) || {};
+          activeCards.forEach(function(card) {
+            const txId = card.getAttribute('data-tx-id');
+            if (txId && snapshots[txId]) {
+              applyLiveTransactionSnapshot(card, snapshots[txId]);
+            }
+          });
+          reorderLiveTransactionCards();
+        } catch (error) {
+          console.error('Error actualizando estados de transacciones:', error);
+        }
+      }
+
+      const timerId = window.setInterval(pollLiveStatuses, 5000);
+      window.setTimeout(pollLiveStatuses, 1200);
+    })();
 
     async function fetchBloodStrikerReloadNotifications() {
       try {
