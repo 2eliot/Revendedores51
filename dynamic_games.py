@@ -1336,14 +1336,14 @@ def validar_dinamico(slug):
             return redirect_dynamic_error('Error al procesar. Tu saldo ha sido devuelto.', pkg['nombre'], precio)
 
         if slug == 'blood-strike' and script_only:
-            from app import _game_script_buy, register_weekly_sale
+            from app import _game_script_buy, register_weekly_sale, _normalize_bloodstrike_provider_error
 
             script_result = _game_script_buy(player_id, script_package_key, request_id)
             script_ok = bool((script_result or {}).get('success'))
             script_processing = bool((script_result or {}).get('processing'))
             provider_ref = (script_result or {}).get('orden') or (script_result or {}).get('requestId') or request_id
             provider_player = (script_result or {}).get('jugador') or ''
-            provider_error = (script_result or {}).get('error') or (script_result or {}).get('message') or 'Error desconocido del proveedor'
+            provider_error = _normalize_bloodstrike_provider_error((script_result or {}).get('error') or (script_result or {}).get('message'))
             _duration = round(time_module.time() - _start, 1)
 
             if script_ok or script_processing:

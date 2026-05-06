@@ -366,6 +366,14 @@ def _game_script_buy(role_id, package_key, request_id):
     return data
 
 
+def _normalize_bloodstrike_provider_error(message):
+    text = str(message or '').strip()
+    normalized = re.sub(r'\s+', ' ', text).lower()
+    if 'no se encontró el paquete mapeado' in normalized or 'no se encontro el paquete mapeado' in normalized:
+        return 'Este ID de jugador ya obtuvo este paquete solo se puede compra 1 ves'
+    return text or 'Error desconocido del proveedor'
+
+
 def _generate_batch_id():
     return datetime.utcnow().strftime('%Y%m%d%H%M%S%f') + '-' + secrets.token_hex(4)
 
@@ -6907,7 +6915,7 @@ def validar_bloodstriker():
             script_processing = bool((script_result or {}).get('processing'))
             provider_ref = (script_result or {}).get('orden') or (script_result or {}).get('requestId') or _bs_request_id
             provider_player = (script_result or {}).get('jugador') or ''
-            provider_error = (script_result or {}).get('error') or (script_result or {}).get('message') or 'Error desconocido del proveedor'
+            provider_error = _normalize_bloodstrike_provider_error((script_result or {}).get('error') or (script_result or {}).get('message'))
             _bs_duration = round(_time.time() - _bs_start, 1)
 
             if script_ok or script_processing:
@@ -12483,7 +12491,7 @@ def api_recharge_dynamic():
                     logger.info(f'[API DynRecharge Script] OK game={game["nombre"]} player={player_id} pkg={package_id} script={dyn_script_key} dur={_dur}s')
                     return jsonify(success_payload)
 
-                err_msg = (script_data or {}).get('error') or (script_data or {}).get('message') or 'Error creando orden en Game Script'
+                err_msg = _normalize_bloodstrike_provider_error((script_data or {}).get('error') or (script_data or {}).get('message'))
                 update_dynamic_transaction_status(tx_dynamic['id'], 'rechazado', notas=err_msg)
                 _clear_whitelabel_api_purchase(api_user_id, endpoint_key, request_id)
                 try:
@@ -12728,7 +12736,7 @@ def api_recharge_dynamic():
 
                 return jsonify(success_payload)
 
-            err_msg = (script_data or {}).get('error') or (script_data or {}).get('message') or 'Error creando orden en Game Script'
+            err_msg = _normalize_bloodstrike_provider_error((script_data or {}).get('error') or (script_data or {}).get('message'))
             if tx_bs and tx_bs.get('id'):
                 conn_sync = get_db_connection()
                 try:
