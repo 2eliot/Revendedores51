@@ -1693,7 +1693,11 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
                     c_dg = get_db_connection()
                     try:
                         row_dg = c_dg.execute(
-                            'SELECT player_id, player_id2, ingame_name, pin_entregado, estado, notas, gamepoint_referenceno FROM transacciones_dinamicas WHERE transaccion_id = ? LIMIT 1',
+                            '''SELECT td.player_id, td.player_id2, td.ingame_name, td.pin_entregado,
+                                      td.estado, td.notas, td.gamepoint_referenceno, jd.modo
+                               FROM transacciones_dinamicas td
+                               LEFT JOIN juegos_dinamicos jd ON jd.id = td.juego_id
+                               WHERE td.transaccion_id = ? LIMIT 1''',
                             (txid,)
                         ).fetchone()
                     finally:
@@ -1701,9 +1705,14 @@ def get_user_transactions(user_id, is_admin=False, page=1, per_page=10):
 
                     if row_dg:
                         row_dg = dict(row_dg)
+                        modo_dg = str(row_dg.get('modo') or 'id').strip().lower()
+                        # Marcar si el juego es tipo gift card / voucher.
+                        # Para recargas por ID NO debemos exponer pin_entregado como
+                        # serial al usuario (puede contener tokens de error de la API).
+                        transaction_dict['is_gift_card_dynamic'] = bool(modo_dg and modo_dg != 'id')
                         if row_dg.get('estado'):
                             transaction_dict['estado'] = row_dg['estado']
-                        if row_dg.get('pin_entregado'):
+                        if row_dg.get('pin_entregado') and transaction_dict['is_gift_card_dynamic']:
                             transaction_dict['serial_key'] = row_dg['pin_entregado']
                         if row_dg.get('ingame_name'):
                             transaction_dict['player_name'] = row_dg['ingame_name']
@@ -3005,7 +3014,19 @@ def index():
             if page == 1:
                 user_ffid_transactions = get_user_pending_freefire_id_transactions(session['user_db_id'])
                 user_dynamic_transactions = get_user_pending_dynamic_transactions(session['user_db_id'])
-                all_user_transactions = list(transactions_data['transactions']) + list(user_ffid_transactions) + list(user_dynamic_transactions)
+                # Los registros "pending" (FFID / dinamicos) ya estan reflejados en `transacciones`
+                # via _upsert_dynamic_general_transaction; deduplicamos por transaccion_id para
+                # evitar que aparezcan dos veces (procesando + general).
+                pending_ids = {
+                    str(t.get('transaccion_id') or '').strip()
+                    for t in list(user_ffid_transactions) + list(user_dynamic_transactions)
+                    if str(t.get('transaccion_id') or '').strip()
+                }
+                base_filtered = [
+                    t for t in transactions_data['transactions']
+                    if str(t.get('transaccion_id') or '').strip() not in pending_ids
+                ]
+                all_user_transactions = base_filtered + list(user_ffid_transactions) + list(user_dynamic_transactions)
                 all_user_transactions = _sort_transactions_with_queue_priority(all_user_transactions)
                 transactions_data['transactions'] = all_user_transactions[:per_page]
         else:
@@ -3063,9 +3084,11 @@ def _load_live_transaction_snapshot(transaction_id, *, user_db_id=None, is_admin
         if transaction_id.startswith('DG'):
             row = conn.execute(
                 f'''
-                SELECT id, usuario_id, estado, gamepoint_referenceno, ingame_name, pin_entregado, notas
-                FROM transacciones_dinamicas
-                WHERE transaccion_id = ?{user_filter}
+                SELECT td.id, td.usuario_id, td.estado, td.gamepoint_referenceno, td.ingame_name,
+                       td.pin_entregado, td.notas, jd.modo
+                FROM transacciones_dinamicas td
+                LEFT JOIN juegos_dinamicos jd ON jd.id = td.juego_id
+                WHERE td.transaccion_id = ?{user_filter.replace('usuario_id', 'td.usuario_id')}
                 LIMIT 1
                 ''',
                 tuple(params),
@@ -3073,11 +3096,14 @@ def _load_live_transaction_snapshot(transaction_id, *, user_db_id=None, is_admin
             if not row:
                 return None
             row = dict(row)
+            modo_dg = str(row.get('modo') or 'id').strip().lower()
+            is_gift_card_dyn = bool(modo_dg and modo_dg != 'id')
             return {
                 'estado': row.get('estado') or '',
                 'player_name': row.get('ingame_name') or '',
                 'gamepoint_ref': row.get('gamepoint_referenceno') or '',
-                'serial_key': row.get('pin_entregado') or '',
+                # Solo exponer pin_entregado como serial cuando el juego es voucher.
+                'serial_key': (row.get('pin_entregado') or '') if is_gift_card_dyn else '',
                 'notas': row.get('notas') or '',
             }
 
@@ -4995,7 +5021,7 @@ def get_user_pending_dynamic_transactions(user_id):
     """Obtiene las transacciones activas de juegos dinámicos de un usuario específico."""
     conn = get_db_connection()
     transactions = conn.execute('''
-        SELECT td.*, u.nombre, u.apellido, jd.nombre as juego_nombre, pd.nombre as paquete_nombre
+        SELECT td.*, u.nombre, u.apellido, jd.nombre as juego_nombre, jd.modo as juego_modo, pd.nombre as paquete_nombre
         FROM transacciones_dinamicas td
         JOIN usuarios u ON td.usuario_id = u.id
         JOIN juegos_dinamicos jd ON td.juego_id = jd.id
@@ -5014,6 +5040,12 @@ def get_user_pending_dynamic_transactions(user_id):
         if transaction.get('gamepoint_referenceno'):
             pin_text = f"{pin_text} - Ref: {transaction['gamepoint_referenceno']}" if pin_text else f"Ref: {transaction['gamepoint_referenceno']}"
 
+        modo_juego = str(transaction['juego_modo'] or 'id').strip().lower()
+        is_gift_card_dyn = bool(modo_juego and modo_juego != 'id')
+        # En recargas por ID nunca exponemos pin_entregado como serial
+        # (puede ser un token de error como PRICE_NOT_MATCH).
+        serial_value = transaction['pin_entregado'] if is_gift_card_dyn else None
+
         formatted_transactions.append({
             'id': transaction['id'],
             'usuario_id': transaction['usuario_id'],
@@ -5030,7 +5062,8 @@ def get_user_pending_dynamic_transactions(user_id):
             'player_id': player_text or None,
             'player_name': transaction['ingame_name'] or None,
             'gamepoint_ref': transaction['gamepoint_referenceno'],
-            'serial_key': transaction['pin_entregado'],
+            'serial_key': serial_value,
+            'is_gift_card_dynamic': is_gift_card_dyn,
             'juego_nombre': transaction['juego_nombre'],
             'is_dynamic_game': True,
         })

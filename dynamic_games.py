@@ -208,17 +208,26 @@ def _is_gift_card_game(game_like):
 
 def _classify_gamepoint_inquiry(inquiry_data, serial_key='', is_gift_card=True):
     """Map an order/inquiry payload to success, failed or pending."""
-    if _is_real_serial(serial_key):
+    # Solo un serial real cuenta como exito automatico, y solo cuando esperamos
+    # un voucher (gift card). Para recargas por ID nunca se debe usar serial_key
+    # como senal de exito porque puede ser un codigo de error como PRICE_NOT_MATCH.
+    if is_gift_card and _is_real_serial(serial_key):
         return 'success', ''
 
     data = inquiry_data or {}
     code = int(data.get('code') or 0)
     status_text = _normalize_gamepoint_text(data.get('status'))
     message_text = _normalize_gamepoint_text(data.get('message') or data.get('error'))
-    combined = ' '.join(part for part in (status_text, message_text) if part)
+    reason_text = _normalize_gamepoint_text(data.get('reason') or data.get('errordesc') or data.get('error_desc'))
+    combined = ' '.join(part for part in (status_text, message_text, reason_text) if part)
 
     success_tokens = ('SUCCESS', 'COMPLETED', 'COMPLETE', 'APPROVED', 'DELIVERED', 'DONE')
-    failure_tokens = ('FAIL', 'FAILED', 'ERROR', 'REJECT', 'REJECTED', 'DENIED', 'CANCEL', 'EXPIRE', 'INVALID')
+    failure_tokens = (
+        'FAIL', 'FAILED', 'ERROR', 'REJECT', 'REJECTED', 'DENIED',
+        'CANCEL', 'EXPIRE', 'INVALID', 'NOT_MATCH', 'NOT MATCH',
+        'MISMATCH', 'OUT_OF_STOCK', 'OUT OF STOCK', 'INSUFFICIENT',
+        'NOT_FOUND', 'NOT FOUND',
+    )
     pending_tokens = ('PENDING', 'PROCESS', 'QUEUE', 'WAIT')
     pending_phrases = (
         'CHECK TRANSACTION FOR STATUS',
@@ -1679,6 +1688,22 @@ def _is_real_serial(s):
     # Los códigos de estado son puramente numéricos y cortos (ej: '100', '101')
     if s.isdigit() and len(s) <= 6:
         return False
+    # Rechazar códigos de error tipo UPPER_SNAKE_CASE (ej: PRICE_NOT_MATCH, OUT_OF_STOCK,
+    # INVALID_PRODUCT, INSUFFICIENT_BALANCE) que GamePoint puede devolver en campos
+    # inesperados de order/inquiry.
+    if re.fullmatch(r'[A-Z][A-Z0-9_]*', s) and '_' in s:
+        return False
+    # Tokens de error/estado conocidos que aparecen como valores planos.
+    _BLOCKLIST = {
+        'PRICE_NOT_MATCH', 'PRICE NOT MATCH', 'OUT_OF_STOCK', 'OUT OF STOCK',
+        'INVALID_PRODUCT', 'INVALID_USER', 'INVALID_PACKAGE', 'INVALID',
+        'INSUFFICIENT_BALANCE', 'INSUFFICIENT BALANCE', 'TIMEOUT',
+        'ERROR', 'FAIL', 'FAILED', 'NULL', 'NONE', 'PENDING', 'PROCESSING',
+        'SUCCESS', 'COMPLETED', 'COMPLETE', 'SUBMITTED', 'SUBMITED',
+        'NOT_FOUND', 'NOT FOUND', 'NOT_MATCH', 'NOT MATCH',
+    }
+    if s.upper() in _BLOCKLIST:
+        return False
     return len(s) >= 4
 
 
@@ -1688,6 +1713,9 @@ _NON_SERIAL_FIELDS = {
     'ingamename', 'ingame_name', 'item', 'productid', 'product_id',
     'packageid', 'package_id', 'status', 'orderid', 'order_id',
     'userid', 'user_id', 'token', 'timestamp', 'date', 'time', 'amount',
+    'reason', 'errordesc', 'error_desc', 'errormessage', 'error_message',
+    'errcode', 'err_code', 'note', 'notes', 'remarks', 'description',
+    'desc', 'detail', 'details', 'error', 'msg',
 }
 
 
@@ -1787,11 +1815,16 @@ def poll_pending_dynamic_transactions():
     for row in rows:
         try:
             inq_data = order_inquiry(gc_token, row['gamepoint_referenceno'])
-            serial_key = _extract_serial_from_inquiry(inq_data)
+            row_is_gift_card = _is_gift_card_game(row)
+            # Solo extraer serial para juegos tipo gift card / voucher.
+            # En recargas por ID, GamePoint puede devolver tokens de error
+            # (ej: 'PRICE_NOT_MATCH') en campos inesperados que se confundirian
+            # con un codigo real.
+            serial_key = _extract_serial_from_inquiry(inq_data) if row_is_gift_card else ''
             inquiry_state, inquiry_note = _classify_gamepoint_inquiry(
                 inq_data,
                 serial_key,
-                is_gift_card=_is_gift_card_game(row),
+                is_gift_card=row_is_gift_card,
             )
             logger.info(f"[DynGame Poll] tx={row['transaccion_id']} ref={row['gamepoint_referenceno']} state={inquiry_state} serial='{serial_key}' fields={list((inq_data or {}).keys())}")
 
@@ -1812,12 +1845,15 @@ def poll_pending_dynamic_transactions():
                 logger.info(f"[DynGame Poll] ❌ tx={row['transaccion_id']} RECHAZADO por inquiry")
             elif inquiry_state == 'success':
                 conn2 = _get_conn()
+                # Para recargas por ID NUNCA persistimos serial_key como pin_entregado
+                # (no hay codigo que entregar al usuario; la entrega es directa al ID).
+                stored_serial = serial_key if (row_is_gift_card and _is_real_serial(serial_key)) else None
                 conn2.execute('''
                     UPDATE transacciones_dinamicas
                     SET estado = 'aprobado', pin_entregado = ?, ingame_name = COALESCE(NULLIF(?, ''), ingame_name), notas = ?, fecha_procesado = CURRENT_TIMESTAMP
                     WHERE id = ?
                 ''', (
-                    serial_key if _is_real_serial(serial_key) else None,
+                    stored_serial,
                     str((inq_data or {}).get('ingamename') or '').strip(),
                     inquiry_note or None,
                     row['id'],
@@ -1826,7 +1862,7 @@ def poll_pending_dynamic_transactions():
                 if str(row['request_id'] or '').strip():
                     success_row = dict(row)
                     success_row['estado'] = 'aprobado'
-                    success_row['pin_entregado'] = serial_key if _is_real_serial(serial_key) else ''
+                    success_row['pin_entregado'] = stored_serial or ''
                     success_row['ingame_name'] = str((inq_data or {}).get('ingamename') or '').strip() or str(row['ingame_name'] or '').strip()
                     success_row['notas'] = inquiry_note or ''
                     success_payload = _build_existing_dynamic_payload(success_row, success_row.get('paquete_nombre') or '')
